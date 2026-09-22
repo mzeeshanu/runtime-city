@@ -32,4 +32,5 @@ npx serve site
 
 ## Deploy
 
-Planned: Cloudflare Pages, with `site` as the output directory and no build command.
+- **Railway:** `Staticfile` tells Railpack to serve the `site` folder as a static site. No build or start command needed.
+- **Cloudflare Pages:** set the build output directory to `site` and leave the build command empty.
