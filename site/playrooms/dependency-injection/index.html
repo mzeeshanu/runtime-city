@@ -7,180 +7,148 @@
 <title>Dependency Injection Playroom · Runtime City</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,700;12..96,800&family=IBM+Plex+Sans:wght@400;500;600&family=JetBrains+Mono:wght@400;600&display=swap">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,600;12..96,800&family=IBM+Plex+Sans:wght@400;500&family=JetBrains+Mono:wght@400&display=swap">
 <style>
 :root{
-  --ground:#E8EDF2; --surface:#F8FAFC; --surface-2:#EEF2F6; --ink:#13233A; --muted:#566779; --line:#C8D2DC; --grid:#D9E1E8;
-  --accent:#D9822B; --accent-soft:#F6E3CC; --accent-ink:#7A4308;
-  --bad:#C4413A; --bad-soft:#F7DEDC; --good:#1F8469; --good-soft:#D6EFE7;
+  --ground:#EDF0F3; --surface:#F9FAFB; --ink:#16243A; --muted:#64748B; --hair:#D5DCE4; --grid:#E2E8ED;
+  --accent:#C9701D;
+  --bad:#B93B33; --good:#1B7A60;
   --e-petrol:#C97A34; --e-electric:#2F7FD0; --e-hybrid:#4E9A5B; --e-fake:#8A83A3;
-  --code-bg:#12203A; --code-fg:#DCE5EF; --code-dim:#7D8EA6; --t-kw:#F2B26B; --t-str:#9BD8B6; --t-type:#8CC4FF; --t-attr:#D7A6F5;
-  --hl-row:rgba(242,178,107,.14); --bad-row:rgba(229,101,92,.20); --good-row:rgba(63,184,148,.16);
-  --display:"Bricolage Grotesque", "Segoe UI", system-ui, sans-serif;
-  --body:"IBM Plex Sans", "Segoe UI", system-ui, sans-serif;
-  --mono:"JetBrains Mono", ui-monospace, Consolas, monospace;
+  --code-bg:#111E33; --code-fg:#D9E2EE; --code-dim:#71839C; --t-kw:#F0B26B; --t-str:#94D4B0; --t-type:#87BEF8; --t-attr:#CFA2F2;
+  --hl-row:rgba(240,178,107,.15); --bad-row:rgba(230,105,95,.18); --good-row:rgba(65,184,148,.15);
+  --display:"Bricolage Grotesque","Segoe UI",system-ui,sans-serif;
+  --body:"IBM Plex Sans","Segoe UI",system-ui,sans-serif;
+  --mono:"JetBrains Mono",ui-monospace,Consolas,monospace;
 }
 @media (prefers-color-scheme: dark){
   :root:not([data-theme="light"]){
-    --ground:#0D1624; --surface:#142136; --surface-2:#1A2A42; --ink:#E5ECF4; --muted:#94A4B8; --line:#26374F; --grid:#18263A;
-    --accent:#EFA052; --accent-soft:#3A2A18; --accent-ink:#F6C58E;
-    --bad:#E8675E; --bad-soft:#3B1E1F; --good:#41B892; --good-soft:#15352C;
-    --code-bg:#09111D;
+    --ground:#0C1522; --surface:#121E30; --ink:#E4EBF3; --muted:#8FA0B5; --hair:#233247; --grid:#172436;
+    --accent:#E8A05A;
+    --bad:#E0675E; --good:#3BB08C; --code-bg:#080F1B;
   }
 }
 :root[data-theme="dark"]{
-  --ground:#0D1624; --surface:#142136; --surface-2:#1A2A42; --ink:#E5ECF4; --muted:#94A4B8; --line:#26374F; --grid:#18263A;
-  --accent:#EFA052; --accent-soft:#3A2A18; --accent-ink:#F6C58E;
-  --bad:#E8675E; --bad-soft:#3B1E1F; --good:#41B892; --good-soft:#15352C;
-  --code-bg:#09111D;
+  --ground:#0C1522; --surface:#121E30; --ink:#E4EBF3; --muted:#8FA0B5; --hair:#233247; --grid:#172436;
+  --accent:#E8A05A; --bad:#E0675E; --good:#3BB08C; --code-bg:#080F1B;
 }
 *{box-sizing:border-box}
-body{background:var(--ground);color:var(--ink);font:15px/1.55 var(--body);padding-inline:16px;padding-block:0 48px}
-.wrap{max-width:1180px;margin:0 auto}
-code{font-family:var(--mono);font-size:.88em;background:var(--surface-2);padding:1px 5px;border-radius:4px}
-button{font:inherit;color:inherit;cursor:pointer}
-button:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+body{background:var(--ground);color:var(--ink);font:15px/1.6 var(--body);padding-inline:16px;padding-block:0 64px}
+.wrap{max-width:1080px;margin:0 auto}
+code{font-family:var(--mono);font-size:.87em}
+button{font:inherit;color:inherit;cursor:pointer;background:none;border:0;padding:0}
+button:focus-visible{outline:2px solid var(--accent);outline-offset:3px;border-radius:4px}
 
-.top{display:flex;align-items:center;justify-content:space-between;gap:12px;padding-block:18px;flex-wrap:wrap}
-.brand{font-family:var(--display);font-weight:800;font-size:18px;letter-spacing:-.01em;display:flex;align-items:center;gap:8px}
-.brand svg{width:22px;height:22px}
-.brand .tag{font-family:var(--body);font-weight:500;font-size:12px;color:var(--muted);letter-spacing:0;padding-left:8px;border-left:1px solid var(--line)}
-.crumb{font-size:13px;color:var(--muted)}
-.crumb b{color:var(--ink);font-weight:600}
-.proto{font-size:11px;text-transform:uppercase;letter-spacing:.08em;color:var(--accent-ink);background:var(--accent-soft);padding:3px 8px;border-radius:99px;font-weight:600}
+/* header: wordmark + where you are */
+.top{display:flex;align-items:baseline;gap:10px;flex-wrap:wrap;padding-block:26px 0;font-size:13px;color:var(--muted)}
+.brand{font-family:var(--display);font-weight:800;font-size:15px;letter-spacing:-.01em;color:var(--ink);display:inline-flex;align-items:center;gap:7px}
+.brand svg{width:15px;height:15px}
+.top .sep{opacity:.5}
 
-.intro{padding-block:18px 22px;display:grid;gap:6px}
-.intro h1{font-family:var(--display);font-weight:800;font-size:clamp(34px,6vw,58px);line-height:1;letter-spacing:-.03em;margin:0;text-wrap:balance}
-.intro h1 small{display:block;font-size:.36em;font-weight:700;letter-spacing:.02em;color:var(--accent-ink);text-transform:uppercase;margin-bottom:10px}
-.intro .dek{font-size:clamp(16px,2.2vw,20px);color:var(--muted);margin:0}
-.meta{display:flex;gap:16px;flex-wrap:wrap;font-size:13px;color:var(--muted);margin-top:4px}
-.meta span b{color:var(--ink);font-weight:600}
+.intro{padding-block:26px 30px;max-width:30ch}
+.intro h1{font-family:var(--display);font-weight:800;font-size:clamp(38px,7vw,62px);line-height:.96;letter-spacing:-.035em;margin:0 0 10px;text-wrap:balance}
+.intro p{margin:0;font-size:17px;color:var(--muted)}
 
-.steps{display:flex;gap:6px;overflow-x:auto;padding-bottom:4px;margin-bottom:18px;scrollbar-width:thin}
-.steps button{flex:0 0 auto;border:1px solid var(--line);background:var(--surface);border-radius:10px;padding:8px 12px;font-size:13px;display:flex;gap:8px;align-items:center;white-space:nowrap}
-.steps button .n{font-family:var(--mono);font-size:11px;color:var(--muted)}
-.steps button[aria-current="step"]{background:var(--ink);color:var(--surface);border-color:var(--ink)}
-.steps button[aria-current="step"] .n{color:var(--accent)}
-.steps button.done .n{color:var(--good)}
+/* progress: six segments, no labels */
+.rail{display:flex;align-items:center;gap:14px;margin-bottom:26px}
+.segs{display:flex;gap:4px;flex:1;max-width:420px}
+.segs button{flex:1;height:4px;border-radius:2px;background:var(--hair);transition:background .2s}
+.segs button.done{background:var(--muted)}
+.segs button[aria-current="step"]{background:var(--accent)}
+.rail .count{font-family:var(--mono);font-size:12px;color:var(--muted);font-variant-numeric:tabular-nums}
 
-.lesson{display:grid;grid-template-columns:minmax(0,1.1fr) minmax(0,1fr);gap:18px;align-items:start}
-@media (max-width:900px){.lesson{grid-template-columns:1fr}}
+.lesson{display:grid;grid-template-columns:minmax(0,1.05fr) minmax(0,1fr);gap:30px;align-items:start}
+@media (max-width:920px){.lesson{grid-template-columns:1fr;gap:22px}}
 
-.panel{background:var(--surface);border:1px solid var(--line);border-radius:16px}
-.story{padding:20px 22px 18px}
-.story h2{font-family:var(--display);font-weight:700;font-size:24px;letter-spacing:-.02em;margin:0 0 6px;text-wrap:balance}
-.story p{margin:0 0 10px;max-width:62ch}
-.tip{font-size:13px;color:var(--muted)}
-.feedback{margin-top:10px;padding:10px 12px;border-radius:10px;font-size:14px;border:1px solid transparent}
-.feedback.bad{background:var(--bad-soft);border-color:color-mix(in srgb,var(--bad) 35%,transparent)}
-.feedback.good{background:var(--good-soft);border-color:color-mix(in srgb,var(--good) 35%,transparent)}
+.story h2{font-family:var(--display);font-weight:600;font-size:27px;letter-spacing:-.02em;line-height:1.15;margin:0 0 10px;text-wrap:balance}
+.story p{margin:0 0 10px;max-width:56ch;color:var(--muted)}
+.story p b,.story p code{color:var(--ink)}
+.story .tell{color:var(--ink)}
+.story .tell.bad{border-left:2px solid var(--bad);padding-left:12px}
+.story .tell.good{border-left:2px solid var(--good);padding-left:12px}
 
-.stage{margin-top:14px;overflow:hidden}
+.stage{margin-top:20px}
 .stage svg{display:block;width:100%;height:auto}
-.controls{display:flex;flex-wrap:wrap;gap:8px;padding:12px 14px;border-top:1px solid var(--line)}
-.btn{border:1px solid var(--line);background:var(--surface-2);border-radius:10px;padding:8px 14px;font-weight:500;font-size:14px}
-.btn:hover{border-color:var(--ink)}
-.btn.primary{background:var(--accent);border-color:var(--accent);color:#1b1206;font-weight:600}
-.btn.primary:hover{filter:brightness(1.05)}
-.tray{display:flex;flex-wrap:wrap;gap:8px;align-items:center;width:100%}
-.tray .lbl{font-size:12px;color:var(--muted);width:100%;text-transform:uppercase;letter-spacing:.07em}
-.chip{display:flex;align-items:center;gap:8px;border:1px solid var(--line);background:var(--surface);border-radius:10px;padding:7px 12px 7px 8px;font-size:14px}
-.chip i{width:18px;height:14px;border-radius:3px;display:block}
-.chip[aria-pressed="true"]{border-color:var(--accent);box-shadow:0 0 0 2px var(--accent-soft);font-weight:600}
+.controls{display:flex;flex-wrap:wrap;gap:8px 14px;align-items:center;margin-top:8px}
+.btn{border:1px solid var(--hair);border-radius:8px;padding:7px 14px;font-size:14px;background:var(--surface)}
+.btn:hover{border-color:var(--muted)}
+.btn.primary{background:var(--ink);border-color:var(--ink);color:var(--surface)}
+.chip{display:inline-flex;align-items:center;gap:7px;font-size:13.5px;color:var(--muted);padding:5px 2px;border-bottom:1px solid transparent}
+.chip i{width:9px;height:9px;border-radius:50%;display:block}
+.chip[aria-pressed="true"]{color:var(--ink);border-bottom-color:var(--accent)}
+.status{margin-top:14px;font-family:var(--mono);font-size:12px;color:var(--muted);line-height:1.8}
+.status b{color:var(--ink);font-weight:400}
+.status .warn{color:var(--bad)} .status .ok{color:var(--good)}
+.status .out{display:block;color:var(--muted);opacity:.85}
 
-.meters{display:grid;grid-template-columns:repeat(3,1fr);border-top:1px solid var(--line)}
-.meter{padding:10px 14px;border-right:1px solid var(--line)}
-.meter:last-child{border-right:0}
-.meter .k{font-size:11px;text-transform:uppercase;letter-spacing:.07em;color:var(--muted)}
-.meter .v{font-family:var(--display);font-weight:700;font-size:22px;font-variant-numeric:tabular-nums;line-height:1.2}
-.meter .v.bad{color:var(--bad)} .meter .v.good{color:var(--good)}
-.meter .s{font-size:12px;color:var(--muted)}
-@media (max-width:480px){.meters{grid-template-columns:1fr}.meter{border-right:0;border-bottom:1px solid var(--line)}.meter:last-child{border-bottom:0}}
+.nav{display:flex;gap:20px;margin-top:26px;font-size:14px}
+.nav button{color:var(--muted)}
+.nav button:hover{color:var(--ink)}
+.nav .fwd{color:var(--ink);font-weight:500}
 
-.console{font-family:var(--mono);font-size:12.5px;background:var(--code-bg);color:var(--code-fg);border-radius:0 0 15px 15px;padding:10px 14px;min-height:88px;list-style:none;margin:0}
-.console li{padding:2px 0;opacity:.55}
-.console li:last-child{opacity:1}
-.console li.bad{color:#F2958E} .console li.good{color:#8FDDBF}
-.console li::before{content:"› ";color:var(--code-dim)}
-
-.nav{display:flex;justify-content:space-between;gap:8px;margin-top:14px}
-
-.codecol{position:sticky;top:calc(env(safe-area-inset-top,0px) + 12px)}
-@media (max-width:900px){.codecol{position:static}}
-.code{background:var(--code-bg);border-radius:16px;overflow:hidden;color:var(--code-fg)}
-.codebar{display:flex;justify-content:space-between;align-items:center;padding:10px 12px;border-bottom:1px solid rgba(255,255,255,.08);gap:8px;flex-wrap:wrap}
-.codebar .title{font-size:12px;color:var(--code-dim);text-transform:uppercase;letter-spacing:.08em}
-.langs{display:flex;background:rgba(255,255,255,.06);border-radius:8px;padding:2px}
-.langs button{border:0;background:none;color:var(--code-dim);font-size:12.5px;padding:5px 10px;border-radius:6px}
-.langs button[aria-pressed="true"]{background:rgba(255,255,255,.12);color:#fff}
-.file{border-bottom:1px solid rgba(255,255,255,.06)}
-.fname{display:flex;align-items:center;gap:8px;font-family:var(--mono);font-size:12px;color:var(--code-dim);padding:10px 14px 4px}
-.ftag{font-family:var(--body);font-size:11px;padding:1px 7px;border-radius:99px;font-weight:600}
-.ftag.bad{background:rgba(229,101,92,.22);color:#F7A9A3}
-.ftag.good{background:rgba(63,184,148,.2);color:#95E3C6}
-.ftag.new{background:rgba(242,178,107,.2);color:#F6C58E}
-pre{margin:0;padding:4px 0 12px;overflow-x:auto;font-family:var(--mono);font-size:13px;line-height:1.7}
-.ln{display:block;padding:0 14px;white-space:pre;border-left:3px solid transparent}
-.ln.hl{background:var(--hl-row);border-left-color:#F2B26B}
-.ln.bad{background:var(--bad-row);border-left-color:#E8675E}
-.ln.new{background:var(--good-row);border-left-color:#41B892}
-.t-kw{color:var(--t-kw)} .t-str{color:var(--t-str)} .t-type{color:var(--t-type)} .t-com{color:var(--code-dim);font-style:italic} .t-attr{color:var(--t-attr)}
-.codenote{padding:12px 14px 14px;font-size:13px;color:var(--code-dim)}
-.codenote b{color:var(--code-fg)}
+/* code */
+.code{background:var(--code-bg);color:var(--code-fg);border-radius:14px;padding:6px 0 4px;position:sticky;top:calc(env(safe-area-inset-top,0px) + 16px)}
+@media (max-width:920px){.code{position:static}}
+.langs{display:flex;gap:16px;padding:12px 18px 6px}
+.langs button{font-size:12px;color:var(--code-dim);letter-spacing:.02em}
+.langs button[aria-pressed="true"]{color:#fff;box-shadow:inset 0 -6px 0 -5px var(--accent)}
+.fname{font-family:var(--mono);font-size:11px;color:var(--code-dim);padding:14px 18px 4px}
+pre{margin:0;padding:0 0 6px;overflow-x:auto;font-family:var(--mono);font-size:12.8px;line-height:1.75}
+.ln{display:block;padding:0 18px;white-space:pre;border-left:2px solid transparent}
+.ln.hl{background:var(--hl-row);border-left-color:var(--accent)}
+.ln.bad{background:var(--bad-row);border-left-color:#E0675E}
+.ln.new{background:var(--good-row);border-left-color:#3BB08C}
+.t-kw{color:var(--t-kw)} .t-str{color:var(--t-str)} .t-type{color:var(--t-type)} .t-com{color:var(--code-dim)} .t-attr{color:var(--t-attr)}
+.codenote{padding:14px 18px 16px;font-size:12.5px;color:var(--code-dim);line-height:1.6;max-width:52ch}
+.codenote b{color:var(--code-fg);font-weight:500}
 
 /* quiz */
-.quiz{display:grid;gap:14px;margin-top:6px}
-.q{border:1px solid var(--line);border-radius:12px;padding:12px 14px;background:var(--surface-2)}
-.q h3{font-size:15px;margin:0 0 8px;font-weight:600}
-.opts{display:grid;gap:6px}
-.opt{text-align:left;border:1px solid var(--line);background:var(--surface);border-radius:8px;padding:8px 10px;font-size:14px}
-.opt.right{border-color:var(--good);background:var(--good-soft)}
-.opt.wrong{border-color:var(--bad);background:var(--bad-soft)}
-.why{font-size:13px;margin-top:8px;color:var(--muted)}
-.soundbite{border-left:3px solid var(--accent);padding:10px 14px;background:var(--accent-soft);border-radius:0 10px 10px 0;font-size:14.5px}
-.soundbite .k{font-size:11px;text-transform:uppercase;letter-spacing:.08em;color:var(--accent-ink);font-weight:600;display:block;margin-bottom:4px}
-.score{font-family:var(--display);font-weight:700}
+.quiz{display:grid;gap:22px;margin-top:4px}
+.q h3{font-size:15px;margin:0 0 8px;font-weight:500;color:var(--ink)}
+.opts{display:grid;gap:2px}
+.opt{text-align:left;font-size:14px;color:var(--muted);padding:6px 0 6px 20px;position:relative;max-width:56ch}
+.opt:hover{color:var(--ink)}
+.opt::before{content:"";position:absolute;left:0;top:13px;width:8px;height:8px;border:1px solid var(--hair);border-radius:50%}
+.opt.right{color:var(--good)} .opt.right::before{background:var(--good);border-color:var(--good)}
+.opt.wrong{color:var(--bad);text-decoration:line-through} .opt.wrong::before{background:var(--bad);border-color:var(--bad)}
+.why{font-size:13.5px;margin:6px 0 0 20px;color:var(--muted);max-width:56ch}
+.why code{color:var(--ink)}
+.soundbite{margin-top:4px;padding-left:14px;border-left:2px solid var(--accent);font-size:15px;color:var(--ink);max-width:56ch}
+.soundbite .k{display:block;font-family:var(--mono);font-size:11px;text-transform:uppercase;letter-spacing:.08em;color:var(--accent);margin-bottom:6px}
+.score{font-family:var(--mono);font-size:13px;color:var(--muted)}
 
-/* district map */
-.city{margin-top:40px}
-.city h2{font-family:var(--display);font-weight:800;font-size:28px;letter-spacing:-.02em;margin:0 0 4px}
-.city > p{margin:0 0 16px;color:var(--muted);max-width:62ch}
-.districts{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:10px}
-.district{border:1px solid var(--line);background:var(--surface);border-radius:12px;padding:12px 14px;display:grid;gap:4px;align-content:start}
-.district.open{border-color:var(--accent);box-shadow:0 0 0 2px var(--accent-soft)}
-.district .ds{font-size:11px;text-transform:uppercase;letter-spacing:.07em;font-weight:600;color:var(--muted)}
-.district.open .ds{color:var(--accent-ink)}
-.district .dn{font-family:var(--display);font-weight:700;font-size:18px;letter-spacing:-.01em}
-.district .dd{font-size:13px;color:var(--muted)}
+/* city line */
+.city{margin-top:60px;padding-top:22px;border-top:1px solid var(--hair);font-size:13.5px;color:var(--muted);max-width:74ch}
+.city .k{font-family:var(--mono);font-size:11px;text-transform:uppercase;letter-spacing:.08em;display:block;margin-bottom:8px}
+.city b{color:var(--ink);font-weight:500}
+.city .now{color:var(--accent)}
 
-/* stage svg */
+/* svg */
 .gridline{stroke:var(--grid);stroke-width:1}
-.road{stroke:var(--line);stroke-width:2}
-.roaddash{stroke:var(--muted);stroke-width:2;stroke-dasharray:14 12;opacity:.5}
-.body{fill:var(--surface);stroke:var(--ink);stroke-width:2.5}
-.glass{fill:var(--surface-2);stroke:var(--ink);stroke-width:1.5}
-.bay{fill:var(--surface-2);stroke:var(--ink);stroke-width:2}
-.tire{fill:var(--ink)} .hub{fill:var(--surface);stroke:var(--ink);stroke-width:2}
-.spoke{stroke:var(--ink);stroke-width:2}
+.road{stroke:var(--hair);stroke-width:1.5}
+.body{fill:var(--surface);stroke:var(--ink);stroke-width:2}
+.glass{fill:none;stroke:var(--hair);stroke-width:1.5}
+.bay{fill:none;stroke:var(--hair);stroke-width:1.5}
+.tire{fill:none;stroke:var(--ink);stroke-width:2} .hub{fill:none;stroke:var(--hair);stroke-width:1.5}
+.spoke{stroke:var(--hair);stroke-width:1.5}
 .lamp{fill:var(--accent)}
-.tiny{font:500 11px var(--body);fill:var(--muted);text-anchor:middle;letter-spacing:.06em;text-transform:uppercase}
-.elabel{font:600 13px var(--body);fill:#fff;text-anchor:middle}
-.weld{fill:none;stroke:var(--accent);stroke-width:2.5;stroke-linejoin:round}
-.socket{fill:none;stroke:var(--accent);stroke-width:2;stroke-dasharray:6 4}
-.socklbl{font:600 13px var(--mono);fill:var(--accent);text-anchor:middle}
+.tiny{font:400 10px var(--mono);fill:var(--muted);text-anchor:middle}
+.elabel{font:400 12px var(--mono);fill:#fff;text-anchor:middle}
+.weld{fill:none;stroke:var(--accent);stroke-width:2;stroke-linejoin:round}
+.socket{fill:none;stroke:var(--accent);stroke-width:1.5;stroke-dasharray:5 4}
+.socklbl{font:400 12px var(--mono);fill:var(--accent);text-anchor:middle}
 .pin{fill:var(--accent)}
-.crack{fill:none;stroke:var(--bad);stroke-width:3;stroke-linejoin:round;opacity:0;transition:opacity .2s}
+.crack{fill:none;stroke:var(--bad);stroke-width:2.5;stroke-linejoin:round;opacity:0;transition:opacity .2s}
 .cracked .crack{opacity:1}
-.armbox{fill:var(--ink)} .armtxt{font:600 11px var(--body);fill:var(--surface);text-anchor:middle;letter-spacing:.04em}
-.rod{stroke:var(--ink);stroke-width:3;fill:none;stroke-linecap:round}
+.armtxt{font:400 10px var(--mono);fill:var(--muted);text-anchor:middle;letter-spacing:.06em}
+.rod{stroke:var(--muted);stroke-width:2;fill:none;stroke-linecap:round}
 #plug{transition:transform .55s cubic-bezier(.2,.9,.3,1.25),opacity .3s}
 #plug.out{transform:translateY(-120px);opacity:0}
 #armMove{transition:transform .45s ease}
-#arm.working #armMove{transform:translateY(-18px)}
+#arm.working #armMove{transform:translateY(-16px)}
 .puff{fill:var(--muted);transform-box:fill-box;transform-origin:center;animation:puff 1s ease-out forwards}
-.spark{fill:none;stroke:var(--e-electric);stroke-width:2.5;animation:fade .9s ease-out forwards}
-.fxtext{font:600 12px var(--mono);fill:var(--good);text-anchor:middle;animation:rise 1.4s ease-out forwards}
-@keyframes puff{from{opacity:.7;transform:translate(0,0) scale(.6)}to{opacity:0;transform:translate(-46px,-18px) scale(1.9)}}
+.spark{fill:none;stroke:var(--e-electric);stroke-width:2;animation:fade .9s ease-out forwards}
+.fxtext{font:400 11px var(--mono);fill:var(--good);text-anchor:middle;animation:rise 1.4s ease-out forwards}
+@keyframes puff{from{opacity:.6;transform:translate(0,0) scale(.6)}to{opacity:0;transform:translate(-46px,-18px) scale(1.9)}}
 @keyframes fade{0%,60%{opacity:1}100%{opacity:0}}
 @keyframes rise{from{opacity:0;transform:translateY(6px)}20%{opacity:1}to{opacity:0;transform:translateY(-16px)}}
 .spin{transform-box:fill-box;transform-origin:center}
@@ -190,106 +158,96 @@ pre{margin:0;padding:4px 0 12px;overflow-x:auto;font-family:var(--mono);font-siz
 @keyframes roll{0%,100%{transform:translateX(0)}50%{transform:translateX(16px)}}
 @keyframes spin{to{transform:rotate(360deg)}}
 @keyframes shake{0%,100%{transform:translateX(0)}20%{transform:translateX(-6px)}40%{transform:translateX(6px)}60%{transform:translateX(-4px)}80%{transform:translateX(3px)}}
-@media (prefers-reduced-motion: reduce){
-  *,*::before,*::after{animation-duration:.01ms!important;animation-iteration-count:1!important;transition-duration:.01ms!important}
-}
-.foot{margin-top:28px;font-size:13px;color:var(--muted);max-width:70ch}
+@media (prefers-reduced-motion:reduce){*,*::before,*::after{animation-duration:.01ms!important;animation-iteration-count:1!important;transition-duration:.01ms!important}}
 </style>
 <style>body{margin:0}</style>
 </head>
 <body>
 <div class="wrap">
   <header class="top">
-    <div class="brand">
+    <span class="brand">
       <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="2" y="10" width="5" height="12" fill="currentColor"/><rect x="9" y="4" width="6" height="18" fill="currentColor"/><rect x="17" y="13" width="5" height="9" fill="var(--accent)"/></svg>
-      Runtime City<span class="tag">Learn by breaking</span>
-    </div>
-    <div class="crumb">Pattern Park / <b>Dependency Injection Playroom</b></div>
-    <span class="proto">Prototype playroom</span>
+      Runtime City
+    </span>
+    <span class="sep">/</span><span>Pattern Park</span>
   </header>
 
   <section class="intro">
-    <h1><small>The Dependency Injection Playroom</small>Dependency Injection</h1>
-    <p class="dek">Stop building your own parts. Start receiving them.</p>
-    <div class="meta"><span>About <b>6 min</b></span><span>Comes up in interviews: <b>very often</b></span><span>Related: <b>SOLID "D"</b>, <b>Factory</b>, <b>Mocking</b></span></div>
+    <h1>Dependency Injection</h1>
+    <p>Stop building your own parts. Start receiving them.</p>
   </section>
 
-  <nav class="steps" id="steps" aria-label="Playroom steps"></nav>
+  <div class="rail">
+    <div class="segs" id="segs" role="tablist" aria-label="Playroom steps"></div>
+    <span class="count" id="count"></span>
+  </div>
 
   <div class="lesson">
     <div>
-      <section class="panel">
-        <div class="story" id="story"></div>
-        <div class="stage">
-          <svg viewBox="0 0 600 290" role="img" aria-label="A car with an engine bay">
-            <defs>
-              <pattern id="grid" width="20" height="20" patternUnits="userSpaceOnUse"><path d="M20 0H0V20" class="gridline" fill="none"/></pattern>
-            </defs>
-            <rect width="600" height="290" fill="url(#grid)"/>
-            <line x1="0" y1="250" x2="600" y2="250" class="road"/>
-            <line x1="0" y1="270" x2="600" y2="270" class="roaddash"/>
-            <g transform="translate(90,0)">
-              <g id="car">
-                <path class="body" d="M0 168 Q0 150 18 150 L60 150 L105 102 Q112 94 124 94 L236 94 Q246 94 253 102 L292 150 L402 150 Q420 150 420 168 L420 204 Q420 218 406 218 L14 218 Q0 218 0 204 Z"/>
-                <path class="glass" d="M80 146 L114 106 L172 106 L172 146 Z"/>
-                <path class="glass" d="M184 106 L238 106 L270 146 L184 146 Z"/>
-                <rect class="lamp" x="413" y="162" width="7" height="12" rx="2"/>
-                <rect class="bay" x="298" y="122" width="106" height="80" rx="10"/>
-                <text class="tiny" x="351" y="114">engine bay</text>
+      <section class="story" id="story"></section>
+      <div class="stage">
+        <svg viewBox="0 0 600 280" role="img" aria-label="A car with an engine bay">
+          <defs>
+            <pattern id="grid" width="24" height="24" patternUnits="userSpaceOnUse"><path d="M24 0H0V24" class="gridline" fill="none"/></pattern>
+          </defs>
+          <rect width="600" height="280" fill="url(#grid)" opacity=".6"/>
+          <line x1="0" y1="248" x2="600" y2="248" class="road"/>
+          <g transform="translate(90,0)">
+            <g id="car">
+              <path class="body" d="M0 168 Q0 150 18 150 L60 150 L105 102 Q112 94 124 94 L236 94 Q246 94 253 102 L292 150 L402 150 Q420 150 420 168 L420 202 Q420 216 406 216 L14 216 Q0 216 0 202 Z"/>
+              <path class="glass" d="M80 146 L114 106 L172 106 L172 146 Z"/>
+              <path class="glass" d="M184 106 L238 106 L270 146 L184 146 Z"/>
+              <rect class="lamp" x="413" y="162" width="7" height="11" rx="2"/>
+              <rect class="bay" x="298" y="122" width="106" height="78" rx="8"/>
+              <text class="tiny" x="351" y="114">engine bay</text>
 
-                <g id="hw">
-                  <rect id="hwBlock" x="312" y="136" width="78" height="52" rx="6"/>
-                  <text id="hwLabel" class="elabel" x="351" y="167">Petrol</text>
-                  <path class="weld" d="M300 140 L312 144 L300 148 L312 152 L300 156 L312 160 L300 164 L312 168 L300 172 L312 176 L300 180 L312 184"/>
-                  <path class="weld" d="M402 140 L390 144 L402 148 L390 152 L402 156 L390 160 L402 164 L390 168 L402 172 L390 176 L402 180 L390 184"/>
-                </g>
-
-                <g id="sock">
-                  <rect class="pin" x="330" y="128" width="8" height="8" rx="1"/>
-                  <rect class="pin" x="364" y="128" width="8" height="8" rx="1"/>
-                  <rect class="socket" x="312" y="136" width="78" height="52" rx="6"/>
-                  <text id="sockLabel" class="socklbl" x="351" y="167">IEngine</text>
-                  <g id="plug" class="out">
-                    <rect id="plugBlock" x="312" y="136" width="78" height="52" rx="6"/>
-                    <text id="plugLabel" class="elabel" x="351" y="167">Petrol</text>
-                  </g>
-                </g>
-
-                <g id="arm">
-                  <g id="armMove">
-                    <rect class="armbox" x="296" y="4" width="110" height="24" rx="6"/>
-                    <text class="armtxt" x="351" y="20">DI CONTAINER</text>
-                    <path class="rod" d="M351 28 V60 M351 60 L338 78 M351 60 L364 78 M338 78 L332 92 M364 78 L370 92"/>
-                  </g>
-                </g>
-
-                <path class="crack" d="M296 150 L306 166 L295 178 L309 194 L298 214"/>
-                <path class="crack" d="M404 126 L391 144 L402 158 L394 170"/>
-
-                <g transform="translate(92,220)"><circle class="tire" r="28"/><g class="spin"><circle class="hub" r="12"/><line class="spoke" x1="-12" y1="0" x2="12" y2="0"/><line class="spoke" x1="0" y1="-12" x2="0" y2="12"/></g></g>
-                <g transform="translate(330,220)"><circle class="tire" r="28"/><g class="spin"><circle class="hub" r="12"/><line class="spoke" x1="-12" y1="0" x2="12" y2="0"/><line class="spoke" x1="0" y1="-12" x2="0" y2="12"/></g></g>
+              <g id="hw">
+                <rect id="hwBlock" x="312" y="136" width="78" height="50" rx="4"/>
+                <text id="hwLabel" class="elabel" x="351" y="166">Petrol</text>
+                <path class="weld" d="M300 140 L312 144 L300 148 L312 152 L300 156 L312 160 L300 164 L312 168 L300 172 L312 176 L300 180 L312 184"/>
+                <path class="weld" d="M402 140 L390 144 L402 148 L390 152 L402 156 L390 160 L402 164 L390 168 L402 172 L390 176 L402 180 L390 184"/>
               </g>
+
+              <g id="sock">
+                <rect class="pin" x="330" y="129" width="7" height="7" rx="1"/>
+                <rect class="pin" x="365" y="129" width="7" height="7" rx="1"/>
+                <rect class="socket" x="312" y="136" width="78" height="50" rx="4"/>
+                <text id="sockLabel" class="socklbl" x="351" y="166">IEngine</text>
+                <g id="plug" class="out">
+                  <rect id="plugBlock" x="312" y="136" width="78" height="50" rx="4"/>
+                  <text id="plugLabel" class="elabel" x="351" y="166">Petrol</text>
+                </g>
+              </g>
+
+              <g id="arm">
+                <g id="armMove">
+                  <text class="armtxt" x="351" y="16">DI CONTAINER</text>
+                  <path class="rod" d="M351 26 V58 M351 58 L338 76 M351 58 L364 76 M338 76 L332 90 M364 76 L370 90"/>
+                </g>
+              </g>
+
+              <path class="crack" d="M296 150 L306 166 L295 178 L309 194 L298 212"/>
+              <path class="crack" d="M404 126 L391 144 L402 158 L394 170"/>
+
+              <g transform="translate(92,218)"><circle class="tire" r="27"/><g class="spin"><circle class="hub" r="11"/><line class="spoke" x1="-11" y1="0" x2="11" y2="0"/><line class="spoke" x1="0" y1="-11" x2="0" y2="11"/></g></g>
+              <g transform="translate(330,218)"><circle class="tire" r="27"/><g class="spin"><circle class="hub" r="11"/><line class="spoke" x1="-11" y1="0" x2="11" y2="0"/><line class="spoke" x1="0" y1="-11" x2="0" y2="11"/></g></g>
             </g>
-            <g id="fx"></g>
-          </svg>
-          <div class="controls" id="controls"></div>
-          <div class="meters" id="meters"></div>
-          <ul class="console" id="console" aria-live="polite"></ul>
-        </div>
-      </section>
-      <div class="nav">
-        <button class="btn" id="prev">← Back</button>
-        <button class="btn primary" id="next">Next step →</button>
+          </g>
+          <g id="fx"></g>
+        </svg>
+        <div class="controls" id="controls"></div>
+        <div class="status" id="status"></div>
       </div>
+      <nav class="nav">
+        <button id="prev">← Back</button>
+        <button id="next" class="fwd">Next →</button>
+      </nav>
     </div>
 
-    <aside class="codecol">
+    <aside>
       <div class="code">
-        <div class="codebar">
-          <span class="title">The same thing, in code</span>
-          <div class="langs" id="langs">
-            <button data-l="cs">C#</button><button data-l="java">Java</button><button data-l="ts">TypeScript</button>
-          </div>
+        <div class="langs" id="langs">
+          <button data-l="cs">C#</button><button data-l="java">Java</button><button data-l="ts">TypeScript</button>
         </div>
         <div id="files"></div>
         <div class="codenote" id="codenote"></div>
@@ -297,100 +255,86 @@ pre{margin:0;padding:4px 0 12px;overflow-x:auto;font-family:var(--mono);font-siz
     </aside>
   </div>
 
-  <section class="city" aria-labelledby="cityh">
-    <h2 id="cityh">Explore the city</h2>
-    <p>Each district is a field of software engineering. Every concept inside it is a playroom where you see it, break it and fix it.</p>
-    <div class="districts">
-      <div class="district open"><span class="ds">Open · 1 playroom</span><span class="dn">Pattern Park</span><span class="dd">Dependency Injection, Factory, Strategy, Observer, Singleton</span></div>
-      <div class="district"><span class="ds">Coming soon</span><span class="dn">SOLID Quarter</span><span class="dd">Five principles, five buildings that crack when you break them</span></div>
-      <div class="district"><span class="ds">Coming soon</span><span class="dn">Memory Harbour</span><span class="dd">Stack and heap, references, garbage collection</span></div>
-      <div class="district"><span class="ds">Coming soon</span><span class="dn">Network Highway</span><span class="dd">What happens when you type a URL: DNS, TCP, HTTP, TLS</span></div>
-      <div class="district"><span class="ds">Coming soon</span><span class="dn">Database Vault</span><span class="dd">Indexes, joins, transactions, isolation levels</span></div>
-      <div class="district"><span class="ds">Coming soon</span><span class="dn">Concurrency Crossing</span><span class="dd">Threads, locks, deadlocks, async/await</span></div>
-    </div>
+  <section class="city">
+    <span class="k">Runtime City</span>
+    <b class="now">Pattern Park</b> · SOLID Quarter · Memory Harbour · Network Highway · Database Vault · Concurrency Crossing · Architecture Heights
+    <br>Every concept in the city is a playroom: see it, break it, fix it, then say it in an interview.
   </section>
-
-  <p class="foot">A prototype playroom from Runtime City. Every playroom follows the same loop: <b>see it</b>, <b>break it</b>, <b>fix it</b>, <b>code it</b>, then an <b>interview check</b>.</p>
 </div>
 
 <script>
 const ENG = {
-  petrol:  {cls:'PetrolEngine',   label:'Petrol',   color:'var(--e-petrol)',   out:'PetrolEngine: Vroom. Burning fuel.'},
-  electric:{cls:'ElectricEngine', label:'Electric', color:'var(--e-electric)', out:'ElectricEngine: Whirr. Silent torque.'},
-  hybrid:  {cls:'HybridEngine',   label:'Hybrid',   color:'var(--e-hybrid)',   out:'HybridEngine: Purr. Battery first, fuel if needed.'},
-  fake:    {cls:'FakeEngine',     label:'Fake',     color:'var(--e-fake)',     out:'FakeEngine: Start() was called. Recorded it; nothing really ran.'}
+  petrol:  {cls:'PetrolEngine',   label:'Petrol',   color:'var(--e-petrol)',   out:'Vroom. Burning fuel.'},
+  electric:{cls:'ElectricEngine', label:'Electric', color:'var(--e-electric)', out:'Whirr. Silent torque.'},
+  hybrid:  {cls:'HybridEngine',   label:'Hybrid',   color:'var(--e-hybrid)',   out:'Purr. Battery first, fuel if needed.'},
+  fake:    {cls:'FakeEngine',     label:'Fake',     color:'var(--e-fake)',     out:'Start() was called. Recorded it; nothing really ran.'}
 };
 const STEPS = ['Welded in','Break it','Cut a socket','Plug anything in','The container','Interview check'];
 const IFACE = {cs:'IEngine', java:'Engine', ts:'Engine'};
 
-const S = {step:1, lang:'cs', hw:'petrol', edits:0, cracked:false, tested:false, fb:null,
+const S = {step:1, lang:'cs', hw:'petrol', edits:0, cracked:false, tested:false, fb:null, out:'',
            plugged:false, eng:'petrol', lastReal:'petrol', tried:new Set(), quiz:{}, seen:new Set([1])};
 try{ const l = localStorage.getItem('rc-lang'); if(l && IFACE[l]) S.lang = l; }catch(e){}
 
 const $ = id => document.getElementById(id);
 const esc = s => s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
 
-/* ---------- code data ---------- */
+/* ---------- code ---------- */
 function codeFiles(){
   const L = S.lang;
   if(S.step <= 2){
     const E = ENG[S.hw].cls;
     const ed = S.edits > 0;
-    const weldLine = ed ? 'bad' : (S.step===1 ? 'hl' : '');
+    const weld = ed ? 'bad' : (S.step===1 ? 'hl' : '');
     const cmt = ed ? '// edited to change engine' : '// welded in';
-    const tag = ed ? {t:`edited ${S.edits} lines`, k:'bad'} : null;
     const F = {
-      cs:[{n:'Car.cs', tag, lines:[['public class Car'],['{'],[`    private readonly ${E} _engine = new ${E}();   ${cmt}`,weldLine],['    public void Drive() => _engine.Start();'],['}']]},
+      cs:[{n:'Car.cs', lines:[['public class Car'],['{'],[`    private readonly ${E} _engine = new ${E}();   ${cmt}`,weld],['    public void Drive() => _engine.Start();'],['}']]},
           {n:'Program.cs', lines:[['var car = new Car();'],['car.Drive();']]}],
-      java:[{n:'Car.java', tag, lines:[['public class Car {'],[`    private final ${E} engine = new ${E}();   ${cmt}`,weldLine],['    public void drive() { engine.start(); }'],['}']]},
+      java:[{n:'Car.java', lines:[['public class Car {'],[`    private final ${E} engine = new ${E}();   ${cmt}`,weld],['    public void drive() { engine.start(); }'],['}']]},
           {n:'Main.java', lines:[['Car car = new Car();'],['car.drive();']]}],
-      ts:[{n:'car.ts', tag, lines:[['export class Car {'],[`  private engine = new ${E}();   ${cmt}`,weldLine],['  drive() { this.engine.start(); }'],['}']]},
+      ts:[{n:'car.ts', lines:[['export class Car {'],[`  private engine = new ${E}();   ${cmt}`,weld],['  drive() { this.engine.start(); }'],['}']]},
           {n:'main.ts', lines:[['const car = new Car();'],['car.drive();']]}]
     }[L];
-    if(S.tested){
-      F.push({
-        cs:{n:'CarTests.cs', tag:{t:'not really a unit test',k:'bad'}, lines:[['[Fact]'],['public void Drive_starts_engine()'],['{'],['    var car = new Car();   // no way to pass in a fake','bad'],['    car.Drive();           // starts a REAL engine','bad'],['}']]},
-        java:{n:'CarTest.java', tag:{t:'not really a unit test',k:'bad'}, lines:[['@Test'],['void driveStartsEngine() {'],['    Car car = new Car();   // no way to pass in a fake','bad'],['    car.drive();           // starts a REAL engine','bad'],['}']]},
-        ts:{n:'car.test.ts', tag:{t:'not really a unit test',k:'bad'}, lines:[['test("drive starts engine", () => {'],['  const car = new Car();   // no way to pass in a fake','bad'],['  car.drive();             // starts a REAL engine','bad'],['});']]}
-      }[L]);
-    }
+    if(S.tested) F.push({
+      cs:{n:'CarTests.cs', lines:[['[Fact]'],['public void Drive_starts_engine()'],['{'],['    var car = new Car();   // no way to pass in a fake','bad'],['    car.Drive();           // starts a REAL engine','bad'],['}']]},
+      java:{n:'CarTest.java', lines:[['@Test'],['void driveStartsEngine() {'],['    Car car = new Car();   // no way to pass in a fake','bad'],['    car.drive();           // starts a REAL engine','bad'],['}']]},
+      ts:{n:'car.test.ts', lines:[['test("drive starts engine", () => {'],['  const car = new Car();   // no way to pass in a fake','bad'],['  car.drive();             // starts a REAL engine','bad'],['});']]}
+    }[L]);
     return F;
   }
 
   const E = ENG[S.lastReal].cls;
-  const container = S.step >= 5;
-  const fresh = S.step === 3;
-  const carTag = fresh ? {t:'rewritten once',k:'new'} : {t:'0 edits since',k:'good'};
+  const container = S.step >= 5, fresh = S.step === 3;
   let F;
   if(L==='cs'){
     F = [
-      {n:'IEngine.cs', tag: fresh?{t:'new',k:'new'}:null, lines:[['public interface IEngine { void Start(); }', fresh?'new':'']]},
-      {n:'Car.cs', tag:carTag, lines:[['public class Car'],['{'],['    private readonly IEngine _engine;'],['    public Car(IEngine engine) => _engine = engine;   // the socket', fresh?'new':'hl'],['    public void Drive() => _engine.Start();'],['}']]},
+      {n:'IEngine.cs', lines:[['public interface IEngine { void Start(); }', fresh?'new':'']]},
+      {n:'Car.cs', lines:[['public class Car'],['{'],['    private readonly IEngine _engine;'],['    public Car(IEngine engine) => _engine = engine;   // the socket', fresh?'new':'hl'],['    public void Drive() => _engine.Start();'],['}']]},
       container
-        ? {n:'Program.cs', lines:[['var builder = Host.CreateApplicationBuilder();'],[`builder.Services.AddSingleton<IEngine, ${E}>();   // the only line you change`,'hl'],['builder.Services.AddTransient<Car>();'],['using var host = builder.Build();'],[''],['var car = host.Services.GetRequiredService<Car>();   // container assembles it','new'],['car.Drive();']]}
+        ? {n:'Program.cs', lines:[['var builder = Host.CreateApplicationBuilder();'],[`builder.Services.AddSingleton<IEngine, ${E}>();   // the only line you change`,'hl'],['builder.Services.AddTransient<Car>();'],['using var host = builder.Build();'],[''],['var car = host.Services.GetRequiredService<Car>();'],['car.Drive();']]}
         : {n:'Program.cs', lines:[['// Composition root: the ONE place that picks an engine'],[`var car = new Car(new ${E}());`,'hl'],['car.Drive();']]}
     ];
-    if(S.eng==='fake') F.push({n:'CarTests.cs', tag:{t:'fast, real unit test',k:'good'}, lines:[['[Fact]'],['public void Drive_starts_engine()'],['{'],['    var fake = new FakeEngine();','hl'],['    new Car(fake).Drive();','hl'],['    Assert.True(fake.Started);   // 2 ms, no real engine'],['}']]});
+    if(S.eng==='fake') F.push({n:'CarTests.cs', lines:[['[Fact]'],['public void Drive_starts_engine()'],['{'],['    var fake = new FakeEngine();','hl'],['    new Car(fake).Drive();','hl'],['    Assert.True(fake.Started);   // 2 ms, no real engine'],['}']]});
   } else if(L==='java'){
     F = [
-      {n:'Engine.java', tag: fresh?{t:'new',k:'new'}:null, lines:[['public interface Engine { void start(); }', fresh?'new':'']]},
-      {n:'Car.java', tag:carTag, lines:[...(container?[['@Component','new']]:[]),['public class Car {'],['    private final Engine engine;'],['    public Car(Engine engine) { this.engine = engine; }   // the socket', fresh?'new':'hl'],['    public void drive() { engine.start(); }'],['}']]},
+      {n:'Engine.java', lines:[['public interface Engine { void start(); }', fresh?'new':'']]},
+      {n:'Car.java', lines:[...(container?[['@Component','new']]:[]),['public class Car {'],['    private final Engine engine;'],['    public Car(Engine engine) { this.engine = engine; }   // the socket', fresh?'new':'hl'],['    public void drive() { engine.start(); }'],['}']]},
       container
-        ? {n:'AppConfig.java', lines:[['@Configuration'],['public class AppConfig {'],['    @Bean'],[`    Engine engine() { return new ${E}(); }   // the only line you change`,'hl'],['}'],[''],['// Main.java'],['Car car = context.getBean(Car.class);   // container assembles it','new'],['car.drive();']]}
+        ? {n:'AppConfig.java', lines:[['@Configuration'],['public class AppConfig {'],['    @Bean'],[`    Engine engine() { return new ${E}(); }   // the only line you change`,'hl'],['}'],[''],['// Main.java'],['Car car = context.getBean(Car.class);'],['car.drive();']]}
         : {n:'Main.java', lines:[['// Composition root: the ONE place that picks an engine'],[`Car car = new Car(new ${E}());`,'hl'],['car.drive();']]}
     ];
-    if(S.eng==='fake') F.push({n:'CarTest.java', tag:{t:'fast, real unit test',k:'good'}, lines:[['@Test'],['void driveStartsEngine() {'],['    FakeEngine fake = new FakeEngine();','hl'],['    new Car(fake).drive();','hl'],['    assertTrue(fake.started);   // 2 ms, no real engine'],['}']]});
+    if(S.eng==='fake') F.push({n:'CarTest.java', lines:[['@Test'],['void driveStartsEngine() {'],['    FakeEngine fake = new FakeEngine();','hl'],['    new Car(fake).drive();','hl'],['    assertTrue(fake.started);   // 2 ms, no real engine'],['}']]});
   } else {
     F = [
-      {n:'engine.ts', tag: fresh?{t:'new',k:'new'}:null, lines:[['export interface Engine { start(): void; }', fresh?'new':'']]},
-      {n:'car.ts', tag:carTag, lines: container
+      {n:'engine.ts', lines:[['export interface Engine { start(): void; }', fresh?'new':'']]},
+      {n:'car.ts', lines: container
         ? [['@injectable()','new'],['export class Car {'],['  constructor(@inject("Engine") private engine: Engine) {}   // the socket','hl'],['  drive() { this.engine.start(); }'],['}']]
         : [['export class Car {'],['  constructor(private engine: Engine) {}   // the socket', fresh?'new':'hl'],['  drive() { this.engine.start(); }'],['}']]},
       container
-        ? {n:'main.ts', lines:[[`container.register("Engine", { useClass: ${E} });   // the only line you change`,'hl'],['const car = container.resolve(Car);   // container assembles it','new'],['car.drive();']]}
+        ? {n:'main.ts', lines:[[`container.register("Engine", { useClass: ${E} });   // the only line you change`,'hl'],['const car = container.resolve(Car);'],['car.drive();']]}
         : {n:'main.ts', lines:[['// Composition root: the ONE place that picks an engine'],[`const car = new Car(new ${E}());`,'hl'],['car.drive();']]}
     ];
-    if(S.eng==='fake') F.push({n:'car.test.ts', tag:{t:'fast, real unit test',k:'good'}, lines:[['test("drive starts engine", () => {'],['  const fake = new FakeEngine();','hl'],['  new Car(fake).drive();','hl'],['  expect(fake.started).toBe(true);   // 2 ms, no real engine'],['});']]});
+    if(S.eng==='fake') F.push({n:'car.test.ts', lines:[['test("drive starts engine", () => {'],['  const fake = new FakeEngine();','hl'],['  new Car(fake).drive();','hl'],['  expect(fake.started).toBe(true);   // 2 ms, no real engine'],['});']]});
   }
   return F;
 }
@@ -414,60 +358,58 @@ function hl(src){
 }
 
 const NOTES = {
-  1:'<b>Look at the highlighted line.</b> <code>new</code> inside a class is the weld: Car decides, forever, which engine it gets.',
-  2:'<b>Every change lands inside Car.</b> The class you wanted to stay stable is the one you keep editing.',
-  3:'<b>Car now depends on an interface, not a concrete engine.</b> That is the Dependency Inversion Principle, and passing the engine in is Dependency Injection.',
-  4:'<b>Only the composition root changes.</b> Car stays the same whichever engine you pick, and tests can hand it a fake.',
-  5:'<b>A container automates the wiring.</b> You register what fits each socket once; it builds whole object graphs for you.',
-  6:'<b>Interview tip:</b> write the constructor-injection version (step 3) on the whiteboard. It proves you understand DI without any framework.'
+  1:'<b>The highlighted line is the weld.</b> <code>new</code> inside a class means Car decides, forever, which engine it gets.',
+  2:'<b>Every change lands inside Car.</b> The class you wanted to leave alone is the one you keep editing.',
+  3:'<b>Car depends on an interface now, not a concrete engine.</b> That is the Dependency Inversion Principle; passing the engine in is Dependency Injection.',
+  4:'<b>Only the composition root changes.</b> Car stays identical whichever engine you pick, and a test can hand it a fake.',
+  5:'<b>A container automates the wiring.</b> Register what fits each socket once, and it builds whole object graphs for you.',
+  6:'<b>Interview tip:</b> write the constructor version from step 3 on the whiteboard. It proves you understand DI without any framework.'
 };
 
-/* ---------- story + controls ---------- */
+/* ---------- story ---------- */
 function story(){
   const s = S.step;
-  const fb = S.fb ? `<div class="feedback ${S.fb.k}">${S.fb.t}</div>` : '';
+  const fb = S.fb ? `<p class="tell ${S.fb.k}">${S.fb.t}</p>` : '';
   const T = {
-    1:`<h2>A car that builds its own engine</h2><p>This <code>Car</code> creates its <code>PetrolEngine</code> itself, with <code>new</code>. The engine is welded in. It works fine, so take it for a drive.</p><p class="tip">Then look at the highlighted line of code on the right. That's the weld.</p>`,
-    2:`<h2>Now try to change it</h2><p>Two requests arrive. Product wants an <b>electric</b> model. QA wants a <b>unit test</b> for <code>Car</code> that doesn't start a real engine. Try both.</p>${fb}`,
-    3:`<h2>Cut a socket</h2><p>Instead of building an engine, <code>Car</code> now <b>asks for one in its constructor</b>. It doesn't care which engine, only that it fits the <code>${IFACE[S.lang]}</code> socket (an interface). Code outside the car decides what goes in.</p>${fb||'<p class="tip">The socket is empty. Hand the car an engine.</p>'}`,
-    4:`<h2>Plug anything in</h2><p>Swap engines as often as you like, including a <b>FakeEngine</b> for tests. Watch the <b>edits to Car</b> meter: it stays at zero. That's the whole payoff.</p>${fb}`,
-    5:`<h2>Let the container do the wiring</h2><p>A real app has hundreds of classes that need parts. A <b>DI container</b> is the robot arm: you register once which engine fits the socket, and it builds <code>Car</code> and plugs the engine in for you.</p><p class="tip">The container is optional. Steps 3 and 4 were already dependency injection; the container only automates it.</p>${fb}`,
-    6:`<h2>Interview check</h2><p>Four questions interviewers actually ask about DI.</p>${quizHTML()}`
+    1:`<h2>A car that builds its own engine</h2><p>This <code>Car</code> creates its own <code>PetrolEngine</code> with <code>new</code>. The engine is welded in. It runs fine, so take it for a drive.</p>`,
+    2:`<h2>Now try to change it</h2><p>Two requests arrive. Product wants an <b>electric</b> model. QA wants a <b>unit test</b> that doesn't start a real engine. Try both.</p>${fb}`,
+    3:`<h2>Cut a socket</h2><p>Car stops building engines. It <b>asks for one in its constructor</b> instead, and accepts anything that fits the <code>${IFACE[S.lang]}</code> socket. Code outside the car decides what goes in.</p>${fb||'<p>The socket is empty. Hand the car an engine.</p>'}`,
+    4:`<h2>Plug anything in</h2><p>Swap engines as often as you like, including a fake one for tests. Car is never edited again. That's the whole payoff.</p>${fb}`,
+    5:`<h2>Let the container do the wiring</h2><p>Real apps have hundreds of classes needing parts. A <b>container</b> is the robot arm: register which engine fits the socket once, and it assembles Car for you.</p>${fb||'<p>Steps 3 and 4 were already dependency injection. The container only automates it.</p>'}`,
+    6:`<h2>Interview check</h2>${quizHTML()}`
   };
   $('story').innerHTML = T[s];
   if(s===6) bindQuiz();
 }
 
 function controls(){
-  const s = S.step, c = $('controls');
-  let h = '';
+  const s = S.step; let h = '';
   if(s===1) h = `<button class="btn primary" data-a="drive">Drive</button>`;
   if(s===2) h = `<button class="btn primary" data-a="swap">Swap to ${S.hw==='petrol'?'Electric':'Petrol'}</button><button class="btn" data-a="test">Write a unit test</button><button class="btn" data-a="drive">Drive</button>`;
   if(s===3) h = S.plugged ? `<button class="btn primary" data-a="drive">Drive</button>` : `<button class="btn primary" data-a="plugfirst">Pass a PetrolEngine in</button>`;
-  if(s>=4){
-    const lbl = s>=5 ? 'Register which engine fits the socket' : 'Pick an engine to pass in';
-    h = `<div class="tray"><span class="lbl">${lbl}</span>` +
-      Object.entries(ENG).map(([k,e]) => `<button class="chip" data-e="${k}" aria-pressed="${S.eng===k}"><i style="background:${e.color}"></i>${e.cls}</button>`).join('') +
-      `<button class="btn primary" data-a="drive" style="margin-left:auto">Drive</button></div>`;
-  }
-  c.innerHTML = h;
+  if(s>=4) h = Object.entries(ENG).map(([k,e]) => `<button class="chip" data-e="${k}" aria-pressed="${S.eng===k}"><i style="background:${e.color}"></i>${e.cls}</button>`).join('') +
+    `<button class="btn primary" data-a="drive" style="margin-left:auto">Drive</button>`;
+  $('controls').innerHTML = h;
 }
 
-function meters(){
+function status(){
   const s = S.step;
-  const m = s<=2
-    ? [ ['Edits to Car', S.edits, S.edits? 'bad':'', S.edits? 'to change one part':'so far'],
-        ['Unit-testable', 'No', 'bad', 'no way to pass a fake'],
-        ['Engines supported', 1, '', 'the welded one'] ]
-    : [ ['Edits to Car', s===3 ? '1×' : 0, s===3 ? '' : 'good', s===3 ? 'one-time refactor to add the socket' : `since the socket (was ${S.edits} before)`],
-        ['Unit-testable', 'Yes', 'good', 'pass a FakeEngine'],
-        ['Engines tried', S.tried.size || (S.plugged?1:0), '', 'any engine that fits'] ];
-  $('meters').innerHTML = m.map(([k,v,cls,sub]) => `<div class="meter"><div class="k">${k}</div><div class="v ${cls}">${v}</div><div class="s">${sub}</div></div>`).join('');
+  let line;
+  if(s<=2){
+    line = S.edits
+      ? `Car edited <b>${S.edits}</b> times<span class="warn"> · engine changes reach into Car</span>`
+      : `Car untouched<span class="warn"> · engine welded in, no fake possible</span>`;
+    if(S.tested) line += `<span class="warn"> · tests start a real engine</span>`;
+  } else {
+    const n = S.tried.size || (S.plugged?1:0);
+    line = `Car edits since the socket <b>0</b><span class="ok"> · ${n} engine${n===1?'':'s'} tried · fakes welcome</span>`;
+  }
+  $('status').innerHTML = line + (S.out ? `<span class="out">${esc(S.out)}</span>` : '');
 }
 
 function code(){
   document.querySelectorAll('#langs button').forEach(b => b.setAttribute('aria-pressed', b.dataset.l===S.lang));
-  $('files').innerHTML = codeFiles().map(f => `<div class="file"><div class="fname">${f.n}${f.tag?`<span class="ftag ${f.tag.k}">${f.tag.t}</span>`:''}</div><pre><code>${f.lines.map(([t,k]) => `<span class="ln ${k||''}">${hl(t)||' '}</span>`).join('')}</code></pre></div>`).join('');
+  $('files').innerHTML = codeFiles().map(f => `<div><div class="fname">${f.n}</div><pre><code>${f.lines.map(([t,k]) => `<span class="ln ${k||''}">${hl(t)||' '}</span>`).join('')}</code></pre></div>`).join('');
   $('codenote').innerHTML = NOTES[S.step];
 }
 
@@ -482,50 +424,45 @@ function stage(){
   $('sockLabel').textContent = IFACE[S.lang];
   const e = ENG[S.eng];
   $('plugBlock').setAttribute('fill', e.color);
-  $('plugBlock').setAttribute('stroke-dasharray', S.eng==='fake' ? '5 4' : '');
-  $('plugBlock').setAttribute('stroke', S.eng==='fake' ? 'var(--ink)' : 'none');
+  $('plugBlock').setAttribute('stroke-dasharray', S.eng==='fake' ? '4 3' : '');
+  $('plugBlock').setAttribute('stroke', S.eng==='fake' ? 'var(--muted)' : 'none');
   $('plugLabel').textContent = e.label;
   $('plug').classList.toggle('out', !(s>=3 && S.plugged));
 }
 
-function stepsNav(){
-  $('steps').innerHTML = STEPS.map((t,i) => {
+function rail(){
+  $('segs').innerHTML = STEPS.map((t,i) => {
     const n = i+1;
-    return `<button data-s="${n}" ${n===S.step?'aria-current="step"':''} class="${S.seen.has(n)&&n!==S.step?'done':''}"><span class="n">${n}</span>${t}</button>`;
+    return `<button data-s="${n}" title="${t}" aria-label="Step ${n}: ${t}" ${n===S.step?'aria-current="step"':''} class="${S.seen.has(n)&&n!==S.step?'done':''}"></button>`;
   }).join('');
-  $('prev').disabled = S.step===1;
+  $('count').textContent = `${S.step}/6  ${STEPS[S.step-1]}`;
   $('prev').style.visibility = S.step===1 ? 'hidden' : 'visible';
   $('next').style.visibility = S.step===6 ? 'hidden' : 'visible';
 }
 
-function render(){ stepsNav(); story(); controls(); meters(); stage(); code(); }
+function render(){ rail(); story(); controls(); status(); stage(); code(); }
 
-/* ---------- console + fx ---------- */
-function log(msg, k=''){
-  const ul = $('console');
-  const li = document.createElement('li'); li.textContent = msg; if(k) li.className = k;
-  ul.appendChild(li);
-  while(ul.children.length > 4) ul.removeChild(ul.firstChild);
-}
+/* ---------- fx ---------- */
 const NS = 'http://www.w3.org/2000/svg';
 function fx(kind){
   const g = $('fx');
   const add = (tag, attrs, cls) => { const el = document.createElementNS(NS, tag); for(const a in attrs) el.setAttribute(a, attrs[a]); el.setAttribute('class', cls); g.appendChild(el); setTimeout(() => el.remove(), 1500); return el; };
-  if(kind==='petrol') for(let i=0;i<4;i++) setTimeout(() => add('circle',{cx:84,cy:205,r:9},'puff'), i*160);
+  if(kind==='petrol') for(let i=0;i<4;i++) setTimeout(() => add('circle',{cx:84,cy:203,r:8},'puff'), i*160);
   if(kind==='electric' || kind==='hybrid'){
     add('path',{d:'M468 108 l-8 12 h8 l-8 12'},'spark'); add('path',{d:'M430 110 l6 10 h-8 l6 10'},'spark');
-    if(kind==='hybrid') for(let i=0;i<2;i++) setTimeout(() => add('circle',{cx:84,cy:205,r:7},'puff'), i*220);
+    if(kind==='hybrid') for(let i=0;i<2;i++) setTimeout(() => add('circle',{cx:84,cy:203,r:6},'puff'), i*220);
   }
   if(kind==='fake'){ const t = add('text',{x:441,y:100},'fxtext'); t.textContent = 'Start() recorded'; }
 }
 function drive(){
   const car = $('car');
   const kind = S.step<=2 ? S.hw : S.eng;
-  if(S.step>=3 && !S.plugged){ log('Car needs an engine passed in first.', 'bad'); return; }
+  if(S.step>=3 && !S.plugged){ S.out = 'Car needs an engine passed in first.'; status(); return; }
   car.classList.remove('driving'); void car.getBBox(); car.classList.add('driving');
   setTimeout(() => car.classList.remove('driving'), 1300);
   fx(kind);
-  log(S.step===2 && S.tested && kind==='petrol' ? ENG.petrol.out + ' (inside your "unit" test)' : ENG[kind].out, kind==='fake'?'good':'');
+  S.out = `${ENG[kind].cls}: ${ENG[kind].out}`;
+  status();
 }
 function plug(k){
   S.eng = k; S.plugged = true; S.tried.add(k);
@@ -533,7 +470,7 @@ function plug(k){
   const p = $('plug');
   p.classList.add('out'); void p.getBBox();
   if(S.step>=5){ $('arm').classList.add('working'); setTimeout(() => $('arm').classList.remove('working'), 500); }
-  requestAnimationFrame(() => requestAnimationFrame(() => { stage(); }));
+  requestAnimationFrame(() => requestAnimationFrame(stage));
 }
 
 /* ---------- actions ---------- */
@@ -543,31 +480,35 @@ document.addEventListener('click', ev => {
   if(b.dataset.l){ S.lang = b.dataset.l; try{ localStorage.setItem('rc-lang', S.lang); }catch(e){} story(); stage(); code(); return; }
   if(b.dataset.e){
     const k = b.dataset.e; plug(k);
-    const wiring = S.step>=5 ? `Container: ${IFACE[S.lang]} → ${ENG[k].cls}` : `new Car(new ${ENG[k].cls}())`;
-    if(k==='fake'){ S.fb = {k:'good', t:'<b>That\'s a real unit test.</b> The test hands Car a fake engine and checks it was started. It runs in milliseconds, with no fuel and no hardware.'}; log(`Test: new Car(fake).Drive() → passed in 2 ms`, 'good'); }
-    else { S.fb = {k:'good', t:`<b>${ENG[k].cls} is in, and Car didn't change.</b> ${S.step>=5?'One registration line picked it.':'Only the line that builds the car changed.'}`}; log(`${wiring}   · edits to Car: 0`, 'good'); }
-    story(); controls(); meters(); code(); return;
+    if(k==='fake'){
+      S.fb = {k:'good', t:'<b>That is a real unit test.</b> It hands Car a fake engine and checks it was started: milliseconds, no fuel, no hardware.'};
+      S.out = 'new Car(fake).Drive() → test passed in 2 ms';
+    } else {
+      S.fb = {k:'good', t:`<b>${ENG[k].cls} is in, and Car didn't change.</b> ${S.step>=5?'One registration line picked it.':'Only the line that builds the car changed.'}`};
+      S.out = S.step>=5 ? `container: ${IFACE[S.lang]} → ${ENG[k].cls}` : `new Car(new ${ENG[k].cls}())`;
+    }
+    story(); controls(); status(); code(); return;
   }
   const a = b.dataset.a;
   if(a==='drive') drive();
   if(a==='swap'){
     S.hw = S.hw==='petrol' ? 'electric' : 'petrol'; S.edits += 2; S.cracked = true;
-    S.fb = {k:'bad', t:`<b>You had to open Car and rewrite it.</b> Every engine change is now a Car change, and everything that uses Car needs retesting. Edits so far: ${S.edits}.`};
-    log(`Opened Car and rewrote 2 lines to fit ${ENG[S.hw].cls}.`, 'bad');
+    S.fb = {k:'bad', t:`<b>You had to open Car and rewrite it.</b> Every engine change is a Car change, so everything using Car needs retesting.`};
+    S.out = `edited Car: 2 lines rewritten for ${ENG[S.hw].cls}`;
     const car = $('car'); car.classList.remove('shake'); void car.getBBox(); car.classList.add('shake');
     render();
   }
   if(a==='test'){
     S.tested = true;
-    S.fb = {k:'bad', t:'<b>There\'s no way to give Car a fake engine.</b> Your "unit" test starts a real one: slow, flaky, and it can\'t check whether Start() was actually called.'};
-    log(`Test run: new Car() started a real ${ENG[S.hw].cls}. 1.8 s, can't assert anything.`, 'bad');
+    S.fb = {k:'bad', t:'<b>There is no way to give Car a fake engine.</b> The "unit" test starts a real one: slow, flaky, and it cannot check whether Start() was called.'};
+    S.out = `test run: started a real ${ENG[S.hw].cls} · 1.8 s · nothing to assert`;
     render();
   }
   if(a==='plugfirst'){
     plug('petrol');
-    S.fb = {k:'good', t:'<b>The engine came from outside.</b> <code>new Car(new PetrolEngine())</code>: the car received its engine instead of building it. That\'s dependency injection.'};
-    log('new Car(new PetrolEngine())   · Car no longer uses "new" for its engine', 'good');
-    story(); controls(); meters(); code();
+    S.fb = {k:'good', t:'<b>The engine came from outside.</b> <code>new Car(new PetrolEngine())</code> — the car received its engine instead of building it. That is dependency injection.'};
+    S.out = 'new Car(new PetrolEngine())';
+    story(); controls(); status(); code();
   }
 });
 $('prev').onclick = () => go(S.step-1);
@@ -575,29 +516,27 @@ $('next').onclick = () => go(S.step+1);
 
 function go(n){
   if(n<1 || n>6) return;
-  S.step = n; S.seen.add(n); S.fb = null;
+  S.step = n; S.seen.add(n); S.fb = null; S.out = '';
   if(n===3){ S.plugged = false; S.eng='petrol'; S.tried.clear(); }
   if(n>=4 && !S.plugged){ S.plugged = true; S.eng = S.lastReal; S.tried.add(S.eng); }
-  $('console').innerHTML = '';
-  log(['Step 1: a Car with a welded-in engine.','Step 2: two change requests just arrived.','Step 3: Car now asks for its engine.','Step 4: the tray has four engines.','Step 5: the DI container is online.','Step 6: interview check.'][n-1]);
   render();
-  if(window.innerWidth < 900) $('story').scrollIntoView({behavior:'smooth', block:'start'});
+  if(window.innerWidth < 920) $('story').scrollIntoView({behavior:'smooth', block:'start'});
 }
 
 /* ---------- quiz ---------- */
 const QUIZ = [
   {q:'What does it mean to "inject" a dependency?',
    o:['The class creates its dependencies in its own constructor','The dependency is handed to the class from outside','Dependencies are downloaded when the app starts','The class reads a global static instance'], a:1,
-   w:'Injection means the class receives what it needs, usually through its constructor. Creating it inside with <code>new</code> is the "welded" version.'},
+   w:'Injection means the class receives what it needs, usually through its constructor. Building it inside with <code>new</code> is the welded version.'},
   {q:'CheckoutService does new StripeClient() inside itself. What should you point out?',
-   o:['It will be slower','You can\'t swap StripeClient or fake it in tests without editing CheckoutService','It uses more memory','Nothing, that\'s fine'], a:1,
-   w:'This is the classic interview smell. Accept a payment-client interface in the constructor instead, so tests can pass a fake and you can switch providers.'},
-  {q:'Do you need a DI container (Spring, ASP.NET Core, etc.) to do dependency injection?',
+   o:['It will be slower','You cannot swap StripeClient or fake it in tests without editing CheckoutService','It uses more memory','Nothing, that is fine'], a:1,
+   w:'The classic interview smell. Accept a payment-client interface in the constructor instead, so tests can pass a fake and you can switch providers.'},
+  {q:'Do you need a DI container to do dependency injection?',
    o:['Yes, DI is a framework feature','No. Passing dependencies in by hand is DI; a container only automates the wiring'], a:1,
-   w:'Steps 3 and 4 had no container and were already DI. Saying this clearly shows you understand the idea, not just a framework.'},
+   w:'Steps 3 and 4 had no container and were already DI. Saying that shows you understand the idea, not just a framework.'},
   {q:'DI is the usual way to follow which SOLID principle?',
    o:['Single Responsibility','Open/Closed','Liskov Substitution','Dependency Inversion'], a:3,
-   w:'Dependency Inversion says: depend on abstractions, not concrete classes. DI is how the concrete class gets delivered to you.'}
+   w:'Dependency Inversion says depend on abstractions, not concrete classes. DI is how the concrete class reaches you.'}
 ];
 function quizHTML(){
   const answered = Object.keys(S.quiz).length;
@@ -608,16 +547,15 @@ function quizHTML(){
       let cls = '';
       if(pick!==undefined){ if(j===q.a) cls='right'; else if(j===pick) cls='wrong'; }
       return `<button class="opt ${cls}" data-q="${i}" data-o="${j}" ${pick!==undefined?'disabled':''}>${esc(o)}</button>`;
-    }).join('')}</div>${pick!==undefined?`<div class="why">${q.w}</div>`:''}</div>`;
+    }).join('')}</div>${pick!==undefined?`<p class="why">${q.w}</p>`:''}</div>`;
   }).join('')}
-  ${answered===QUIZ.length?`<p class="score">You got ${right} of ${QUIZ.length}.</p>`:''}
-  <div class="soundbite"><span class="k">Say it in an interview</span>"Dependency injection means a class receives its dependencies from outside, usually through its constructor, instead of creating them. Because it depends on an interface, I can swap implementations, like a fake in tests, without changing the class. A container such as Spring or ASP.NET Core just automates that wiring."</div></div>`;
+  ${answered===QUIZ.length?`<p class="score">${right} of ${QUIZ.length} correct.</p>`:''}
+  <p class="soundbite"><span class="k">Say it in an interview</span>"Dependency injection means a class receives its dependencies from outside, usually through its constructor, instead of creating them. Because it depends on an interface, I can swap implementations, like a fake in tests, without changing the class. A container such as Spring or ASP.NET Core just automates that wiring."</p></div>`;
 }
 function bindQuiz(){
   document.querySelectorAll('.opt').forEach(b => b.onclick = () => { S.quiz[b.dataset.q] = +b.dataset.o; story(); });
 }
 
-log('Step 1: a Car with a welded-in engine.');
 render();
 </script>
 
