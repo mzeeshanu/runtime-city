@@ -48,13 +48,15 @@ button:focus-visible{outline:2px solid var(--accent);outline-offset:3px;border-r
 .intro h1{font-family:var(--display);font-weight:800;font-size:clamp(38px,7vw,62px);line-height:.96;letter-spacing:-.035em;margin:0 0 10px;text-wrap:balance}
 .intro p{margin:0;font-size:17px;color:var(--muted)}
 
-/* progress: six segments, no labels */
-.rail{display:flex;align-items:center;gap:14px;margin-bottom:26px}
-.segs{display:flex;gap:4px;flex:1;max-width:420px}
-.segs button{flex:1;height:4px;border-radius:2px;background:var(--hair);transition:background .2s}
-.segs button.done{background:var(--muted)}
-.segs button[aria-current="step"]{background:var(--accent)}
-.rail .count{font-family:var(--mono);font-size:12px;color:var(--muted);font-variant-numeric:tabular-nums}
+/* steps: named, clickable, quiet */
+.rail{display:flex;gap:26px;margin-bottom:30px;border-bottom:1px solid var(--hair);overflow-x:auto;scrollbar-width:none}
+.rail::-webkit-scrollbar{display:none}
+.rail button{display:flex;align-items:baseline;gap:7px;white-space:nowrap;padding:0 0 12px;margin-bottom:-1px;border-bottom:2px solid transparent;color:var(--muted);font-size:14px}
+.rail button .n{font-family:var(--mono);font-size:11px;opacity:.7}
+.rail button:hover{color:var(--ink)}
+.rail button.done{color:var(--ink)}
+.rail button[aria-current="step"]{color:var(--ink);border-bottom-color:var(--accent);font-weight:500}
+.rail button[aria-current="step"] .n{color:var(--accent);opacity:1}
 
 .lesson{display:grid;grid-template-columns:minmax(0,1.05fr) minmax(0,1fr);gap:30px;align-items:start}
 @media (max-width:920px){.lesson{grid-template-columns:1fr;gap:22px}}
@@ -80,10 +82,13 @@ button:focus-visible{outline:2px solid var(--accent);outline-offset:3px;border-r
 .status .warn{color:var(--bad)} .status .ok{color:var(--good)}
 .status .out{display:block;color:var(--muted);opacity:.85}
 
-.nav{display:flex;gap:20px;margin-top:26px;font-size:14px}
+.nav{display:flex;align-items:center;justify-content:space-between;gap:16px;margin-top:30px;padding-top:18px;border-top:1px solid var(--hair);font-size:14px}
 .nav button{color:var(--muted)}
 .nav button:hover{color:var(--ink)}
-.nav .fwd{color:var(--ink);font-weight:500}
+.nav .fwd{background:var(--ink);color:var(--surface);border-radius:8px;padding:9px 16px;font-weight:500;margin-left:auto}
+.nav .fwd:hover{color:var(--surface);filter:brightness(1.15)}
+.nav .again{margin-left:auto;border:1px solid var(--hair);border-radius:8px;padding:8px 15px}
+.nav .again:hover{border-color:var(--muted)}
 
 /* code */
 .code{background:var(--code-bg);color:var(--code-fg);border-radius:14px;padding:6px 0 4px;position:sticky;top:calc(env(safe-area-inset-top,0px) + 16px)}
@@ -177,10 +182,7 @@ pre{margin:0;padding:0 0 6px;overflow-x:auto;font-family:var(--mono);font-size:1
     <p>Stop building your own parts. Start receiving them.</p>
   </section>
 
-  <div class="rail">
-    <div class="segs" id="segs" role="tablist" aria-label="Playroom steps"></div>
-    <span class="count" id="count"></span>
-  </div>
+  <nav class="rail" id="rail" aria-label="Playroom steps"></nav>
 
   <div class="lesson">
     <div>
@@ -238,10 +240,10 @@ pre{margin:0;padding:0 0 6px;overflow-x:auto;font-family:var(--mono);font-size:1
         <div class="controls" id="controls"></div>
         <div class="status" id="status"></div>
       </div>
-      <nav class="nav">
-        <button id="prev">← Back</button>
-        <button id="next" class="fwd">Next →</button>
-      </nav>
+      <div class="nav">
+        <button id="prev"></button>
+        <button id="next" class="fwd"></button>
+      </div>
     </div>
 
     <aside>
@@ -431,13 +433,26 @@ function stage(){
 }
 
 function rail(){
-  $('segs').innerHTML = STEPS.map((t,i) => {
+  const r = $('rail');
+  r.innerHTML = STEPS.map((t,i) => {
     const n = i+1;
-    return `<button data-s="${n}" title="${t}" aria-label="Step ${n}: ${t}" ${n===S.step?'aria-current="step"':''} class="${S.seen.has(n)&&n!==S.step?'done':''}"></button>`;
+    return `<button data-s="${n}" ${n===S.step?'aria-current="step"':''} class="${S.seen.has(n)&&n!==S.step?'done':''}"><span class="n">${n}</span>${t}</button>`;
   }).join('');
-  $('count').textContent = `${S.step}/6  ${STEPS[S.step-1]}`;
-  $('prev').style.visibility = S.step===1 ? 'hidden' : 'visible';
-  $('next').style.visibility = S.step===6 ? 'hidden' : 'visible';
+  if(r.scrollWidth > r.clientWidth){
+    const cur = r.querySelector('[aria-current]');
+    if(cur) cur.scrollIntoView({block:'nearest', inline:'center'});
+  }
+
+  const p = $('prev'), n = $('next');
+  p.hidden = S.step === 1;
+  p.textContent = S.step > 1 ? `← ${STEPS[S.step-2]}` : '';
+  if(S.step < 6){
+    n.className = 'fwd';
+    n.textContent = `Next: ${STEPS[S.step]} →`;
+  } else {
+    n.className = 'again';
+    n.textContent = 'Start the playroom again';
+  }
 }
 
 function render(){ rail(); story(); controls(); status(); stage(); code(); }
@@ -512,7 +527,13 @@ document.addEventListener('click', ev => {
   }
 });
 $('prev').onclick = () => go(S.step-1);
-$('next').onclick = () => go(S.step+1);
+$('next').onclick = () => {
+  if(S.step < 6) return go(S.step+1);
+  Object.assign(S, {hw:'petrol', edits:0, cracked:false, tested:false, plugged:false,
+                    eng:'petrol', lastReal:'petrol', tried:new Set(), quiz:{}, seen:new Set([1])});
+  go(1);
+  window.scrollTo({top:0, behavior:'smooth'});
+};
 
 function go(n){
   if(n<1 || n>6) return;
