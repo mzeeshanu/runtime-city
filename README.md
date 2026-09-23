@@ -9,6 +9,7 @@ Audience: students preparing for interviews first, then early-career developers.
 | District | Playroom | Status |
 |---|---|---|
 | Pattern Park | [Dependency Injection](site/playrooms/dependency-injection/index.html) | Prototype |
+| Pattern Park | [Factory Method](site/playrooms/factory-method/index.html) | Prototype |
 
 Every playroom follows the same loop: **see it → break it → fix it → code it (C#, Java, TypeScript) → interview check**.
 

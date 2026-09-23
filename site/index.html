@@ -2,13 +2,65 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Runtime City</title>
 <meta name="description" content="Runtime City: learn software engineering concepts by seeing them, breaking them and fixing them.">
-<!-- Temporary: sends visitors to the first playroom until the landing page is built. -->
-<meta http-equiv="refresh" content="0; url=/playrooms/dependency-injection/">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,600;12..96,800&family=IBM+Plex+Sans:wght@400;500&family=JetBrains+Mono:wght@400&display=swap">
+<style>
+:root{
+  --ground:#EDF0F3; --ink:#16243A; --muted:#64748B; --hair:#D5DCE4; --accent:#C9701D;
+  --display:"Bricolage Grotesque","Segoe UI",system-ui,sans-serif;
+  --body:"IBM Plex Sans","Segoe UI",system-ui,sans-serif;
+  --mono:"JetBrains Mono",ui-monospace,Consolas,monospace;
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){--ground:#0C1522; --ink:#E4EBF3; --muted:#8FA0B5; --hair:#233247; --accent:#E8A05A}
+}
+:root[data-theme="dark"]{--ground:#0C1522; --ink:#E4EBF3; --muted:#8FA0B5; --hair:#233247; --accent:#E8A05A}
+*{box-sizing:border-box}
+body{margin:0;background:var(--ground);color:var(--ink);font:15px/1.6 var(--body);padding-inline:16px;padding-block:0 64px}
+.wrap{max-width:720px;margin:0 auto}
+.brand{display:inline-flex;align-items:center;gap:8px;font-family:var(--display);font-weight:800;font-size:15px;padding-block:26px 0}
+.brand svg{width:15px;height:15px}
+h1{font-family:var(--display);font-weight:800;font-size:clamp(40px,8vw,66px);line-height:.95;letter-spacing:-.035em;margin:30px 0 12px;text-wrap:balance}
+.dek{font-size:18px;color:var(--muted);margin:0 0 44px;max-width:46ch}
+h2{font-family:var(--mono);font-weight:400;font-size:11px;text-transform:uppercase;letter-spacing:.09em;color:var(--muted);margin:0 0 10px}
+ul{list-style:none;margin:0 0 40px;padding:0;border-top:1px solid var(--hair)}
+li{border-bottom:1px solid var(--hair)}
+li a{display:flex;align-items:baseline;gap:12px;padding:16px 2px;color:var(--ink);text-decoration:none}
+li a:hover .t{border-bottom:1px solid var(--accent)}
+li .t{font-family:var(--display);font-weight:600;font-size:20px;letter-spacing:-.02em}
+li .d{color:var(--muted);font-size:14px}
+li.soon{color:var(--muted);padding:14px 2px;font-size:14px}
+.loop{font-size:14px;color:var(--muted);border-top:1px solid var(--hair);padding-top:22px;max-width:56ch}
+.loop b{color:var(--ink);font-weight:500}
+</style>
 </head>
 <body>
-<p><a href="/playrooms/dependency-injection/">Enter the Dependency Injection Playroom</a></p>
+<div class="wrap">
+  <span class="brand">
+    <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="2" y="10" width="5" height="12" fill="currentColor"/><rect x="9" y="4" width="6" height="18" fill="currentColor"/><rect x="17" y="13" width="5" height="9" fill="var(--accent)"/></svg>
+    Runtime City
+  </span>
+
+  <h1>Learn by breaking</h1>
+  <p class="dek">Software engineering concepts you can walk into, take apart and put back together. Built for students heading into interviews.</p>
+
+  <h2>Pattern Park · open</h2>
+  <ul>
+    <li><a href="playrooms/dependency-injection/"><span class="t">Dependency Injection</span> <span class="d">weld an engine in, then cut a socket</span></a></li>
+    <li><a href="playrooms/factory-method/"><span class="t">Factory Method</span> <span class="d">grow a switch until it breaks, then cut a hole</span></a></li>
+    <li class="soon">Strategy · Observer · Singleton — coming soon</li>
+  </ul>
+
+  <h2>Districts ahead</h2>
+  <ul>
+    <li class="soon">SOLID Quarter · Memory Harbour · Network Highway · Database Vault · Concurrency Crossing · Architecture Heights</li>
+  </ul>
+
+  <p class="loop">Every playroom runs the same loop: <b>see it</b> working, <b>break it</b> yourself, <b>fix it</b>, read the <b>same code</b> in C#, Java or TypeScript, then take the <b>interview check</b>.</p>
+</div>
 </body>
 </html>
