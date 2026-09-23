@@ -3,146 +3,25 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<meta name="description" content="Learn the Factory Method pattern by breaking a switch statement: an interactive playroom from Runtime City.">
 <title>Factory Method Playroom · Runtime City</title>
+<meta name="description" content="Learn the Factory Method pattern by breaking a switch statement, then cutting a hole a subclass can fill. An interactive playroom from Runtime City.">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,600;12..96,800&family=IBM+Plex+Sans:wght@400;500&family=JetBrains+Mono:wght@400&display=swap">
+<link rel="stylesheet" href="../../assets/playroom.css">
 <style>
-:root{
-  --ground:#EDF0F3; --surface:#F9FAFB; --ink:#16243A; --muted:#64748B; --hair:#D5DCE4; --grid:#E2E8ED;
-  --accent:#C9701D;
-  --bad:#B93B33; --good:#1B7A60;
-  --p-car:#C97A34; --p-truck:#2F7FD0; --p-bike:#4E9A5B; --p-fake:#8A83A3; --p-extra:#7A6BB5;
-  --code-bg:#111E33; --code-fg:#D9E2EE; --code-dim:#71839C; --t-kw:#F0B26B; --t-str:#94D4B0; --t-type:#87BEF8; --t-attr:#CFA2F2;
-  --hl-row:rgba(240,178,107,.15); --bad-row:rgba(230,105,95,.18); --good-row:rgba(65,184,148,.15);
-  --display:"Bricolage Grotesque","Segoe UI",system-ui,sans-serif;
-  --body:"IBM Plex Sans","Segoe UI",system-ui,sans-serif;
-  --mono:"JetBrains Mono",ui-monospace,Consolas,monospace;
-}
-@media (prefers-color-scheme: dark){
-  :root:not([data-theme="light"]){
-    --ground:#0C1522; --surface:#121E30; --ink:#E4EBF3; --muted:#8FA0B5; --hair:#233247; --grid:#172436;
-    --accent:#E8A05A; --bad:#E0675E; --good:#3BB08C; --code-bg:#080F1B;
-  }
-}
-:root[data-theme="dark"]{
-  --ground:#0C1522; --surface:#121E30; --ink:#E4EBF3; --muted:#8FA0B5; --hair:#233247; --grid:#172436;
-  --accent:#E8A05A; --bad:#E0675E; --good:#3BB08C; --code-bg:#080F1B;
-}
-*{box-sizing:border-box}
-body{background:var(--ground);color:var(--ink);font:15px/1.6 var(--body);padding-inline:16px;padding-block:0 64px}
-.wrap{max-width:1080px;margin:0 auto}
-code{font-family:var(--mono);font-size:.87em}
-button{font:inherit;color:inherit;cursor:pointer;background:none;border:0;padding:0}
-button:focus-visible{outline:2px solid var(--accent);outline-offset:3px;border-radius:4px}
-
-.top{display:flex;align-items:baseline;gap:10px;flex-wrap:wrap;padding-block:26px 0;font-size:13px;color:var(--muted)}
-.brand{font-family:var(--display);font-weight:800;font-size:15px;letter-spacing:-.01em;color:var(--ink);display:inline-flex;align-items:center;gap:7px}
-.brand svg{width:15px;height:15px}
-.top .sep{opacity:.5}
-
-.intro{padding-block:26px 30px;max-width:32ch}
-.intro h1{font-family:var(--display);font-weight:800;font-size:clamp(38px,7vw,62px);line-height:.96;letter-spacing:-.035em;margin:0 0 10px;text-wrap:balance}
-.intro p{margin:0;font-size:17px;color:var(--muted)}
-
-.rail{display:flex;gap:26px;margin-bottom:30px;border-bottom:1px solid var(--hair);overflow-x:auto;scrollbar-width:none}
-.rail::-webkit-scrollbar{display:none}
-.rail button{display:flex;align-items:baseline;gap:7px;white-space:nowrap;padding:0 0 12px;margin-bottom:-1px;border-bottom:2px solid transparent;color:var(--muted);font-size:14px}
-.rail button .n{font-family:var(--mono);font-size:11px;opacity:.7}
-.rail button:hover{color:var(--ink)}
-.rail button.done{color:var(--ink)}
-.rail button[aria-current="step"]{color:var(--ink);border-bottom-color:var(--accent);font-weight:500}
-.rail button[aria-current="step"] .n{color:var(--accent);opacity:1}
-
-.lesson{display:grid;grid-template-columns:minmax(0,1.05fr) minmax(0,1fr);gap:30px;align-items:start}
-@media (max-width:920px){.lesson{grid-template-columns:1fr;gap:22px}}
-
-.story h2{font-family:var(--display);font-weight:600;font-size:27px;letter-spacing:-.02em;line-height:1.15;margin:0 0 10px;text-wrap:balance}
-.story p{margin:0 0 10px;max-width:56ch;color:var(--muted)}
-.story p b,.story p code{color:var(--ink)}
-.story .tell{color:var(--ink)}
-.story .tell.bad{border-left:2px solid var(--bad);padding-left:12px}
-.story .tell.good{border-left:2px solid var(--good);padding-left:12px}
-
-.stage{margin-top:20px}
-.stage svg{display:block;width:100%;height:auto}
-.controls{display:flex;flex-wrap:wrap;gap:8px 14px;align-items:center;margin-top:8px}
-.btn{border:1px solid var(--hair);border-radius:8px;padding:7px 14px;font-size:14px;background:var(--surface)}
-.btn:hover{border-color:var(--muted)}
-.btn.primary{background:var(--ink);border-color:var(--ink);color:var(--surface)}
-.btn:disabled{opacity:.4;cursor:default}
-.chip{display:inline-flex;align-items:center;gap:7px;font-size:13.5px;color:var(--muted);padding:5px 2px;border-bottom:1px solid transparent}
-.chip i{width:9px;height:9px;border-radius:50%;display:block}
-.chip[aria-pressed="true"]{color:var(--ink);border-bottom-color:var(--accent)}
-.status{margin-top:14px;font-family:var(--mono);font-size:12px;color:var(--muted);line-height:1.8}
-.status b{color:var(--ink);font-weight:400}
-.status .warn{color:var(--bad)} .status .ok{color:var(--good)}
-.status .out{display:block;color:var(--muted);opacity:.85}
-
-.nav{display:flex;align-items:center;justify-content:space-between;gap:16px;margin-top:30px;padding-top:18px;border-top:1px solid var(--hair);font-size:14px}
-.nav button{color:var(--muted)}
-.nav button:hover{color:var(--ink)}
-.nav .fwd{background:var(--ink);color:var(--surface);border-radius:8px;padding:9px 16px;font-weight:500;margin-left:auto}
-.nav .fwd:hover{color:var(--surface);filter:brightness(1.15)}
-.nav .again{margin-left:auto;border:1px solid var(--hair);border-radius:8px;padding:8px 15px}
-.nav .again:hover{border-color:var(--muted)}
-
-.code{background:var(--code-bg);color:var(--code-fg);border-radius:14px;padding:6px 0 4px;position:sticky;top:calc(env(safe-area-inset-top,0px) + 16px)}
-@media (max-width:920px){.code{position:static}}
-.langs{display:flex;gap:16px;padding:12px 18px 6px}
-.langs button{font-size:12px;color:var(--code-dim);letter-spacing:.02em}
-.langs button[aria-pressed="true"]{color:#fff;box-shadow:inset 0 -6px 0 -5px var(--accent)}
-.fname{font-family:var(--mono);font-size:11px;color:var(--code-dim);padding:14px 18px 4px}
-pre{margin:0;padding:0 0 6px;overflow-x:auto;font-family:var(--mono);font-size:12.8px;line-height:1.75}
-.ln{display:block;padding:0 18px;white-space:pre;border-left:2px solid transparent}
-.ln.hl{background:var(--hl-row);border-left-color:var(--accent)}
-.ln.bad{background:var(--bad-row);border-left-color:#E0675E}
-.ln.new{background:var(--good-row);border-left-color:#3BB08C}
-.t-kw{color:var(--t-kw)} .t-str{color:var(--t-str)} .t-type{color:var(--t-type)} .t-com{color:var(--code-dim)} .t-attr{color:var(--t-attr)}
-.codenote{padding:14px 18px 16px;font-size:12.5px;color:var(--code-dim);line-height:1.6;max-width:52ch}
-.codenote b{color:var(--code-fg);font-weight:500}
-
-.quiz{display:grid;gap:22px;margin-top:4px}
-.q h3{font-size:15px;margin:0 0 8px;font-weight:500;color:var(--ink)}
-.opts{display:grid;gap:2px}
-.opt{text-align:left;font-size:14px;color:var(--muted);padding:6px 0 6px 20px;position:relative;max-width:56ch}
-.opt:hover{color:var(--ink)}
-.opt::before{content:"";position:absolute;left:0;top:13px;width:8px;height:8px;border:1px solid var(--hair);border-radius:50%}
-.opt.right{color:var(--good)} .opt.right::before{background:var(--good);border-color:var(--good)}
-.opt.wrong{color:var(--bad);text-decoration:line-through} .opt.wrong::before{background:var(--bad);border-color:var(--bad)}
-.why{font-size:13.5px;margin:6px 0 0 20px;color:var(--muted);max-width:56ch}
-.why code{color:var(--ink)}
-.soundbite{margin-top:4px;padding-left:14px;border-left:2px solid var(--accent);font-size:15px;color:var(--ink);max-width:56ch}
-.soundbite .k{display:block;font-family:var(--mono);font-size:11px;text-transform:uppercase;letter-spacing:.08em;color:var(--accent);margin-bottom:6px}
-.score{font-family:var(--mono);font-size:13px;color:var(--muted)}
-
-.city{margin-top:60px;padding-top:22px;border-top:1px solid var(--hair);font-size:13.5px;color:var(--muted);max-width:74ch}
-.city .k{font-family:var(--mono);font-size:11px;text-transform:uppercase;letter-spacing:.08em;display:block;margin-bottom:8px}
-.city b{color:var(--ink);font-weight:500}
-.city .now{color:var(--accent)}
-.city a{color:var(--ink);text-decoration:none;border-bottom:1px solid var(--hair)}
-.city a:hover{border-bottom-color:var(--accent)}
-
-/* factory floor */
-.gridline{stroke:var(--grid);stroke-width:1}
+/* the factory floor: an assembly line */
+:root{--p-car:#C97A34; --p-truck:#2F7FD0; --p-bike:#4E9A5B; --p-fake:#8A83A3; --p-extra:#7A6BB5}
 .belt{stroke:var(--ink);stroke-width:2;fill:none}
 .roller{fill:none;stroke:var(--hair);stroke-width:1.5}
 .shared{fill:none;stroke:var(--hair);stroke-width:1.5;stroke-dasharray:5 4}
 .station{fill:none;stroke:var(--ink);stroke-width:1.5}
-.tiny{font:400 10px var(--mono);fill:var(--muted);text-anchor:middle}
-.tinyl{font:400 10px var(--mono);fill:var(--muted)}
 .branch{font:400 11px var(--mono);fill:var(--muted)}
 .branch.on{fill:var(--accent)}
 .branch.miss{fill:var(--bad)}
 .press{fill:var(--surface);stroke:var(--ink);stroke-width:2}
-.slot{fill:none;stroke:var(--accent);stroke-width:1.5;stroke-dasharray:5 4}
-.slotlbl{font:400 11px var(--mono);fill:var(--accent);text-anchor:middle}
-.dielbl{font:400 11px var(--mono);fill:#fff;text-anchor:middle}
-.arrow{stroke:var(--hair);stroke-width:1.5;fill:none;marker-end:url(#tip)}
-.crash{font:400 11px var(--mono);fill:var(--bad);text-anchor:middle;opacity:0;transition:opacity .2s}
-.cracked .crash{opacity:1}
 .cracked .press{stroke:var(--bad)}
+.arrow{stroke:var(--hair);stroke-width:1.5;fill:none;marker-end:url(#tip)}
 .pbody{stroke:var(--ink);stroke-width:1.5}
 .pline{stroke:var(--ink);stroke-width:1.5;fill:none}
 .pwheel{fill:var(--surface);stroke:var(--ink);stroke-width:1.5}
@@ -154,106 +33,12 @@ pre{margin:0;padding:0 0 6px;overflow-x:auto;font-family:var(--mono);font-size:1
 #prod.shipped{transform:translate(375px,0)}
 #pressArm{transition:transform .25s ease}
 .stamping #pressArm{transform:translateY(10px)}
-@media (prefers-reduced-motion:reduce){*,*::before,*::after{animation-duration:.01ms!important;transition-duration:.01ms!important}}
 </style>
-<style>body{margin:0}</style>
 </head>
 <body>
-<div class="wrap">
-  <header class="top">
-    <span class="brand">
-      <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="2" y="10" width="5" height="12" fill="currentColor"/><rect x="9" y="4" width="6" height="18" fill="currentColor"/><rect x="17" y="13" width="5" height="9" fill="var(--accent)"/></svg>
-      Runtime City
-    </span>
-    <span class="sep">/</span><span>Pattern Park</span>
-  </header>
+<div id="playroom"></div>
 
-  <section class="intro">
-    <h1>Factory Method</h1>
-    <p>Keep the workflow. Let a subclass decide what gets built.</p>
-  </section>
-
-  <nav class="rail" id="rail" aria-label="Playroom steps"></nav>
-
-  <div class="lesson">
-    <div>
-      <section class="story" id="story"></section>
-      <div class="stage">
-        <svg viewBox="0 0 600 280" role="img" aria-label="A workshop assembly line">
-          <defs>
-            <pattern id="grid" width="24" height="24" patternUnits="userSpaceOnUse"><path d="M24 0H0V24" class="gridline" fill="none"/></pattern>
-            <marker id="tip" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto"><path d="M0 0 L10 5 L0 10 z" fill="var(--hair)"/></marker>
-          </defs>
-          <rect width="600" height="280" fill="url(#grid)" opacity=".6"/>
-
-          <!-- belt -->
-          <line x1="30" y1="222" x2="570" y2="222" class="belt"/>
-          <g class="roller"><circle cx="60" cy="232" r="7"/><circle cx="130" cy="232" r="7"/><circle cx="200" cy="232" r="7"/><circle cx="270" cy="232" r="7"/><circle cx="340" cy="232" r="7"/><circle cx="410" cy="232" r="7"/><circle cx="480" cy="232" r="7"/><circle cx="550" cy="232" r="7"/></g>
-
-          <!-- shared workflow: never changes -->
-          <rect class="shared" x="236" y="150" width="298" height="60" rx="8"/>
-          <text class="tinyl" x="240" y="142">VehicleShop.Order() — shared steps, never edited</text>
-          <rect class="station" x="256" y="164" width="72" height="32" rx="4"/><text class="tiny" x="292" y="184">paint</text>
-          <rect class="station" x="348" y="164" width="72" height="32" rx="4"/><text class="tiny" x="384" y="184">test-drive</text>
-          <text class="tiny" x="482" y="184">deliver</text>
-          <path class="arrow" d="M440 180 H468"/>
-
-          <!-- creation station -->
-          <g id="createStation">
-            <text class="tiny" x="145" y="86">creation step</text>
-            <g id="pressArm">
-              <g id="switchBox">
-                <rect class="press" x="92" y="96" width="106" height="96" rx="6"/>
-                <g id="branches"></g>
-              </g>
-              <g id="slotBox">
-                <rect class="slot" x="92" y="112" width="106" height="64" rx="6"/>
-                <text class="slotlbl" x="145" y="139">CreateVehicle()</text>
-                <text class="slotlbl" x="145" y="156" style="opacity:.7">a hole</text>
-                <g id="die" class="out">
-                  <rect id="dieBlock" x="92" y="112" width="106" height="64" rx="6"/>
-                  <text id="dieLabel" class="dielbl" x="145" y="148">CarShop</text>
-                </g>
-              </g>
-            </g>
-            <text class="crash" id="crashText" x="145" y="210">unknown type — crash</text>
-          </g>
-
-          <!-- product -->
-          <g transform="translate(145,206)">
-            <g id="prod" class="hidden">
-              <g id="glyphs"></g>
-              <text class="plabel" id="prodLabel" y="26">Car</text>
-            </g>
-          </g>
-        </svg>
-        <div class="controls" id="controls"></div>
-        <div class="status" id="status"></div>
-      </div>
-      <div class="nav">
-        <button id="prev"></button>
-        <button id="next" class="fwd"></button>
-      </div>
-    </div>
-
-    <aside>
-      <div class="code">
-        <div class="langs" id="langs">
-          <button data-l="cs">C#</button><button data-l="java">Java</button><button data-l="ts">TypeScript</button>
-        </div>
-        <div id="files"></div>
-        <div class="codenote" id="codenote"></div>
-      </div>
-    </aside>
-  </div>
-
-  <section class="city">
-    <span class="k">Pattern Park</span>
-    <a href="../dependency-injection/">Dependency Injection</a> · <b class="now">Factory Method</b> · Strategy · Observer · Singleton
-    <br>Every concept in Runtime City is a playroom: see it, break it, fix it, then say it in an interview.
-  </section>
-</div>
-
+<script src="../../assets/playroom.js"></script>
 <script>
 const PROD = {
   car:   {cls:'Car',         shop:'CarShop',   label:'Car',   color:'var(--p-car)',   out:'Car built, painted, test-driven, delivered.'},
@@ -261,149 +46,181 @@ const PROD = {
   bike:  {cls:'Bike',        shop:'BikeShop',  label:'Bike',  color:'var(--p-bike)',  out:'Bike built, painted, test-driven, delivered.'},
   fake:  {cls:'FakeVehicle', shop:'TestShop',  label:'Fake',  color:'var(--p-fake)',  out:'FakeVehicle: paint and test-drive recorded, nothing real built.'}
 };
-const STEPS = ['One product','Break it','Cut a hole','Add without editing','Which factory?','Interview check'];
 const VARIANTS = {simple:'Simple factory', method:'Factory Method', abstract:'Abstract Factory'};
 
-const S = {step:1, lang:'cs', handled:['car'], edits:0, cracked:false, fb:null, out:'',
-           fitted:false, prod:'car', lastReal:'car', shipped:new Set(), variant:'method', quiz:{}, seen:new Set([1])};
-try{ const l = localStorage.getItem('rc-lang'); if(l && ['cs','java','ts'].includes(l)) S.lang = l; }catch(e){}
+const STAGE = `
+<svg viewBox="0 0 600 280" role="img" aria-label="A workshop assembly line">
+  <defs>
+    <pattern id="grid" width="24" height="24" patternUnits="userSpaceOnUse"><path d="M24 0H0V24" class="gridline" fill="none"/></pattern>
+    <marker id="tip" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto"><path d="M0 0 L10 5 L0 10 z" fill="var(--hair)"/></marker>
+  </defs>
+  <rect width="600" height="280" fill="url(#grid)" opacity=".6"/>
 
-const $ = id => document.getElementById(id);
-const esc = s => s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+  <line x1="30" y1="222" x2="570" y2="222" class="belt"/>
+  <g class="roller"><circle cx="60" cy="232" r="7"/><circle cx="130" cy="232" r="7"/><circle cx="200" cy="232" r="7"/><circle cx="270" cy="232" r="7"/><circle cx="340" cy="232" r="7"/><circle cx="410" cy="232" r="7"/><circle cx="480" cy="232" r="7"/><circle cx="550" cy="232" r="7"/></g>
 
-/* ---------- code ---------- */
-function codeFiles(){
-  const L = S.lang, s = S.step;
-  const P = PROD[S.lastReal];
+  <rect class="shared" x="236" y="150" width="298" height="60" rx="8"/>
+  <text class="tinyl" x="240" y="142">VehicleShop.Order() — shared steps, never edited</text>
+  <rect class="station" x="256" y="164" width="72" height="32" rx="4"/><text class="tiny" x="292" y="184">paint</text>
+  <rect class="station" x="348" y="164" width="72" height="32" rx="4"/><text class="tiny" x="384" y="184">test-drive</text>
+  <text class="tiny" x="482" y="184">deliver</text>
+  <path class="arrow" d="M440 180 H468"/>
+
+  <g id="createStation">
+    <text class="tiny" x="145" y="86">creation step</text>
+    <g id="pressArm">
+      <g id="switchBox">
+        <rect class="press" x="92" y="96" width="106" height="96" rx="6"/>
+        <g id="branches"></g>
+      </g>
+      <g id="slotBox">
+        <rect class="slot" x="92" y="112" width="106" height="64" rx="6"/>
+        <text class="slotlbl" x="145" y="139">CreateVehicle()</text>
+        <text class="slotlbl" x="145" y="156" style="opacity:.7">a hole</text>
+        <g id="die" class="out">
+          <rect id="dieBlock" x="92" y="112" width="106" height="64" rx="6"/>
+          <text id="dieLabel" class="fitlbl" x="145" y="148">CarShop</text>
+        </g>
+      </g>
+    </g>
+    <text class="crash" x="145" y="210">unknown type — crash</text>
+  </g>
+
+  <g transform="translate(145,206)">
+    <g id="prod" class="hidden">
+      <g id="glyphs"></g>
+      <text class="plabel" id="prodLabel" y="26">Car</text>
+    </g>
+  </g>
+</svg>`;
+
+const NOTES = {
+  1:'<b>The workflow is fine; the creation step is the problem.</b> Paint and test-drive apply to every vehicle, but <code>new Car()</code> pins the shop to one product.',
+  2:'<b>The switch grows forever.</b> Each new vehicle edits a class that has nothing to do with vehicles, and an unknown type only fails when the code runs.',
+  3:'<b>The creation step became a hole.</b> The base class keeps the workflow and calls a method it does not implement. That method is the factory method.',
+  4:'<b>New product, new file.</b> A subclass fills the hole; the shop is never reopened. A test shop can return a fake and put the shared workflow under test.',
+  5:'<b>Three different things share the word "factory".</b> Only the middle one is the Factory Method pattern, and interviewers do ask you to tell them apart.',
+  6:'<b>Interview tip:</b> name the hole. "The base class calls an abstract creation method; subclasses decide the concrete product." Then mention how it removed a switch.'
+};
+
+function files(S){
+  const L = S.lang, s = S.step, P = PROD[S.lastReal];
 
   if(s <= 2){
-    const grew = S.handled.length > 1;
-    if(s === 1){
-      return {
-        cs:[{n:'VehicleShop.cs', lines:[
-          ['public class VehicleShop'],['{'],
-          ['    public Vehicle Order()'],['    {'],
-          ['        var v = new Car();          // the one product, hard-coded','hl'],
-          ['        Paint(v); TestDrive(v);     // the shared steps'],
-          ['        return v;'],['    }'],['}']]}],
-        java:[{n:'VehicleShop.java', lines:[
-          ['public class VehicleShop {'],
-          ['    public Vehicle order() {'],
-          ['        Vehicle v = new Car();       // the one product, hard-coded','hl'],
-          ['        paint(v); testDrive(v);      // the shared steps'],
-          ['        return v;'],['    }'],['}']]}],
-        ts:[{n:'vehicle-shop.ts', lines:[
-          ['export class VehicleShop {'],
-          ['  order(): Vehicle {'],
-          ['    const v = new Car();          // the one product, hard-coded','hl'],
-          ['    this.paint(v); this.testDrive(v);   // the shared steps'],
-          ['    return v;'],['  }'],['}']]}]
-      }[L];
-    }
+    if(s === 1) return {
+      cs:[{n:'VehicleShop.cs', lines:[['public class VehicleShop'],['{'],
+        ['    public Vehicle Order()'],['    {'],
+        ['        var v = new Car();          // the one product, hard-coded','hl'],
+        ['        Paint(v); TestDrive(v);     // the shared steps'],
+        ['        return v;'],['    }'],['}']]}],
+      java:[{n:'VehicleShop.java', lines:[['public class VehicleShop {'],
+        ['    public Vehicle order() {'],
+        ['        Vehicle v = new Car();       // the one product, hard-coded','hl'],
+        ['        paint(v); testDrive(v);      // the shared steps'],
+        ['        return v;'],['    }'],['}']]}],
+      ts:[{n:'vehicle-shop.ts', lines:[['export class VehicleShop {'],
+        ['  order(): Vehicle {'],
+        ['    const v = new Car();          // the one product, hard-coded','hl'],
+        ['    this.paint(v); this.testDrive(v);   // the shared steps'],
+        ['    return v;'],['  }'],['}']]}]
+    }[L];
+
     const has = t => S.handled.includes(t);
-    const bad = t => has(t) ? 'bad' : '';
+    const grew = S.handled.length > 1;
     if(L === 'cs') return [{n:'VehicleShop.cs', lines:[
       ['public class VehicleShop'],['{'],
-      ['    public Vehicle Order(string type)', grew?'bad':''],
-      ['    {'],
+      ['    public Vehicle Order(string type)', grew ? 'bad' : ''],['    {'],
       ['        Vehicle v = type switch'],['        {'],
       ['            "car"   => new Car(),'],
-      ...(has('truck')?[['            "truck" => new Truck(),','bad']]:[]),
-      ...(has('bike')?[['            "bike"  => new Bike(),','bad']]:[]),
-      ['            _ => throw new ArgumentException($"Unknown type: {type}")', S.cracked?'bad':''],
+      ...(has('truck') ? [['            "truck" => new Truck(),','bad']] : []),
+      ...(has('bike') ? [['            "bike"  => new Bike(),','bad']] : []),
+      ['            _ => throw new ArgumentException($"Unknown type: {type}")', S.cracked ? 'bad' : ''],
       ['        };'],
       ['        Paint(v); TestDrive(v);     // still fine, still shared'],
       ['        return v;'],['    }'],['}']]}];
     if(L === 'java') return [{n:'VehicleShop.java', lines:[
       ['public class VehicleShop {'],
-      ['    public Vehicle order(String type) {', grew?'bad':''],
+      ['    public Vehicle order(String type) {', grew ? 'bad' : ''],
       ['        Vehicle v;'],
       ['        if (type.equals("car")) v = new Car();'],
-      ...(has('truck')?[['        else if (type.equals("truck")) v = new Truck();','bad']]:[]),
-      ...(has('bike')?[['        else if (type.equals("bike")) v = new Bike();','bad']]:[]),
-      ['        else throw new IllegalArgumentException("Unknown type: " + type);', S.cracked?'bad':''],
+      ...(has('truck') ? [['        else if (type.equals("truck")) v = new Truck();','bad']] : []),
+      ...(has('bike') ? [['        else if (type.equals("bike")) v = new Bike();','bad']] : []),
+      ['        else throw new IllegalArgumentException("Unknown type: " + type);', S.cracked ? 'bad' : ''],
       ['        paint(v); testDrive(v);      // still fine, still shared'],
       ['        return v;'],['    }'],['}']]}];
     return [{n:'vehicle-shop.ts', lines:[
       ['export class VehicleShop {'],
-      ['  order(type: string): Vehicle {', grew?'bad':''],
+      ['  order(type: string): Vehicle {', grew ? 'bad' : ''],
       ['    let v: Vehicle;'],
       ['    if (type === "car") v = new Car();'],
-      ...(has('truck')?[['    else if (type === "truck") v = new Truck();','bad']]:[]),
-      ...(has('bike')?[['    else if (type === "bike") v = new Bike();','bad']]:[]),
-      ['    else throw new Error(`Unknown type: ${type}`);', S.cracked?'bad':''],
+      ...(has('truck') ? [['    else if (type === "truck") v = new Truck();','bad']] : []),
+      ...(has('bike') ? [['    else if (type === "bike") v = new Bike();','bad']] : []),
+      ['    else throw new Error(`Unknown type: ${type}`);', S.cracked ? 'bad' : ''],
       ['    this.paint(v); this.testDrive(v);   // still fine, still shared'],
       ['    return v;'],['  }'],['}']]}];
   }
 
-  if(s === 5 && S.variant === 'simple'){
-    return {
-      cs:[{n:'VehicleFactory.cs', lines:[
-        ['public static class VehicleFactory        // a simple factory, not the pattern'],['{'],
-        ['    public static Vehicle Create(string type) => type switch','bad'],
-        ['    {'],['        "car"   => new Car(),'],['        "truck" => new Truck(),'],
-        ['        _ => throw new ArgumentException(type)   // every new product edits this file','bad'],
-        ['    };'],['}']]}],
-      java:[{n:'VehicleFactory.java', lines:[
-        ['public final class VehicleFactory {        // a simple factory, not the pattern'],
-        ['    public static Vehicle create(String type) {','bad'],
-        ['        if (type.equals("car")) return new Car();'],
-        ['        if (type.equals("truck")) return new Truck();'],
-        ['        throw new IllegalArgumentException(type);   // every new product edits this file','bad'],
-        ['    }'],['}']]}],
-      ts:[{n:'vehicle-factory.ts', lines:[
-        ['export function createVehicle(type: string): Vehicle {   // a simple factory, not the pattern','bad'],
-        ['  if (type === "car") return new Car();'],
-        ['  if (type === "truck") return new Truck();'],
-        ['  throw new Error(type);   // every new product edits this function','bad'],
-        ['}']]}]
-    }[L];
-  }
+  if(s === 5 && S.variant === 'simple') return {
+    cs:[{n:'VehicleFactory.cs', lines:[
+      ['public static class VehicleFactory        // a simple factory, not the pattern'],['{'],
+      ['    public static Vehicle Create(string type) => type switch','bad'],['    {'],
+      ['        "car"   => new Car(),'],['        "truck" => new Truck(),'],
+      ['        _ => throw new ArgumentException(type)   // every new product edits this file','bad'],
+      ['    };'],['}']]}],
+    java:[{n:'VehicleFactory.java', lines:[
+      ['public final class VehicleFactory {        // a simple factory, not the pattern'],
+      ['    public static Vehicle create(String type) {','bad'],
+      ['        if (type.equals("car")) return new Car();'],
+      ['        if (type.equals("truck")) return new Truck();'],
+      ['        throw new IllegalArgumentException(type);   // every new product edits this file','bad'],
+      ['    }'],['}']]}],
+    ts:[{n:'vehicle-factory.ts', lines:[
+      ['export function createVehicle(type: string): Vehicle {   // a simple factory, not the pattern','bad'],
+      ['  if (type === "car") return new Car();'],
+      ['  if (type === "truck") return new Truck();'],
+      ['  throw new Error(type);   // every new product edits this function','bad'],
+      ['}']]}]
+  }[L];
 
-  if(s === 5 && S.variant === 'abstract'){
-    return {
-      cs:[{n:'IVehiclePlant.cs', lines:[
-        ['public interface IVehiclePlant           // a FAMILY of products'],['{'],
-        ['    Vehicle CreateVehicle();','hl'],
-        ['    Charger CreateCharger();             // related product, must match','hl'],
-        ['}']]},
-        {n:'ElectricPlant.cs', lines:[
-        ['public class ElectricPlant : IVehiclePlant'],['{'],
-        ['    public Vehicle CreateVehicle() => new ElectricCar();'],
-        ['    public Charger CreateCharger() => new FastCharger();   // never a petrol pump'],['}']]}],
-      java:[{n:'VehiclePlant.java', lines:[
-        ['public interface VehiclePlant {           // a FAMILY of products'],
-        ['    Vehicle createVehicle();','hl'],
-        ['    Charger createCharger();              // related product, must match','hl'],
-        ['}']]},
-        {n:'ElectricPlant.java', lines:[
-        ['public class ElectricPlant implements VehiclePlant {'],
-        ['    public Vehicle createVehicle() { return new ElectricCar(); }'],
-        ['    public Charger createCharger() { return new FastCharger(); }   // never a petrol pump'],['}']]}],
-      ts:[{n:'vehicle-plant.ts', lines:[
-        ['export interface VehiclePlant {           // a FAMILY of products'],
-        ['  createVehicle(): Vehicle;','hl'],
-        ['  createCharger(): Charger;               // related product, must match','hl'],
-        ['}'],[''],
-        ['export class ElectricPlant implements VehiclePlant {'],
-        ['  createVehicle() { return new ElectricCar(); }'],
-        ['  createCharger() { return new FastCharger(); }   // never a petrol pump'],['}']]}]
-    }[L];
-  }
+  if(s === 5 && S.variant === 'abstract') return {
+    cs:[{n:'IVehiclePlant.cs', lines:[
+      ['public interface IVehiclePlant           // a FAMILY of products'],['{'],
+      ['    Vehicle CreateVehicle();','hl'],
+      ['    Charger CreateCharger();             // related product, must match','hl'],['}']]},
+      {n:'ElectricPlant.cs', lines:[
+      ['public class ElectricPlant : IVehiclePlant'],['{'],
+      ['    public Vehicle CreateVehicle() => new ElectricCar();'],
+      ['    public Charger CreateCharger() => new FastCharger();   // never a petrol pump'],['}']]}],
+    java:[{n:'VehiclePlant.java', lines:[
+      ['public interface VehiclePlant {           // a FAMILY of products'],
+      ['    Vehicle createVehicle();','hl'],
+      ['    Charger createCharger();              // related product, must match','hl'],['}']]},
+      {n:'ElectricPlant.java', lines:[
+      ['public class ElectricPlant implements VehiclePlant {'],
+      ['    public Vehicle createVehicle() { return new ElectricCar(); }'],
+      ['    public Charger createCharger() { return new FastCharger(); }   // never a petrol pump'],['}']]}],
+    ts:[{n:'vehicle-plant.ts', lines:[
+      ['export interface VehiclePlant {           // a FAMILY of products'],
+      ['  createVehicle(): Vehicle;','hl'],
+      ['  createCharger(): Charger;               // related product, must match','hl'],['}'],[''],
+      ['export class ElectricPlant implements VehiclePlant {'],
+      ['  createVehicle() { return new ElectricCar(); }'],
+      ['  createCharger() { return new FastCharger(); }   // never a petrol pump'],['}']]}]
+  }[L];
 
-  /* steps 3, 4, 6 and step 5 "method": the factory method itself */
-  const fresh = S.step === 3;
+  /* steps 3, 4, 6 and step 5 "method": the pattern itself */
+  const fresh = s === 3, isNew = s >= 4 ? 'new' : '';
   if(L === 'cs'){
     const F = [
       {n:'VehicleShop.cs', lines:[
         ['public abstract class VehicleShop            // the workflow, written once'],['{'],
-        ['    protected abstract Vehicle CreateVehicle();   // the factory method: a hole', fresh?'new':'hl'],['',''],
+        ['    protected abstract Vehicle CreateVehicle();   // the factory method: a hole', fresh ? 'new' : 'hl'],[''],
         ['    public Vehicle Order()'],['    {'],
         ['        var v = CreateVehicle();             // subclass fills this in'],
         ['        Paint(v); TestDrive(v);'],
         ['        return v;'],['    }'],['}']]},
       {n:`${P.shop}.cs`, lines:[
-        [`public class ${P.shop} : VehicleShop`, S.step>=4?'new':''],['{'],
+        [`public class ${P.shop} : VehicleShop`, isNew],['{'],
         [`    protected override Vehicle CreateVehicle() => new ${P.cls}();`,'hl'],['}']]}
     ];
     if(S.prod === 'fake') F.push({n:'ShopTests.cs', lines:[
@@ -417,13 +234,13 @@ function codeFiles(){
     const F = [
       {n:'VehicleShop.java', lines:[
         ['public abstract class VehicleShop {          // the workflow, written once'],
-        ['    protected abstract Vehicle createVehicle();   // the factory method: a hole', fresh?'new':'hl'],['',''],
+        ['    protected abstract Vehicle createVehicle();   // the factory method: a hole', fresh ? 'new' : 'hl'],[''],
         ['    public Vehicle order() {'],
         ['        Vehicle v = createVehicle();         // subclass fills this in'],
         ['        paint(v); testDrive(v);'],
         ['        return v;'],['    }'],['}']]},
       {n:`${P.shop}.java`, lines:[
-        [`public class ${P.shop} extends VehicleShop {`, S.step>=4?'new':''],
+        [`public class ${P.shop} extends VehicleShop {`, isNew],
         [`    protected Vehicle createVehicle() { return new ${P.cls}(); }`,'hl'],['}']]}
     ];
     if(S.prod === 'fake') F.push({n:'ShopTest.java', lines:[
@@ -436,13 +253,13 @@ function codeFiles(){
   const F = [
     {n:'vehicle-shop.ts', lines:[
       ['export abstract class VehicleShop {          // the workflow, written once'],
-      ['  protected abstract createVehicle(): Vehicle;   // the factory method: a hole', fresh?'new':'hl'],['',''],
+      ['  protected abstract createVehicle(): Vehicle;   // the factory method: a hole', fresh ? 'new' : 'hl'],[''],
       ['  order(): Vehicle {'],
       ['    const v = this.createVehicle();         // subclass fills this in'],
       ['    this.paint(v); this.testDrive(v);'],
       ['    return v;'],['  }'],['}']]},
     {n:`${P.shop.replace(/([a-z])([A-Z])/g,'$1-$2').toLowerCase()}.ts`, lines:[
-      [`export class ${P.shop} extends VehicleShop {`, S.step>=4?'new':''],
+      [`export class ${P.shop} extends VehicleShop {`, isNew],
       [`  protected createVehicle() { return new ${P.cls}(); }`,'hl'],['}']]}
   ];
   if(S.prod === 'fake') F.push({n:'shop.test.ts', lines:[
@@ -453,296 +270,229 @@ function codeFiles(){
   return F;
 }
 
-const KW = new Set('public private protected abstract override final static class interface extends implements new var let const return void throw if else switch this export import function test expect true false'.split(' '));
-function hl(src){
-  const re = /(\/\/.*$)|("(?:[^"\\]|\\.)*"|`(?:[^`\\]|\\.)*`)|(@\w+|\[Fact\])|([A-Za-z_]\w*)/g;
-  let out='', i=0, m;
-  while((m = re.exec(src))){
-    out += esc(src.slice(i, m.index));
-    const t = m[0];
-    if(m[1]) out += `<span class="t-com">${esc(t)}</span>`;
-    else if(m[2]) out += `<span class="t-str">${esc(t)}</span>`;
-    else if(m[3]) out += `<span class="t-attr">${esc(t)}</span>`;
-    else if(KW.has(t)) out += `<span class="t-kw">${t}</span>`;
-    else if(/^[A-Z]/.test(t)) out += `<span class="t-type">${t}</span>`;
-    else out += t;
-    i = re.lastIndex;
-  }
-  return out + esc(src.slice(i));
-}
-
-const NOTES = {
-  1:'<b>The workflow is fine; the creation step is the problem.</b> Paint and test-drive apply to every vehicle, but <code>new Car()</code> pins the shop to one product.',
-  2:'<b>The switch grows forever.</b> Each new vehicle edits a class that has nothing to do with vehicles, and an unknown type only fails when the code runs.',
-  3:'<b>The creation step became a hole.</b> The base class keeps the workflow and calls a method it does not implement. That method is the factory method.',
-  4:'<b>New product, new file.</b> A subclass fills the hole; the shop is never reopened. A test shop can return a fake and put the shared workflow under test.',
-  5:'<b>Three different things share the word "factory".</b> Only the middle one is the Factory Method pattern, and interviewers do ask you to tell them apart.',
-  6:'<b>Interview tip:</b> name the hole. "The base class calls an abstract creation method; subclasses decide the concrete product." Then mention how it removed a switch.'
-};
-
-/* ---------- story ---------- */
-function story(){
-  const s = S.step;
-  const fb = S.fb ? `<p class="tell ${S.fb.k}">${S.fb.t}</p>` : '';
-  const T = {
-    1:`<h2>One shop, one vehicle</h2><p>The shop takes an order: build a <code>Car</code>, paint it, test-drive it, deliver it. Three of those four steps are the same for every vehicle. Run the line and watch it work.</p>`,
-    2:`<h2>Now sell trucks and bikes</h2><p>The obvious fix is a <code>switch</code> on a type string. Add the new vehicles, then order something nobody added yet.</p>${fb}`,
-    3:`<h2>Cut a hole where the decision was</h2><p>The shop becomes <b>abstract</b>. It keeps the shared workflow and calls <code>CreateVehicle()</code>, a method it deliberately does not implement. A subclass fills the hole, so the shop never chooses a product again.</p>${fb||'<p>The hole is empty. Fit a shop into it.</p>'}`,
-    4:`<h2>Add a product without editing the shop</h2><p>Each vehicle gets its own small subclass. The base shop is never reopened, so there is no switch to forget and nothing fails at run time. Try the test shop too: it returns a fake, which puts the shared workflow under test.</p>${fb}`,
-    5:`<h2>Three things called "factory"</h2><p>Interviewers separate these on purpose. Switch between them and watch what moves: <b>who decides</b> the product, and <b>what you edit</b> to add one.</p>${fb||'<p>Currently showing: <b>'+VARIANTS[S.variant]+'</b>.</p>'}`,
-    6:`<h2>Interview check</h2>${quizHTML()}`
-  };
-  $('story').innerHTML = T[s];
-  if(s===6) bindQuiz();
-}
-
-function controls(){
-  const s = S.step; let h = '';
-  const run = `<button class="btn primary" data-a="run" style="margin-left:auto">Run the line</button>`;
-  if(s===1) h = `<button class="btn primary" data-a="run">Run the line</button>`;
-  if(s===2){
-    const add = t => S.handled.includes(t) ? '' : `<button class="btn" data-a="add" data-t="${t}">Add ${PROD[t].label}</button>`;
-    h = add('truck') + add('bike') +
-        `<button class="btn" data-a="order" data-t="scooter">Order a Scooter</button>` +
-        Object.keys(PROD).filter(k => k!=='fake' && S.handled.includes(k)).map(k => `<button class="chip" data-o="${k}" aria-pressed="${S.prod===k}"><i style="background:${PROD[k].color}"></i>${PROD[k].label}</button>`).join('') + run;
-  }
-  if(s===3) h = S.fitted ? `<button class="btn primary" data-a="run">Run the line</button>` : `<button class="btn primary" data-a="fit" data-t="car">Fit CarShop into the hole</button>`;
-  if(s===4) h = Object.entries(PROD).map(([k,p]) => `<button class="chip" data-f="${k}" aria-pressed="${S.prod===k}"><i style="background:${p.color}"></i>${p.shop}</button>`).join('') + run;
-  if(s===5) h = Object.entries(VARIANTS).map(([k,v]) => `<button class="chip" data-v="${k}" aria-pressed="${S.variant===k}"><i style="background:${k==='method'?'var(--accent)':'var(--muted)'}"></i>${v}</button>`).join('') + run;
-  if(s===6) h = `<button class="btn" data-a="run">Run the line once more</button>`;
-  $('controls').innerHTML = h;
-}
-
-function status(){
-  const s = S.step;
-  let line;
-  if(s<=2){
-    const b = S.handled.length;
-    line = `Shop knows <b>${b}</b> vehicle${b===1?'':'s'} · edited <b>${S.edits}</b> time${S.edits===1?'':'s'}`;
-    line += S.cracked ? `<span class="warn"> · unknown type crashed at run time</span>`
-                      : `<span class="warn"> · every new vehicle edits the shop</span>`;
-  } else if(s===5){
-    const who = {simple:'one switch decides · edit that file per product',
-                 method:'the subclass decides · add a class per product',
-                 abstract:'the plant decides a whole family · add a plant per family'}[S.variant];
-    line = `${VARIANTS[S.variant]}: <b>${who}</b>`;
-  } else {
-    const n = S.shipped.size;
-    line = `Shop edits since the hole <b>0</b><span class="ok"> · ${n} shop${n===1?'':'s'} plugged in · fakes welcome</span>`;
-  }
-  $('status').innerHTML = line + (S.out ? `<span class="out">${esc(S.out)}</span>` : '');
-}
-
-function code(){
-  document.querySelectorAll('#langs button').forEach(b => b.setAttribute('aria-pressed', b.dataset.l===S.lang));
-  $('files').innerHTML = codeFiles().map(f => `<div><div class="fname">${f.n}</div><pre><code>${f.lines.map(([t,k]) => `<span class="ln ${k||''}">${hl(t)||' '}</span>`).join('')}</code></pre></div>`).join('');
-  $('codenote').innerHTML = NOTES[S.step];
-}
-
-/* ---------- stage ---------- */
 const NS = 'http://www.w3.org/2000/svg';
 function glyph(kind){
   const g = document.createElementNS(NS,'g');
-  const el = (tag, attrs, cls) => { const e = document.createElementNS(NS,tag); for(const a in attrs) e.setAttribute(a,attrs[a]); if(cls) e.setAttribute('class',cls); g.appendChild(e); return e; };
+  const el = (tag, attrs, cls) => {
+    const e = document.createElementNS(NS, tag);
+    for(const a in attrs) e.setAttribute(a, attrs[a]);
+    if(cls) e.setAttribute('class', cls);
+    g.appendChild(e); return e;
+  };
   const col = PROD[kind] ? PROD[kind].color : 'var(--p-extra)';
-  if(kind==='car'){
+  if(kind === 'car'){
     el('rect',{x:-24,y:-10,width:48,height:16,rx:5,fill:col},'pbody');
     el('path',{d:'M-13 -10 L-7 -20 L9 -20 L15 -10 Z',fill:'var(--surface)'},'pbody');
     el('circle',{cx:-13,cy:8,r:5},'pwheel'); el('circle',{cx:13,cy:8,r:5},'pwheel');
-  } else if(kind==='truck'){
+  } else if(kind === 'truck'){
     el('rect',{x:-26,y:-18,width:20,height:24,rx:3,fill:col},'pbody');
     el('rect',{x:-4,y:-12,width:30,height:18,rx:2,fill:'var(--surface)'},'pbody');
     el('circle',{cx:-17,cy:8,r:5},'pwheel'); el('circle',{cx:6,cy:8,r:5},'pwheel'); el('circle',{cx:20,cy:8,r:5},'pwheel');
-  } else if(kind==='bike'){
+  } else if(kind === 'bike'){
     el('circle',{cx:-14,cy:4,r:9,fill:'none'},'pwheel'); el('circle',{cx:14,cy:4,r:9,fill:'none'},'pwheel');
     el('path',{d:'M-14 4 L0 -10 L14 4 M0 -10 L4 -16',stroke:col,fill:'none','stroke-width':2},'pline');
-  } else if(kind==='fake'){
+  } else if(kind === 'fake'){
     el('rect',{x:-24,y:-12,width:48,height:22,rx:3,fill:'none',stroke:col,'stroke-dasharray':'4 3'},'pline');
-  } else { /* charger */
+  } else {
     el('rect',{x:-9,y:-14,width:18,height:26,rx:3,fill:col},'pbody');
     el('path',{d:'M-3 -6 L3 0 L-3 6',stroke:'var(--surface)',fill:'none','stroke-width':2},'pline');
   }
   return g;
 }
 
-function stage(){
+const P = Playroom({
+  district:'Pattern Park',
+  title:'Factory Method',
+  dek:'Keep the workflow. Let a subclass decide what gets built.',
+  steps:['One product','Break it','Cut a hole','Add without editing','Which factory?','Interview check'],
+  stage:STAGE,
+  park:{current:'Factory Method', items:[
+    {label:'Dependency Injection', href:'../dependency-injection/'}, {label:'Factory Method'},
+    {label:'Strategy'}, {label:'Observer'}, {label:'Singleton'}]},
+
+  state:{handled:['car'], edits:0, cracked:false, fitted:false,
+         prod:'car', lastReal:'car', shipped:new Set(), variant:'method'},
+
+  story(S, api){
+    const fb = api.fb();
+    return {
+      1:`<h2>One shop, one vehicle</h2><p>The shop takes an order: build a <code>Car</code>, paint it, test-drive it, deliver it. Three of those four steps are the same for every vehicle. Run the line and watch it work.</p>`,
+      2:`<h2>Now sell trucks and bikes</h2><p>The obvious fix is a <code>switch</code> on a type string. Add the new vehicles, then order something nobody added yet.</p>${fb}`,
+      3:`<h2>Cut a hole where the decision was</h2><p>The shop becomes <b>abstract</b>. It keeps the shared workflow and calls <code>CreateVehicle()</code>, a method it deliberately does not implement. A subclass fills the hole, so the shop never chooses a product again.</p>${fb || '<p>The hole is empty. Fit a shop into it.</p>'}`,
+      4:`<h2>Add a product without editing the shop</h2><p>Each vehicle gets its own small subclass. The base shop is never reopened, so there is no switch to forget and nothing fails at run time. Try the test shop too: it returns a fake, which puts the shared workflow under test.</p>${fb}`,
+      5:`<h2>Three things called "factory"</h2><p>Interviewers separate these on purpose. Switch between them and watch what moves: <b>who decides</b> the product, and <b>what you edit</b> to add one.</p>${fb || '<p>Currently showing: <b>' + VARIANTS[S.variant] + '</b>.</p>'}`,
+      6:`<h2>Interview check</h2>${api.quizHTML()}`
+    }[S.step];
+  },
+
+  controls(S){
+    const s = S.step;
+    const run = `<button class="btn primary" data-a="run" style="margin-left:auto">Run the line</button>`;
+    if(s === 1) return `<button class="btn primary" data-a="run">Run the line</button>`;
+    if(s === 2){
+      const add = t => S.handled.includes(t) ? '' : `<button class="btn" data-a="add" data-t="${t}">Add ${PROD[t].label}</button>`;
+      return add('truck') + add('bike') +
+        `<button class="btn" data-a="order">Order a Scooter</button>` +
+        Object.keys(PROD).filter(k => k !== 'fake' && S.handled.includes(k)).map(k =>
+          `<button class="chip" data-o="${k}" aria-pressed="${S.prod === k}"><i style="background:${PROD[k].color}"></i>${PROD[k].label}</button>`).join('') + run;
+    }
+    if(s === 3) return S.fitted
+      ? `<button class="btn primary" data-a="run">Run the line</button>`
+      : `<button class="btn primary" data-a="fit">Fit CarShop into the hole</button>`;
+    if(s === 5) return Object.entries(VARIANTS).map(([k, v]) =>
+      `<button class="chip" data-v="${k}" aria-pressed="${S.variant === k}"><i style="background:${k === 'method' ? 'var(--accent)' : 'var(--muted)'}"></i>${v}</button>`).join('') + run;
+    return Object.entries(PROD).map(([k, p]) =>
+      `<button class="chip" data-f="${k}" aria-pressed="${S.prod === k}"><i style="background:${p.color}"></i>${p.shop}</button>`).join('') + run;
+  },
+
+  statusLine(S){
+    const s = S.step;
+    if(s <= 2){
+      const b = S.handled.length;
+      return `Shop knows <b>${b}</b> vehicle${b === 1 ? '' : 's'} · edited <b>${S.edits}</b> time${S.edits === 1 ? '' : 's'}` +
+        (S.cracked ? `<span class="warn"> · unknown type crashed at run time</span>`
+                   : `<span class="warn"> · every new vehicle edits the shop</span>`);
+    }
+    if(s === 5) return `${VARIANTS[S.variant]}: <b>${{
+      simple:'one switch decides · edit that file per product',
+      method:'the subclass decides · add a class per product',
+      abstract:'the plant decides a whole family · add a plant per family'}[S.variant]}</b>`;
+    const n = S.shipped.size;
+    return `Shop edits since the hole <b>0</b><span class="ok"> · ${n} shop${n === 1 ? '' : 's'} plugged in · fakes welcome</span>`;
+  },
+
+  files,
+  note: S => NOTES[S.step],
+
+  onStage(S){
+    const s = S.step, id = document.getElementById.bind(document);
+    const switchMode = s <= 2 || (s === 5 && S.variant === 'simple');
+    id('switchBox').style.display = switchMode ? '' : 'none';
+    id('slotBox').style.display = switchMode ? 'none' : '';
+    id('createStation').classList.toggle('cracked', S.cracked && s <= 2);
+
+    if(switchMode){
+      const list = s <= 2 ? S.handled : ['car','truck'];
+      const rows = list.map((t, i) =>
+        `<text class="branch ${S.prod === t ? 'on' : ''}" x="104" y="${124 + i * 18}">if "${t}" → new ${PROD[t].cls}()</text>`).join('');
+      id('branches').innerHTML = rows +
+        `<text class="branch ${S.cracked ? 'miss' : ''}" x="104" y="${124 + list.length * 18}">else → throw</text>`;
+    } else {
+      const P = PROD[S.prod] || PROD.car;
+      id('dieBlock').setAttribute('fill', P.color);
+      id('dieBlock').setAttribute('stroke', S.prod === 'fake' ? 'var(--muted)' : 'none');
+      id('dieBlock').setAttribute('stroke-dasharray', S.prod === 'fake' ? '4 3' : '');
+      id('dieLabel').textContent = (s === 5 && S.variant === 'abstract') ? 'ElectricPlant' : P.shop;
+      id('die').classList.toggle('out', !(S.fitted || s >= 4));
+    }
+
+    const g = id('glyphs');
+    g.innerHTML = '';
+    const kind = (s === 5 && S.variant === 'abstract') ? 'car' : S.prod;
+    g.appendChild(glyph(kind));
+    if(s === 5 && S.variant === 'abstract'){
+      const extra = glyph('charger');
+      extra.setAttribute('transform','translate(44,-2)');
+      g.appendChild(extra);
+      id('prodLabel').textContent = 'ElectricCar + FastCharger';
+    } else {
+      id('prodLabel').textContent = PROD[kind] ? PROD[kind].cls : 'Vehicle';
+    }
+  },
+
+  onStep(S, n){
+    if(n <= 2 && !S.handled.includes(S.prod)) S.prod = 'car';
+    if(n === 3){ S.fitted = false; S.prod = 'car'; S.shipped.clear(); }
+    if(n >= 4 && !S.fitted){ S.fitted = true; S.prod = S.lastReal; S.shipped.add(S.prod); }
+    if(n === 5) S.variant = 'method';
+  },
+
+  onClick(S, b, api){
+    if(b.dataset.o){ S.prod = b.dataset.o; return; }
+    if(b.dataset.f){
+      S.prod = b.dataset.f; S.fitted = true; S.shipped.add(S.prod);
+      if(S.prod !== 'fake') S.lastReal = S.prod;
+      const p = PROD[S.prod];
+      api.tell('good', S.prod === 'fake'
+        ? '<b>The workflow itself is now testable.</b> TestShop fills the hole with a FakeVehicle, so a test can check that every order gets painted and test-driven without building anything real.'
+        : `<b>${p.shop} is one small file.</b> It overrides the factory method and nothing else. VehicleShop was not touched, and no switch had to learn about ${p.cls}.`);
+      api.out(`new ${p.shop}().Order() → ${p.cls}`);
+      api.replay('die', 'out');
+      return;
+    }
+    if(b.dataset.v){
+      S.variant = b.dataset.v;
+      api.tell(S.variant === 'simple' ? 'bad' : 'good', {
+        simple:'<b>A simple factory is not the Factory Method pattern.</b> One function decides for everyone, so adding a product still means editing that switch. Useful, but it is the step-2 problem in a nicer coat.',
+        method:'<b>This is the pattern.</b> The base class calls an abstract creation method; each subclass decides one concrete product. Adding a product adds a class.',
+        abstract:'<b>Abstract Factory creates a family.</b> One plant makes several related products that must match, like an electric car with a fast charger. Reach for it when products come in sets.'
+      }[S.variant]);
+      return;
+    }
+    const a = b.dataset.a;
+    if(a === 'run'){ runLine(S, api); return; }
+    if(a === 'add'){
+      const t = b.dataset.t;
+      S.handled.push(t); S.prod = t; S.lastReal = t; S.edits += 3;
+      api.tell('bad', `<b>${PROD[t].cls} works, but look where you typed it.</b> You edited <code>VehicleShop</code> again. The class that paints and test-drives now has an opinion about every vehicle that exists.`);
+      api.out(`edited VehicleShop: +3 lines for ${PROD[t].cls}`);
+      return;
+    }
+    if(a === 'order'){ S.prod = 'scooter'; crash(S, api); return; }
+    if(a === 'fit'){
+      S.fitted = true; S.prod = 'car'; S.lastReal = 'car'; S.shipped.add('car');
+      api.tell('good', '<b>CarShop fills the hole.</b> It overrides one method and inherits the whole workflow. <code>VehicleShop</code> still has no idea what a Car is.');
+      api.out('new CarShop().Order() → Car');
+      api.replay('die', 'out');
+      return;
+    }
+    return false;
+  },
+
+  reset(S){
+    Object.assign(S, {handled:['car'], edits:0, cracked:false, fitted:false,
+                      prod:'car', lastReal:'car', shipped:new Set(), variant:'method'});
+  },
+
+  quiz:[
+    {q:'In the Factory Method pattern, who decides which concrete product gets created?',
+     o:['The base class, in a switch statement','The subclass, by overriding the creation method','The caller, by passing a type string','A static helper class'], a:1,
+     w:'The base class calls a creation method it does not implement. Each subclass overrides it and returns one concrete product.'},
+    {q:'An interviewer shows you a ReportService with a switch that news up PdfExporter, CsvExporter and XlsExporter. What is the fix they want to hear?',
+     o:['Cache the exporters','Move creation behind an overridable method (or an injected exporter), so a new format adds a class instead of a branch','Rename the switch to a dictionary','Make the exporters static'], a:1,
+     w:'A dictionary is tidier but the service still owns the decision. Naming the growing switch as the problem, and closing it behind an abstraction, is the answer.'},
+    {q:'What is the difference between Factory Method and Abstract Factory?',
+     o:['They are the same pattern with different names','Factory Method creates one product through a subclass; Abstract Factory creates a family of related products through one object','Abstract Factory is the Java name for it','Factory Method only works with interfaces'], a:1,
+     w:'One hole, one product, filled by inheritance. Versus one factory object with several creation methods whose products must match each other.'},
+    {q:'Why is a static Create(string type) switch not the Factory Method pattern?',
+     o:['Because static methods are slow','Because nothing is overridden: the decision still lives in one file you edit for every new product','Because it needs an interface','Because it cannot throw'], a:1,
+     w:'That is a simple factory. It is a perfectly good tool, but the pattern is specifically about a subclass filling a creation hole left by the base class.'}
+  ],
+  soundbite:'"Factory Method puts object creation behind a method the base class declares but does not implement. The base class keeps the shared workflow, and each subclass decides which concrete product to return. I reach for it when a class is growing a switch over types: after the change, a new product is a new class, not another branch."'
+});
+
+function runLine(S, api){
   const s = S.step;
-  const switchMode = s<=2 || (s===5 && S.variant==='simple');
-  $('switchBox').style.display = switchMode ? '' : 'none';
-  $('slotBox').style.display = switchMode ? 'none' : '';
-  $('createStation').classList.toggle('cracked', S.cracked && s<=2);
-
-  if(switchMode){
-    const list = s<=2 ? S.handled : ['car','truck'];
-    const rows = list.map((t,i) => `<text class="branch ${S.prod===t?'on':''}" x="104" y="${124+i*18}">if "${t}" → new ${PROD[t].cls}()</text>`).join('');
-    const y = 124 + list.length*18;
-    $('branches').innerHTML = rows + `<text class="branch ${S.cracked?'miss':''}" x="104" y="${y}">else → throw</text>`;
-  } else {
-    const P = PROD[S.prod] || PROD.car;
-    $('dieBlock').setAttribute('fill', P.color);
-    $('dieBlock').setAttribute('stroke', S.prod==='fake' ? 'var(--muted)' : 'none');
-    $('dieBlock').setAttribute('stroke-dasharray', S.prod==='fake' ? '4 3' : '');
-    $('dieLabel').textContent = s===5 && S.variant==='abstract' ? 'ElectricPlant' : P.shop;
-    $('die').classList.toggle('out', !(S.fitted || s>=4));
-  }
-
-  const g = $('glyphs');
-  g.innerHTML = '';
-  const kind = (s===5 && S.variant==='abstract') ? 'car' : S.prod;
-  g.appendChild(glyph(kind));
-  if(s===5 && S.variant==='abstract'){
-    const extra = glyph('charger');
-    extra.setAttribute('transform','translate(44,-2)');
-    g.appendChild(extra);
-    $('prodLabel').textContent = 'ElectricCar + FastCharger';
-  } else {
-    $('prodLabel').textContent = PROD[kind] ? PROD[kind].cls : 'Vehicle';
-  }
-}
-
-function runLine(){
-  const s = S.step;
-  if(s<=2 && !S.handled.includes(S.prod)){ crash(S.prod); return; }
-  if(s===3 && !S.fitted){ S.out = 'The hole is empty: VehicleShop cannot be built yet.'; status(); return; }
-  const prod = $('prod'), st = $('createStation');
-  st.classList.add('stamping'); setTimeout(() => st.classList.remove('stamping'), 260);
+  if(s <= 2 && !S.handled.includes(S.prod)){ crash(S, api); return; }
+  if(s === 3 && !S.fitted){ api.out('The hole is empty: VehicleShop cannot be built yet.'); return; }
+  const prod = api.el('prod'), st = api.el('createStation');
+  st.classList.add('stamping');
+  setTimeout(() => st.classList.remove('stamping'), 260);
   prod.classList.remove('shipped'); prod.classList.add('hidden');
   setTimeout(() => { prod.classList.remove('hidden'); prod.classList.add('shipped'); }, 280);
   setTimeout(() => { prod.classList.add('hidden'); prod.classList.remove('shipped'); }, 1700);
-  const kind = (s===5 && S.variant==='abstract') ? 'car' : S.prod;
-  S.out = (s===5 && S.variant==='abstract')
+  if(s >= 3) S.shipped.add(S.prod);
+  const kind = (s === 5 && S.variant === 'abstract') ? 'car' : S.prod;
+  api.out(s === 5 && S.variant === 'abstract'
     ? 'ElectricPlant: ElectricCar + FastCharger, a matching pair.'
-    : PROD[kind].out;
-  if(s>=3) S.shipped.add(S.prod);
-  status();
+    : PROD[kind].out);
 }
-function crash(type){
+
+function crash(S, api){
   S.cracked = true;
-  S.fb = {k:'bad', t:`<b>Nothing told you a Scooter was missing.</b> The shop compiled fine and threw at run time. A switch on strings turns a missing product into a bug your customer finds.`};
-  S.out = `Order("scooter") → ArgumentException: Unknown type: scooter`;
-  story(); status(); stage();
+  api.tell('bad', '<b>Nothing told you a Scooter was missing.</b> The shop compiled fine and threw at run time. A switch on strings turns a missing product into a bug your customer finds.');
+  api.out('Order("scooter") → ArgumentException: Unknown type: scooter');
 }
-
-function rail(){
-  const r = $('rail');
-  r.innerHTML = STEPS.map((t,i) => {
-    const n = i+1;
-    return `<button data-s="${n}" ${n===S.step?'aria-current="step"':''} class="${S.seen.has(n)&&n!==S.step?'done':''}"><span class="n">${n}</span>${t}</button>`;
-  }).join('');
-  if(r.scrollWidth > r.clientWidth){
-    const cur = r.querySelector('[aria-current]');
-    if(cur) cur.scrollIntoView({block:'nearest', inline:'center'});
-  }
-  const p = $('prev'), n = $('next');
-  p.hidden = S.step === 1;
-  p.textContent = S.step > 1 ? `← ${STEPS[S.step-2]}` : '';
-  if(S.step < 6){ n.className = 'fwd'; n.textContent = `Next: ${STEPS[S.step]} →`; }
-  else { n.className = 'again'; n.textContent = 'Start the playroom again'; }
-}
-
-function render(){ rail(); story(); controls(); status(); stage(); code(); }
-
-/* ---------- actions ---------- */
-document.addEventListener('click', ev => {
-  const b = ev.target.closest('button'); if(!b) return;
-  if(b.dataset.s){ go(+b.dataset.s); return; }
-  if(b.dataset.l){ S.lang = b.dataset.l; try{ localStorage.setItem('rc-lang', S.lang); }catch(e){} code(); return; }
-  if(b.dataset.o){ S.prod = b.dataset.o; S.out=''; controls(); status(); stage(); code(); return; }
-  if(b.dataset.f){
-    S.prod = b.dataset.f; S.fitted = true; S.shipped.add(S.prod);
-    if(S.prod !== 'fake') S.lastReal = S.prod;
-    const P = PROD[S.prod];
-    S.fb = S.prod === 'fake'
-      ? {k:'good', t:'<b>The workflow itself is now testable.</b> TestShop fills the hole with a FakeVehicle, so a test can check that every order gets painted and test-driven without building anything real.'}
-      : {k:'good', t:`<b>${P.shop} is one small file.</b> It overrides the factory method and nothing else. VehicleShop was not touched, and no switch had to learn about ${P.cls}.`};
-    S.out = `new ${P.shop}().Order() → ${P.cls}`;
-    const die = $('die'); die.classList.add('out'); void die.getBBox();
-    requestAnimationFrame(() => requestAnimationFrame(stage));
-    story(); controls(); status(); code(); return;
-  }
-  if(b.dataset.v){
-    S.variant = b.dataset.v; S.out = '';
-    S.fb = {
-      simple:{k:'bad', t:'<b>A simple factory is not the Factory Method pattern.</b> One function decides for everyone, so adding a product still means editing that switch. Useful, but it is the step-2 problem in a nicer coat.'},
-      method:{k:'good', t:'<b>This is the pattern.</b> The base class calls an abstract creation method; each subclass decides one concrete product. Adding a product adds a class.'},
-      abstract:{k:'good', t:'<b>Abstract Factory creates a family.</b> One plant makes several related products that must match, like an electric car with a fast charger. Reach for it when products come in sets.'}
-    }[S.variant];
-    story(); controls(); status(); stage(); code(); return;
-  }
-  const a = b.dataset.a;
-  if(a==='run') runLine();
-  if(a==='add'){
-    const t = b.dataset.t;
-    S.handled.push(t); S.prod = t; S.lastReal = t; S.edits += 3;
-    S.fb = {k:'bad', t:`<b>${PROD[t].cls} works, but look where you typed it.</b> You edited <code>VehicleShop</code> again. The class that paints and test-drives now has an opinion about every vehicle that exists.`};
-    S.out = `edited VehicleShop: +3 lines for ${PROD[t].cls}`;
-    render();
-  }
-  if(a==='order'){ S.prod = 'scooter'; crash('scooter'); controls(); }
-  if(a==='fit'){
-    S.fitted = true; S.prod = 'car'; S.lastReal = 'car'; S.shipped.add('car');
-    S.fb = {k:'good', t:'<b>CarShop fills the hole.</b> It overrides one method and inherits the whole workflow. <code>VehicleShop</code> still has no idea what a Car is.'};
-    S.out = 'new CarShop().Order() → Car';
-    const die = $('die'); die.classList.add('out'); void die.getBBox();
-    requestAnimationFrame(() => requestAnimationFrame(stage));
-    story(); controls(); status(); code();
-  }
-});
-$('prev').onclick = () => go(S.step-1);
-$('next').onclick = () => {
-  if(S.step < 6) return go(S.step+1);
-  Object.assign(S, {handled:['car'], edits:0, cracked:false, fitted:false, prod:'car',
-                    lastReal:'car', shipped:new Set(), variant:'method', quiz:{}, seen:new Set([1])});
-  go(1);
-  window.scrollTo({top:0, behavior:'smooth'});
-};
-
-function go(n){
-  if(n<1 || n>6) return;
-  S.step = n; S.seen.add(n); S.fb = null; S.out = '';
-  if(n<=2 && !S.handled.includes(S.prod)) S.prod = 'car';
-  if(n===3){ S.fitted = false; S.prod = 'car'; S.shipped.clear(); }
-  if(n>=4 && !S.fitted){ S.fitted = true; S.prod = S.lastReal; S.shipped.add(S.prod); }
-  if(n===5) S.variant = 'method';
-  render();
-  if(window.innerWidth < 920) $('story').scrollIntoView({behavior:'smooth', block:'start'});
-}
-
-/* ---------- quiz ---------- */
-const QUIZ = [
-  {q:'In the Factory Method pattern, who decides which concrete product gets created?',
-   o:['The base class, in a switch statement','The subclass, by overriding the creation method','The caller, by passing a type string','A static helper class'], a:1,
-   w:'The base class calls a creation method it does not implement. Each subclass overrides it and returns one concrete product.'},
-  {q:'An interviewer shows you a ReportService with a switch that news up PdfExporter, CsvExporter and XlsExporter. What is the fix they want to hear?',
-   o:['Cache the exporters','Move creation behind an overridable method (or an injected exporter), so a new format adds a class instead of a branch','Rename the switch to a dictionary','Make the exporters static'], a:1,
-   w:'A dictionary is tidier but the service still owns the decision. Naming the growing switch as the problem, and closing it behind an abstraction, is the answer.'},
-  {q:'What is the difference between Factory Method and Abstract Factory?',
-   o:['They are the same pattern with different names','Factory Method creates one product through a subclass; Abstract Factory creates a family of related products through one object','Abstract Factory is the Java name for it','Factory Method only works with interfaces'], a:1,
-   w:'One hole, one product, filled by inheritance. Versus one factory object with several creation methods whose products must match each other.'},
-  {q:'Why is a static Create(string type) switch not the Factory Method pattern?',
-   o:['Because static methods are slow','Because nothing is overridden: the decision still lives in one file you edit for every new product','Because it needs an interface','Because it cannot throw'], a:1,
-   w:'That is a simple factory. It is a perfectly good tool, but the pattern is specifically about a subclass filling a creation hole left by the base class.'}
-];
-function quizHTML(){
-  const answered = Object.keys(S.quiz).length;
-  const right = Object.entries(S.quiz).filter(([i,v]) => QUIZ[i].a===v).length;
-  return `<div class="quiz">${QUIZ.map((q,i) => {
-    const pick = S.quiz[i];
-    return `<div class="q"><h3>${i+1}. ${esc(q.q)}</h3><div class="opts">${q.o.map((o,j) => {
-      let cls = '';
-      if(pick!==undefined){ if(j===q.a) cls='right'; else if(j===pick) cls='wrong'; }
-      return `<button class="opt ${cls}" data-q="${i}" data-o2="${j}" ${pick!==undefined?'disabled':''}>${esc(o)}</button>`;
-    }).join('')}</div>${pick!==undefined?`<p class="why">${q.w}</p>`:''}</div>`;
-  }).join('')}
-  ${answered===QUIZ.length?`<p class="score">${right} of ${QUIZ.length} correct.</p>`:''}
-  <p class="soundbite"><span class="k">Say it in an interview</span>"Factory Method puts the object creation behind a method the base class declares but does not implement. The base class keeps the shared workflow, and each subclass decides which concrete product to return. I reach for it when a class is growing a switch over types: after the change, a new product is a new class, not another branch."</p></div>`;
-}
-function bindQuiz(){
-  document.querySelectorAll('.opt').forEach(b => b.onclick = () => { S.quiz[b.dataset.q] = +b.dataset.o2; story(); });
-}
-
-render();
 </script>
-
 </body>
 </html>

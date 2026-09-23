@@ -35,3 +35,29 @@ npx serve site
 
 - **Railway:** `Staticfile` tells Railpack to serve the `site` folder as a static site. No build or start command needed.
 - **Cloudflare Pages:** set the build output directory to `site` and leave the build command empty.
+
+## How a playroom is built
+
+`site/assets/playroom.js` is the lesson engine. It builds the page chrome (steps, story,
+controls, status line, code column, interview check, navigation) and runs the loop.
+`site/assets/playroom.css` holds the shared look.
+
+A playroom page supplies only its own content: the stage artwork as inline SVG, the text
+for each step, the code samples per language, and what each control does.
+
+```js
+Playroom({
+  district, title, dek, steps, stage, park,
+  state,              // playroom-specific state
+  story, controls,    // html for the current step
+  statusLine, files, note,
+  onStage, onStep, onClick, reset,
+  quiz, soundbite
+});
+```
+
+To share a playroom as a single file (for a Claude artifact or an email):
+
+```bash
+node tools/build-artifact.js site/playrooms/factory-method/index.html out.html
+```

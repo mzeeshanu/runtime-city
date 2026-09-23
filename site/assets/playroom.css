@@ -1,0 +1,137 @@
+/* Runtime City — shared playroom styles.
+   Page-specific stage artwork keeps its own <style> block in the playroom file. */
+
+:root{
+  --ground:#EDF0F3; --surface:#F9FAFB; --ink:#16243A; --muted:#64748B; --hair:#D5DCE4; --grid:#E2E8ED;
+  --accent:#C9701D;
+  --bad:#B93B33; --good:#1B7A60;
+  --code-bg:#111E33; --code-fg:#D9E2EE; --code-dim:#71839C;
+  --t-kw:#F0B26B; --t-str:#94D4B0; --t-type:#87BEF8; --t-attr:#CFA2F2;
+  --hl-row:rgba(240,178,107,.15); --bad-row:rgba(230,105,95,.18); --good-row:rgba(65,184,148,.15);
+  --display:"Bricolage Grotesque","Segoe UI",system-ui,sans-serif;
+  --body:"IBM Plex Sans","Segoe UI",system-ui,sans-serif;
+  --mono:"JetBrains Mono",ui-monospace,Consolas,monospace;
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --ground:#0C1522; --surface:#121E30; --ink:#E4EBF3; --muted:#8FA0B5; --hair:#233247; --grid:#172436;
+    --accent:#E8A05A; --bad:#E0675E; --good:#3BB08C; --code-bg:#080F1B;
+  }
+}
+:root[data-theme="dark"]{
+  --ground:#0C1522; --surface:#121E30; --ink:#E4EBF3; --muted:#8FA0B5; --hair:#233247; --grid:#172436;
+  --accent:#E8A05A; --bad:#E0675E; --good:#3BB08C; --code-bg:#080F1B;
+}
+
+*{box-sizing:border-box}
+body{background:var(--ground);color:var(--ink);font:15px/1.6 var(--body);padding-inline:16px;padding-block:0 64px}
+.wrap{max-width:1080px;margin:0 auto}
+code{font-family:var(--mono);font-size:.87em}
+button{font:inherit;color:inherit;cursor:pointer;background:none;border:0;padding:0}
+button:focus-visible{outline:2px solid var(--accent);outline-offset:3px;border-radius:4px}
+
+/* where you are */
+.top{display:flex;align-items:baseline;gap:10px;flex-wrap:wrap;padding-block:26px 0;font-size:13px;color:var(--muted)}
+.brand{font-family:var(--display);font-weight:800;font-size:15px;letter-spacing:-.01em;color:var(--ink);display:inline-flex;align-items:center;gap:7px}
+.brand svg{width:15px;height:15px}
+.top .sep{opacity:.5}
+
+.intro{padding-block:26px 30px;max-width:32ch}
+.intro h1{font-family:var(--display);font-weight:800;font-size:clamp(38px,7vw,62px);line-height:.96;letter-spacing:-.035em;margin:0 0 10px;text-wrap:balance}
+.intro p{margin:0;font-size:17px;color:var(--muted)}
+
+/* named steps */
+.rail{display:flex;gap:26px;margin-bottom:30px;border-bottom:1px solid var(--hair);overflow-x:auto;scrollbar-width:none}
+.rail::-webkit-scrollbar{display:none}
+.rail button{display:flex;align-items:baseline;gap:7px;white-space:nowrap;padding:0 0 12px;margin-bottom:-1px;border-bottom:2px solid transparent;color:var(--muted);font-size:14px}
+.rail button .n{font-family:var(--mono);font-size:11px;opacity:.7}
+.rail button:hover{color:var(--ink)}
+.rail button.done{color:var(--ink)}
+.rail button[aria-current="step"]{color:var(--ink);border-bottom-color:var(--accent);font-weight:500}
+.rail button[aria-current="step"] .n{color:var(--accent);opacity:1}
+
+.lesson{display:grid;grid-template-columns:minmax(0,1.05fr) minmax(0,1fr);gap:30px;align-items:start}
+@media (max-width:920px){.lesson{grid-template-columns:1fr;gap:22px}}
+
+.story h2{font-family:var(--display);font-weight:600;font-size:27px;letter-spacing:-.02em;line-height:1.15;margin:0 0 10px;text-wrap:balance}
+.story p{margin:0 0 10px;max-width:56ch;color:var(--muted)}
+.story p b,.story p code{color:var(--ink)}
+.story .tell{color:var(--ink)}
+.story .tell.bad{border-left:2px solid var(--bad);padding-left:12px}
+.story .tell.good{border-left:2px solid var(--good);padding-left:12px}
+
+.stage{margin-top:20px}
+.stage svg{display:block;width:100%;height:auto}
+.controls{display:flex;flex-wrap:wrap;gap:8px 14px;align-items:center;margin-top:8px}
+.btn{border:1px solid var(--hair);border-radius:8px;padding:7px 14px;font-size:14px;background:var(--surface)}
+.btn:hover{border-color:var(--muted)}
+.btn.primary{background:var(--ink);border-color:var(--ink);color:var(--surface)}
+.btn:disabled{opacity:.4;cursor:default}
+.chip{display:inline-flex;align-items:center;gap:7px;font-size:13.5px;color:var(--muted);padding:5px 2px;border-bottom:1px solid transparent}
+.chip i{width:9px;height:9px;border-radius:50%;display:block}
+.chip[aria-pressed="true"]{color:var(--ink);border-bottom-color:var(--accent)}
+.status{margin-top:14px;font-family:var(--mono);font-size:12px;color:var(--muted);line-height:1.8}
+.status b{color:var(--ink);font-weight:400}
+.status .warn{color:var(--bad)} .status .ok{color:var(--good)}
+.status .out{display:block;color:var(--muted);opacity:.85}
+
+.nav{display:flex;align-items:center;justify-content:space-between;gap:16px;margin-top:30px;padding-top:18px;border-top:1px solid var(--hair);font-size:14px}
+.nav button{color:var(--muted)}
+.nav button:hover{color:var(--ink)}
+.nav .fwd{background:var(--ink);color:var(--surface);border-radius:8px;padding:9px 16px;font-weight:500;margin-left:auto}
+.nav .fwd:hover{color:var(--surface);filter:brightness(1.15)}
+.nav .again{margin-left:auto;border:1px solid var(--hair);border-radius:8px;padding:8px 15px}
+.nav .again:hover{border-color:var(--muted)}
+
+/* code column */
+.code{background:var(--code-bg);color:var(--code-fg);border-radius:14px;padding:6px 0 4px;position:sticky;top:calc(env(safe-area-inset-top,0px) + 16px)}
+@media (max-width:920px){.code{position:static}}
+.langs{display:flex;gap:16px;padding:12px 18px 6px}
+.langs button{font-size:12px;color:var(--code-dim);letter-spacing:.02em}
+.langs button[aria-pressed="true"]{color:#fff;box-shadow:inset 0 -6px 0 -5px var(--accent)}
+.fname{font-family:var(--mono);font-size:11px;color:var(--code-dim);padding:14px 18px 4px}
+pre{margin:0;padding:0 0 6px;overflow-x:auto;font-family:var(--mono);font-size:12.8px;line-height:1.75}
+.ln{display:block;padding:0 18px;white-space:pre;border-left:2px solid transparent}
+.ln.hl{background:var(--hl-row);border-left-color:var(--accent)}
+.ln.bad{background:var(--bad-row);border-left-color:#E0675E}
+.ln.new{background:var(--good-row);border-left-color:#3BB08C}
+.t-kw{color:var(--t-kw)} .t-str{color:var(--t-str)} .t-type{color:var(--t-type)} .t-com{color:var(--code-dim)} .t-attr{color:var(--t-attr)}
+.codenote{padding:14px 18px 16px;font-size:12.5px;color:var(--code-dim);line-height:1.6;max-width:52ch}
+.codenote b{color:var(--code-fg);font-weight:500}
+
+/* interview check */
+.quiz{display:grid;gap:22px;margin-top:4px}
+.q h3{font-size:15px;margin:0 0 8px;font-weight:500;color:var(--ink)}
+.opts{display:grid;gap:2px}
+.opt{text-align:left;font-size:14px;color:var(--muted);padding:6px 0 6px 20px;position:relative;max-width:56ch}
+.opt:hover{color:var(--ink)}
+.opt::before{content:"";position:absolute;left:0;top:13px;width:8px;height:8px;border:1px solid var(--hair);border-radius:50%}
+.opt.right{color:var(--good)} .opt.right::before{background:var(--good);border-color:var(--good)}
+.opt.wrong{color:var(--bad);text-decoration:line-through} .opt.wrong::before{background:var(--bad);border-color:var(--bad)}
+.why{font-size:13.5px;margin:6px 0 0 20px;color:var(--muted);max-width:56ch}
+.why code{color:var(--ink)}
+.soundbite{margin-top:4px;padding-left:14px;border-left:2px solid var(--accent);font-size:15px;color:var(--ink);max-width:56ch}
+.soundbite .k{display:block;font-family:var(--mono);font-size:11px;text-transform:uppercase;letter-spacing:.08em;color:var(--accent);margin-bottom:6px}
+.score{font-family:var(--mono);font-size:13px;color:var(--muted)}
+
+/* the district line */
+.city{margin-top:60px;padding-top:22px;border-top:1px solid var(--hair);font-size:13.5px;color:var(--muted);max-width:74ch}
+.city .k{font-family:var(--mono);font-size:11px;text-transform:uppercase;letter-spacing:.08em;display:block;margin-bottom:8px}
+.city b{color:var(--ink);font-weight:500}
+.city .now{color:var(--accent)}
+.city a{color:var(--ink);text-decoration:none;border-bottom:1px solid var(--hair)}
+.city a:hover{border-bottom-color:var(--accent)}
+
+/* stage pieces every playroom draws */
+.gridline{stroke:var(--grid);stroke-width:1}
+.tiny{font:400 10px var(--mono);fill:var(--muted);text-anchor:middle}
+.tinyl{font:400 10px var(--mono);fill:var(--muted)}
+.slot{fill:none;stroke:var(--accent);stroke-width:1.5;stroke-dasharray:5 4}
+.slotlbl{font:400 11px var(--mono);fill:var(--accent);text-anchor:middle}
+.fitlbl{font:400 11px var(--mono);fill:#fff;text-anchor:middle}
+.crash{font:400 11px var(--mono);fill:var(--bad);text-anchor:middle;opacity:0;transition:opacity .2s}
+.cracked .crash{opacity:1}
+
+@media (prefers-reduced-motion:reduce){
+  *,*::before,*::after{animation-duration:.01ms!important;animation-iteration-count:1!important;transition-duration:.01ms!important}
+}
