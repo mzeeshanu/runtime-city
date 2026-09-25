@@ -24,6 +24,7 @@
 }
 
 *{box-sizing:border-box}
+[hidden]{display:none!important}
 body{background:var(--ground);color:var(--ink);font:15px/1.6 var(--body);padding-inline:16px;padding-block:0 64px}
 .wrap{max-width:1080px;margin:0 auto}
 code{font-family:var(--mono);font-size:.87em}
@@ -57,6 +58,12 @@ button:focus-visible{outline:2px solid var(--accent);outline-offset:3px;border-r
 
 .lesson{display:grid;grid-template-columns:minmax(0,1.05fr) minmax(0,1fr);gap:30px;align-items:start}
 @media (max-width:920px){.lesson{grid-template-columns:1fr;gap:22px}}
+
+/* the Playroom / Code switch: phone only */
+.viewtabs{display:none;gap:6px;margin:-8px 0 22px;background:var(--surface);border:1px solid var(--hair);border-radius:10px;padding:4px}
+.viewtabs button{flex:1;padding:10px 8px;border-radius:7px;font-size:14px;color:var(--muted);display:flex;align-items:center;justify-content:center;gap:6px;min-height:44px}
+.viewtabs button[aria-selected="true"]{background:var(--ink);color:var(--surface);font-weight:500}
+.viewtabs .dot{width:7px;height:7px;border-radius:50%;background:var(--accent);display:block}
 
 .story h2{font-family:var(--display);font-weight:600;font-size:27px;letter-spacing:-.02em;line-height:1.15;margin:0 0 10px;text-wrap:balance}
 .story p{margin:0 0 10px;max-width:56ch;color:var(--muted)}
@@ -139,6 +146,67 @@ pre{margin:0;padding:0 0 6px;overflow-x:auto;font-family:var(--mono);font-size:1
 .fitlbl{font:400 11px var(--mono);fill:#fff;text-anchor:middle}
 .crash{font:400 11px var(--mono);fill:var(--bad);text-anchor:middle;opacity:0;transition:opacity .2s}
 .cracked .crash{opacity:1}
+
+/* ---------- phones ---------- */
+@media (max-width:920px){
+  body{padding-block:0 0}
+  .wrap{padding-bottom:8px}
+
+  /* get to the playroom sooner: a shorter head */
+  .top{padding-block:16px 0;font-size:12.5px;gap:8px}
+  .top .roomcount{width:100%;margin-left:0;order:9}
+  .intro{padding-block:16px 20px;max-width:none}
+  .intro h1{font-size:clamp(32px,9vw,44px)}
+  .intro p{font-size:16px}
+
+  .rail{gap:18px;margin-bottom:22px;
+        -webkit-mask-image:linear-gradient(to right,#000 88%,transparent);
+        mask-image:linear-gradient(to right,#000 88%,transparent)}
+  .rail button{font-size:13.5px;padding-bottom:14px}
+
+  .viewtabs{display:flex}
+  :root[data-view="play"] .col-code{display:none}
+  :root[data-view="code"] .col-play{display:none}
+  :root[data-view="code"] .code{border-radius:12px}
+
+  /* the stage runs to the edges: more room for the drawing */
+  .stage{margin-top:16px;margin-inline:-16px}
+  .stage svg{width:100%}
+  .controls{padding-inline:16px;gap:10px 12px}
+  .status{padding-inline:16px;font-size:11.5px;line-height:1.7}
+  .story h2{font-size:24px}
+  .story p{font-size:15px}
+
+  /* thumb-sized controls */
+  .btn{min-height:44px;padding:10px 16px;display:inline-flex;align-items:center}
+  .chip{min-height:44px;padding:8px 4px}
+
+  /* the step bar stays under your thumb */
+  .nav{position:sticky;bottom:0;z-index:5;margin-top:22px;padding:12px 0 calc(12px + env(safe-area-inset-bottom,0px));
+       background:var(--ground);box-shadow:0 -12px 16px -12px rgba(0,0,0,.35)}
+  .nav .fwd{padding:12px 16px}
+  .nav .again{padding:11px 14px}
+  #nextslot{gap:10px}
+
+  .code{padding-top:2px}
+  .langs{padding:10px 16px 4px}
+  .langs button{padding:8px 4px;min-height:40px}
+  .fname{padding:12px 16px 4px}
+  .ln{padding-inline:16px}
+  pre{font-size:12.2px;-webkit-overflow-scrolling:touch}
+  .codenote{padding:12px 16px 14px}
+
+  .city{margin-top:34px;padding-bottom:20px}
+  .quiz{gap:18px}
+  .opt{padding:9px 0 9px 20px}
+}
+
+@media (max-width:420px){
+  .rail{gap:14px}
+  .intro h1{letter-spacing:-.03em}
+  .nav{font-size:13.5px}
+  .nav .fwd{padding:12px 13px}
+}
 
 @media (prefers-reduced-motion:reduce){
   *,*::before,*::after{animation-duration:.01ms!important;animation-iteration-count:1!important;transition-duration:.01ms!important}

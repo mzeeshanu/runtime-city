@@ -87,22 +87,27 @@
       '</header>' +
       '<section class="intro"><h1>' + esc(cfg.title) + '</h1><p>' + esc(cfg.dek) + '</p></section>' +
       '<nav class="rail" id="rail" aria-label="Playroom steps"></nav>' +
+      /* phone only: the stage and the code share the screen, one tap apart */
+      '<div class="viewtabs" id="viewtabs" role="tablist" aria-label="View">' +
+        '<button data-v="play" role="tab">Playroom</button>' +
+        '<button data-v="code" role="tab">Code<span class="dot" hidden></span></button>' +
+      '</div>' +
       '<div class="lesson">' +
-        '<div>' +
+        '<div class="col-play">' +
           '<section class="story" id="story"></section>' +
           '<div class="stage">' + cfg.stage +
             '<div class="controls" id="controls"></div>' +
             '<div class="status" id="status" aria-live="polite"></div>' +
           '</div>' +
-          '<div class="nav"><button id="prev"></button><span id="nextslot"></span></div>' +
         '</div>' +
-        '<aside><div class="code">' +
+        '<aside class="col-code"><div class="code">' +
           '<div class="langs" id="langs">' +
             LANGS.map(l => '<button data-l="' + l[0] + '">' + l[1] + '</button>').join('') +
           '</div>' +
           '<div id="files"></div><div class="codenote" id="codenote"></div>' +
         '</div></aside>' +
       '</div>' +
+      '<div class="nav"><button id="prev"></button><span id="nextslot"></span></div>' +
       '<section class="city">' +
         '<span class="k">' + esc(here ? here.district.name : cfg.district) + '</span>' + line +
         '<p class="cityfoot">' +
@@ -222,6 +227,21 @@
       '</div>';
     }
 
+    /* phone view: "Playroom" or "Code". Desktop shows both and ignores this. */
+    function setView(v){
+      S.view = v;
+      document.documentElement.setAttribute('data-view', v);
+      $('viewtabs').querySelectorAll('button').forEach(b =>
+        b.setAttribute('aria-selected', b.dataset.v === v));
+      if(v === 'code') markCode(false);
+    }
+
+    /* a dot on the Code tab when the code moved while the reader was on the stage */
+    function markCode(on){
+      const dot = $('viewtabs').querySelector('.dot');
+      if(dot) dot.hidden = !on;
+    }
+
     function render(){
       rail(); story(); controls(); status();
       if(cfg.onStage) cfg.onStage(S);
@@ -244,6 +264,7 @@
       if(push !== false && moved){
         try{ history.pushState({step:n}, '', '#step-' + n); }catch(e){}
       }
+      if(moved && S.view === 'code') setView('play');   // a new step starts on the stage
       if(moved && window.innerWidth < 920) $('story').scrollIntoView({behavior:'smooth', block:'start'});
     }
 
@@ -277,12 +298,17 @@
         return;
       }
       if(b.dataset.quiz !== undefined) return;       // handled in story()
+      if(b.dataset.v) return setView(b.dataset.v);
       if(b.id === 'prev') return go(S.step - 1);
       if(b.id === 'next') return go(S.step + 1);
       if(b.id === 'again') return restart();
-      if(cfg.onClick && cfg.onClick(S, b, api) !== false) render();
+      if(cfg.onClick && cfg.onClick(S, b, api) !== false){
+        render();
+        if(S.view === 'play') markCode(true);        // the code changed behind the tab
+      }
     });
 
+    setView('play');
     go(stepFromHash(), false);
     return api;
   }
