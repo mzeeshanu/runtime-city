@@ -1,5 +1,7 @@
 # Runtime City
 
+**Live: https://runtimecity.com** (deployed from `main` via Railway)
+
 **Learn by breaking.** Runtime City is an interactive city of software engineering concepts. Each district covers a field (design patterns, memory, networking, databases), and each concept is a *playroom* where you see it working, break it, fix it, and compare the real code.
 
 Audience: students preparing for interviews first, then early-career developers.
@@ -63,7 +65,7 @@ Playroom({
 To share a playroom as a single file (for a Claude artifact or an email):
 
 ```bash
-node tools/build-artifact.js site/playrooms/factory-method/index.html out.html
+node tools/build-artifact.js site/playrooms/factory-method/index.html out.html --base https://runtimecity.com
 ```
 
 ## Navigation
