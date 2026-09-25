@@ -1,0 +1,415 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Singleton Playroom · Runtime City</title>
+<meta name="description" content="Learn Singleton by breaking it: two copies of the city config, a thread race that makes two more, tests that poison each other, and the container lifetime that replaces it. A playroom from Runtime City.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,600;12..96,800&family=IBM+Plex+Sans:wght@400;500&family=JetBrains+Mono:wght@400&display=swap">
+<link rel="stylesheet" href="../../assets/playroom.css">
+<style>
+/* the control room */
+.caller{fill:var(--surface);stroke:var(--ink);stroke-width:1.5}
+.callerlbl{font:400 11px var(--mono);fill:var(--ink)}
+.wire{stroke:var(--ink);stroke-width:1.5;fill:none}
+.wire.warnline{stroke:var(--bad);stroke-dasharray:4 3}
+.inst{fill:var(--surface);stroke:var(--accent);stroke-width:2}
+.inst.extra{stroke:var(--bad);stroke-dasharray:5 4}
+.instlbl{font:400 11px var(--mono);fill:var(--accent)}
+.instlbl.extra{fill:var(--bad)}
+.val{font:400 12px var(--mono);fill:var(--ink)}
+.val.stale{fill:var(--bad)}
+.count{font:400 10px var(--mono);fill:var(--muted);text-anchor:middle}
+.lock{font:400 10px var(--mono);fill:var(--good);text-anchor:middle}
+.newborn{animation:pop .5s ease-out}
+@keyframes pop{from{opacity:0;transform:translateY(-12px)}to{opacity:1;transform:translateY(0)}}
+.inst,.instlbl,.val{transform-box:fill-box}
+</style>
+</head>
+<body>
+<div id="playroom"></div>
+
+<script src="../../assets/playroom.js"></script>
+<script>
+const SHAPES = {hand:'Hand-rolled singleton', container:'Container lifetime'};
+
+const STAGE = `
+<svg viewBox="0 0 600 300" role="img" aria-label="Services reaching for the city config">
+  <defs><pattern id="grid" width="24" height="24" patternUnits="userSpaceOnUse"><path d="M24 0H0V24" class="gridline" fill="none"/></pattern></defs>
+  <rect width="600" height="300" fill="url(#grid)" opacity=".6"/>
+
+  <g>
+    <rect class="caller" x="24" y="58" width="148" height="44" rx="6"/>
+    <text class="callerlbl" x="38" y="85">BillingService</text>
+    <rect class="caller" x="24" y="138" width="148" height="44" rx="6"/>
+    <text class="callerlbl" x="38" y="165">SignService</text>
+    <g id="testers">
+      <rect class="caller" x="24" y="218" width="148" height="44" rx="6"/>
+      <text class="callerlbl" x="38" y="245">TestSuite</text>
+    </g>
+  </g>
+
+  <g id="wires"></g>
+  <g id="instances"></g>
+  <text class="count" id="count" x="420" y="28">instances alive: 2</text>
+  <text class="lock" id="lockNote" x="420" y="286"></text>
+</svg>`;
+
+const NOTES = {
+  1:'<b>Nothing stops a second copy.</b> Two services each said <code>new</code>, so each holds its own settings and they drift apart.',
+  2:'<b>A private constructor plus a static accessor is the whole pattern.</b> Everyone now shares one object.',
+  3:'<b>Two things break it.</b> Threads can both pass the null check, and tests share the one object, so what one test writes the next test reads.',
+  4:'<b>Thread safety is solved by the language, not by cleverness.</b> A static initialiser, <code>Lazy&lt;T&gt;</code>, an enum or a module gives you one instance with no lock to get wrong.',
+  5:'<b>The version seniors expect.</b> Register one instance in the container behind an interface: still one object in production, but a test constructs its own, with no global state to reset.',
+  6:'<b>Interview tip:</b> say what it costs. Singleton is global state, and global state is invisible coupling plus test order dependence. Name the container lifetime as the usual replacement.'
+};
+
+function files(S){
+  const L = S.lang, s = S.step;
+
+  if(s === 1) return {
+    cs:[{n:'CityConfig.cs', lines:[
+      ['public class CityConfig'],['{'],
+      ['    public string Theme { get; set; } = "light";'],['}']]},
+      {n:'Program.cs', lines:[
+      ['var billing = new CityConfig();   // BillingService makes one','hl'],
+      ['var signs   = new CityConfig();   // SignService makes another','hl'],
+      ['billing.Theme = "dark";'],
+      ['Console.WriteLine(signs.Theme);   // "light" — a different object']]}],
+    java:[{n:'CityConfig.java', lines:[
+      ['public class CityConfig {'],['    private String theme = "light";'],
+      ['    public String getTheme() { return theme; }'],
+      ['    public void setTheme(String t) { theme = t; }'],['}']]},
+      {n:'Main.java', lines:[
+      ['CityConfig billing = new CityConfig();   // BillingService makes one','hl'],
+      ['CityConfig signs   = new CityConfig();   // SignService makes another','hl'],
+      ['billing.setTheme("dark");'],
+      ['System.out.println(signs.getTheme());    // "light" — a different object']]}],
+    ts:[{n:'city-config.ts', lines:[
+      ['export class CityConfig {'],['  theme = "light";'],['}']]},
+      {n:'main.ts', lines:[
+      ['const billing = new CityConfig();   // BillingService makes one','hl'],
+      ['const signs   = new CityConfig();   // SignService makes another','hl'],
+      ['billing.theme = "dark";'],
+      ['console.log(signs.theme);           // "light" — a different object']]}]
+  }[L];
+
+  if(s === 2 || s === 3){
+    const race = S.raced ? 'bad' : (s === 3 ? 'hl' : 'hl');
+    const F = {
+      cs:[{n:'CityConfig.cs', lines:[
+        ['public sealed class CityConfig'],['{'],
+        ['    private static CityConfig _instance;'],
+        ['    private CityConfig() { }                      // nobody else can call new','hl'],
+        ['    public static CityConfig Instance => _instance ??= new CityConfig();', race],
+        ['    public string Theme { get; set; } = "light";'],['}']]},
+        {n:'Program.cs', lines:[
+        ['CityConfig.Instance.Theme = "dark";        // BillingService'],
+        ['Console.WriteLine(CityConfig.Instance.Theme);   // SignService: "dark"']]}],
+      java:[{n:'CityConfig.java', lines:[
+        ['public final class CityConfig {'],
+        ['    private static CityConfig instance;'],
+        ['    private CityConfig() { }                      // nobody else can call new','hl'],
+        ['    public static CityConfig getInstance() {'],
+        ['        if (instance == null) instance = new CityConfig();   // two threads can both get here', race],
+        ['        return instance;'],['    }'],['}']]},
+        {n:'Main.java', lines:[
+        ['CityConfig.getInstance().setTheme("dark");   // BillingService'],
+        ['System.out.println(CityConfig.getInstance().getTheme());   // SignService: "dark"']]}],
+      ts:[{n:'city-config.ts', lines:[
+        ['export class CityConfig {'],
+        ['  private static instance: CityConfig;'],
+        ['  private constructor() {}                        // nobody else can call new','hl'],
+        ['  static get(): CityConfig {'],
+        ['    return CityConfig.instance ??= new CityConfig();', race],
+        ['  }'],['  theme = "light";'],['}']]},
+        {n:'main.ts', lines:[
+        ['CityConfig.get().theme = "dark";      // BillingService'],
+        ['console.log(CityConfig.get().theme);  // SignService: "dark"']]}]
+    }[L];
+    if(S.testLeak) F.push({
+      cs:{n:'ConfigTests.cs', lines:[
+        ['[Fact]'],['public void Dark_theme_is_applied()'],['{'],
+        ['    CityConfig.Instance.Theme = "dark";   // this test writes to the ONE object','bad'],
+        ['    Assert.Equal("dark", Render().Theme);'],['}'],[''],
+        ['[Fact]'],['public void Default_theme_is_light()'],['{'],
+        ['    Assert.Equal("light", CityConfig.Instance.Theme);   // fails if the test above ran first','bad'],['}']]},
+      java:{n:'ConfigTest.java', lines:[
+        ['@Test'],['void darkThemeIsApplied() {'],
+        ['    CityConfig.getInstance().setTheme("dark");   // writes to the ONE object','bad'],
+        ['    assertEquals("dark", render().getTheme());'],['}'],[''],
+        ['@Test'],['void defaultThemeIsLight() {'],
+        ['    assertEquals("light", CityConfig.getInstance().getTheme());   // fails if the other test ran first','bad'],['}']]},
+      ts:{n:'config.test.ts', lines:[
+        ['test("dark theme is applied", () => {'],
+        ['  CityConfig.get().theme = "dark";     // writes to the ONE object','bad'],
+        ['  expect(render().theme).toBe("dark");'],['});'],[''],
+        ['test("default theme is light", () => {'],
+        ['  expect(CityConfig.get().theme).toBe("light");   // fails if the other test ran first','bad'],['});']]}
+    }[L]);
+    return F;
+  }
+
+  if(s === 4) return {
+    cs:[{n:'CityConfig.cs', lines:[
+      ['public sealed class CityConfig'],['{'],
+      ['    private static readonly Lazy<CityConfig> _lazy = new(() => new CityConfig());','new'],
+      ['    public static CityConfig Instance => _lazy.Value;   // created once, whatever the threads do','new'],
+      ['    private CityConfig() { }'],
+      ['    public string Theme { get; set; } = "light";'],['}'],[''],
+      ['// A plain static field with an initialiser is just as safe:'],
+      ['// private static readonly CityConfig _instance = new();']]}],
+    java:[{n:'CityConfig.java', lines:[
+      ['public enum CityConfig {          // the JVM guarantees one instance, lazily, safely','new'],
+      ['    INSTANCE;','new'],[''],
+      ['    private String theme = "light";'],
+      ['    public String getTheme() { return theme; }'],
+      ['    public void setTheme(String t) { theme = t; }'],['}'],[''],
+      ['// Or the holder idiom: a private static class whose field the JVM initialises once.']]}],
+    ts:[{n:'city-config.ts', lines:[
+      ['// An ES module body runs once per program: the module IS the singleton','new'],
+      ['class CityConfig { theme = "light"; }'],
+      ['export const cityConfig = new CityConfig();','new'],[''],
+      ['// No lock, no double-checking: imports share this one object.'],
+      ['// (Node worker threads and multiple bundles are separate programs, so each gets its own.)']]}]
+  }[L];
+
+  if(s === 5 && S.shape === 'container') return {
+    cs:[{n:'Program.cs', lines:[
+      ['builder.Services.AddSingleton<ICityConfig, CityConfig>();   // one instance for the app','hl'],[''],
+      ['public class SignService(ICityConfig config)   // it is handed in, like any dependency'],
+      ['{'],['    public void Render() => Paint(config.Theme);'],['}']]},
+      {n:'ConfigTests.cs', lines:[
+      ['[Fact]'],['public void Default_theme_is_light()'],['{'],
+      ['    var config = new CityConfig();        // this test owns its object','new'],
+      ['    Assert.Equal("light", new SignService(config).Theme);   // no global state to reset','new'],['}']]}],
+    java:[{n:'AppConfig.java', lines:[
+      ['@Bean'],['@Scope("singleton")                      // one instance for the app','hl'],
+      ['CityConfig cityConfig() { return new CityConfig(); }'],[''],
+      ['@Component'],['public class SignService {'],
+      ['    private final CityConfig config;'],
+      ['    public SignService(CityConfig config) { this.config = config; }'],['}']]},
+      {n:'ConfigTest.java', lines:[
+      ['@Test'],['void defaultThemeIsLight() {'],
+      ['    CityConfig config = new CityConfig();   // this test owns its object','new'],
+      ['    assertEquals("light", new SignService(config).theme());','new'],['}']]}],
+    ts:[{n:'main.ts', lines:[
+      ['const cityConfig = new CityConfig();        // composition root builds the one instance','hl'],
+      ['const signs = new SignService(cityConfig);  // and hands it to whoever needs it'],[''],
+      ['export class SignService {'],
+      ['  constructor(private config: CityConfig) {}'],['}']]},
+      {n:'config.test.ts', lines:[
+      ['test("default theme is light", () => {'],
+      ['  const config = new CityConfig();          // this test owns its object','new'],
+      ['  expect(new SignService(config).theme).toBe("light");','new'],['});']]}]
+  }[L];
+
+  /* step 5, "hand" and step 6 */
+  return {
+    cs:[{n:'SignService.cs', lines:[
+      ['public class SignService'],['{'],
+      ['    public void Render() => Paint(CityConfig.Instance.Theme);   // reaches out and grabs it','bad'],['}'],[''],
+      ['// A test cannot substitute anything here: the dependency is hidden inside the method.']]}],
+    java:[{n:'SignService.java', lines:[
+      ['public class SignService {'],
+      ['    public void render() { paint(CityConfig.INSTANCE.getTheme()); }   // reaches out and grabs it','bad'],['}'],[''],
+      ['// A test cannot substitute anything here: the dependency is hidden inside the method.']]}],
+    ts:[{n:'sign-service.ts', lines:[
+      ['import { cityConfig } from "./city-config";'],[''],
+      ['export class SignService {'],
+      ['  render() { paint(cityConfig.theme); }   // reaches out and grabs it','bad'],['}'],[''],
+      ['// A test cannot substitute anything here: the dependency is hidden inside the method.']]}]
+  }[L];
+}
+
+const P = Playroom({
+  district:'Pattern Park',
+  title:'Singleton',
+  dek:'One instance, on purpose. And everything that costs you.',
+  steps:['Two copies','One instance','Break it','Make it safe','The grown-up version','Interview check'],
+  stage:STAGE,
+  park:{current:'Singleton', items:[
+    {label:'Dependency Injection', href:'../dependency-injection/'},
+    {label:'Factory Method', href:'../factory-method/'},
+    {label:'Strategy', href:'../strategy/'},
+    {label:'Observer', href:'../observer/'},
+    {label:'Singleton'}]},
+
+  state:{instances:[{theme:'light'},{theme:'light'}], billing:0, signs:1,
+         locked:false, raced:false, safe:false, testLeak:false, shape:'hand'},
+
+  story(S, api){
+    const fb = api.fb();
+    return {
+      1:`<h2>Two services, two configs</h2><p>Billing and the signs each wrote <code>new CityConfig()</code>. Set the theme on one side, then read it on the other.</p>${fb}`,
+      2:`<h2>Make there be only one</h2><p>Private constructor, static accessor. Now both services reach the same object, and the setting sticks.</p>${fb || '<p>Close the constructor and try the same two buttons again.</p>'}`,
+      3:`<h2>Two ways it bites</h2><p>First start two threads at once. Then run the test suite: both tests use the one shared object, so the first test decides what the second one sees.</p>${fb}`,
+      4:`<h2>Let the language guarantee it</h2><p><code>Lazy&lt;T&gt;</code> in C#, an <code>enum</code> in Java, a module-level object in TypeScript. One instance, created once, no lock for you to get wrong. Start the threads again.</p>${fb}`,
+      5:`<h2>What seniors actually do</h2><p>The thread race is fixed, but the tests still poison each other, because the dependency is <b>hidden inside the method</b>. Compare grabbing the instance with registering it as a single instance in the container.</p>${fb || '<p>Currently showing: <b>' + SHAPES[S.shape] + '</b>.</p>'}`,
+      6:`<h2>Interview check</h2>${api.quizHTML()}`
+    }[S.step];
+  },
+
+  controls(S){
+    const s = S.step;
+    const use = `<button class="btn" data-a="set">Billing sets theme = dark</button><button class="btn" data-a="read">Signs read the theme</button>`;
+    if(s === 1) return use;
+    if(s === 2) return (S.locked ? '' : `<button class="btn primary" data-a="lock">Make the constructor private</button>`) + use;
+    if(s === 3) return `<button class="btn" data-a="threads">Start two threads at once</button><button class="btn" data-a="tests">Run the test suite</button>` + use;
+    if(s === 4) return `<button class="btn primary" data-a="safe">Switch to a guaranteed-once instance</button><button class="btn" data-a="threads">Start two threads at once</button>`;
+    if(s === 5) return `<button class="chip" data-shape="hand" aria-pressed="${S.shape === 'hand'}"><i style="background:var(--muted)"></i>${SHAPES.hand}</button>` +
+      `<button class="chip" data-shape="container" aria-pressed="${S.shape === 'container'}"><i style="background:var(--accent)"></i>${SHAPES.container}</button>` +
+      `<button class="btn" data-a="tests" style="margin-left:auto">Run the test suite</button>`;
+    return `<button class="btn" data-a="tests">Run the test suite</button>`;
+  },
+
+  statusLine(S){
+    const s = S.step, n = S.instances.length;
+    if(s === 1) return `Instances alive <b>${n}</b><span class="warn"> · each service has its own settings</span>`;
+    if(s === 2) return S.locked
+      ? `Instances alive <b>1</b><span class="ok"> · constructor private · everyone shares it</span>`
+      : `Instances alive <b>${n}</b><span class="warn"> · new CityConfig() is still legal everywhere</span>`;
+    if(s === 3) return `Instances alive <b>${n}</b>` +
+      (S.raced ? `<span class="warn"> · the null check is not atomic</span>` : '') +
+      (S.testLeak ? `<span class="warn"> · test 2 failed: test 1 left theme = dark</span>` : `<span class="warn"> · one object shared by every test</span>`);
+    if(s === 4) return S.safe
+      ? `Instances alive <b>1</b><span class="ok"> · guaranteed by the runtime, threads or not</span>`
+      : `Instances alive <b>${n}</b><span class="warn"> · still racing</span>`;
+    if(s === 5) return S.shape === 'container'
+      ? `One instance in production<span class="ok"> · injected, so each test builds its own · nothing global to reset</span>`
+      : `One instance everywhere<span class="warn"> · hidden dependency · tests share it and run in order</span>`;
+    return `Instances alive <b>1</b><span class="ok"> · and a test can still substitute it</span>`;
+  },
+
+  files,
+  note: S => NOTES[S.step],
+
+  onStage(S){
+    const s = S.step, id = document.getElementById.bind(document);
+    const n = S.instances.length;
+    const boxes = S.instances.map((inst, i) => {
+      const y = n === 1 ? 104 : 58 + i * 110;
+      const extra = i === 1 && (s >= 2);
+      return `<g class="${S.born === i ? 'newborn' : ''}">` +
+        `<rect class="inst ${extra ? 'extra' : ''}" x="330" y="${y}" width="200" height="72" rx="8"/>` +
+        `<text class="instlbl ${extra ? 'extra' : ''}" x="346" y="${y + 26}">CityConfig #${i + 1}${extra ? ' (should not exist)' : ''}</text>` +
+        `<text class="val ${i === S.signs && S.instances[S.billing] && S.instances[S.billing].theme !== inst.theme ? 'stale' : ''}" x="346" y="${y + 50}">theme = "${inst.theme}"</text>` +
+        `</g>`;
+    }).join('');
+    id('instances').innerHTML = boxes;
+
+    const yOf = i => (n === 1 ? 140 : 94 + i * 110);
+    id('wires').innerHTML =
+      `<path class="wire" d="M172 80 C 250 80, 260 ${yOf(S.billing)}, 330 ${yOf(S.billing)}"/>` +
+      `<path class="wire ${s <= 1 || S.instances.length > 1 ? 'warnline' : ''}" d="M172 160 C 250 160, 260 ${yOf(S.signs)}, 330 ${yOf(S.signs)}"/>` +
+      (s >= 3 ? `<path class="wire" d="M172 240 C 250 240, 260 ${yOf(0)}, 330 ${yOf(0)}"/>` : '');
+
+    id('testers').style.display = s >= 3 ? '' : 'none';
+    id('count').textContent = `instances alive: ${n}`;
+    id('lockNote').textContent = s >= 4 && S.safe
+      ? 'Lazy<T> / enum / module — one instance, guaranteed'
+      : (S.locked && s >= 2 ? 'constructor is private' : '');
+  },
+
+  onStep(S, n){
+    if(n === 1){ S.instances = [{theme:'light'},{theme:'light'}]; S.billing = 0; S.signs = 1; S.locked = false; }
+    if(n === 2){ S.locked = false; S.instances = [{theme:'light'},{theme:'light'}]; S.billing = 0; S.signs = 1; }
+    if(n >= 3){ S.locked = true; if(!S.raced){ S.instances = [S.instances[0]]; S.billing = 0; S.signs = 0; } }
+    if(n === 4 && !S.safe && !S.raced){ S.raced = true; S.instances = [S.instances[0], {theme:'light'}]; S.signs = 1; }
+    if(n >= 5){ S.safe = true; S.raced = false; S.instances = [S.instances[0]]; S.billing = 0; S.signs = 0; }
+    if(n === 5) S.shape = 'hand';
+    S.born = -1;
+  },
+
+  onClick(S, b, api){
+    if(b.dataset.shape){
+      S.shape = b.dataset.shape;
+      api.tell(S.shape === 'container' ? 'good' : 'bad', S.shape === 'container'
+        ? '<b>Same single instance, no global reach.</b> The container creates one <code>CityConfig</code> and injects it. Production behaviour is identical; tests construct their own and never interfere with each other.'
+        : '<b>The dependency is invisible from the outside.</b> <code>SignService</code> reaches for <code>CityConfig.Instance</code> inside a method, so no caller and no test can give it anything else.');
+      S.testLeak = S.shape === 'hand';
+      return;
+    }
+    const a = b.dataset.a;
+    if(a === 'set'){
+      S.instances[S.billing].theme = 'dark';
+      api.out('billing.Theme = "dark"');
+      if(S.instances.length > 1)
+        api.tell('bad', '<b>Only one of the two objects changed.</b> Billing wrote to its own copy; the signs still hold theirs.');
+      else
+        api.tell('good', '<b>There is only one object to write to.</b> Whoever asks next sees this value.');
+      return;
+    }
+    if(a === 'read'){
+      const v = S.instances[S.signs].theme;
+      api.out(`signs.Theme → "${v}"`);
+      if(S.instances.length > 1 && v !== S.instances[S.billing].theme)
+        api.tell('bad', `<b>The signs still say "${v}".</b> Two objects, two truths, and nothing in the type system warned you.`);
+      else
+        api.tell('good', `<b>The signs say "${v}".</b> One object, one truth.`);
+      return;
+    }
+    if(a === 'lock'){
+      S.locked = true; S.instances = [S.instances[S.billing]]; S.billing = 0; S.signs = 0; S.born = 0;
+      api.tell('good', '<b>That is the entire pattern.</b> A private constructor stops anyone calling <code>new</code>, and one static accessor hands out the same object every time.');
+      api.out('CityConfig.Instance → the one object');
+      return;
+    }
+    if(a === 'threads'){
+      if(S.safe){
+        api.tell('good', '<b>Still one.</b> The runtime creates it exactly once, however many threads arrive together. No lock, nothing to get subtly wrong.');
+        api.out('Parallel.Invoke(…) → 1 instance');
+        return;
+      }
+      S.raced = true; S.instances = [S.instances[0], {theme:'light'}]; S.signs = 1; S.born = 1;
+      api.tell('bad', '<b>Two threads, two instances.</b> Both reached the null check before either finished assigning, so both created one. The bug is rare, load-dependent, and impossible to reproduce on your laptop.');
+      api.out('thread A: new CityConfig() · thread B: new CityConfig()');
+      return;
+    }
+    if(a === 'tests'){
+      if(S.step === 5 && S.shape === 'container'){
+        S.testLeak = false;
+        api.tell('good', '<b>Both tests pass, in any order.</b> Each one built its own config, so nothing carried over.');
+        api.out('2 passed · no global state to reset');
+        return;
+      }
+      S.testLeak = true; S.instances[0].theme = 'dark';
+      api.tell('bad', '<b>Test 2 failed, and only because test 1 ran first.</b> They share one object, so your suite now depends on its own order. This is the real reason singletons get called an anti-pattern.');
+      api.out('1 passed · 1 failed: expected "light", got "dark"');
+      return;
+    }
+    if(a === 'safe'){
+      S.safe = true; S.raced = false; S.instances = [S.instances[0]]; S.signs = 0; S.born = 0;
+      api.tell('good', '<b>Hand the guarantee to the runtime.</b> <code>Lazy&lt;T&gt;</code>, a static initialiser, a Java <code>enum</code> or an ES module all create the object once, thread-safely, without a lock in your code.');
+      api.out('Lazy<CityConfig> → created once');
+      return;
+    }
+    return false;
+  },
+
+  reset(S){
+    Object.assign(S, {instances:[{theme:'light'},{theme:'light'}], billing:0, signs:1,
+                      locked:false, raced:false, safe:false, testLeak:false, shape:'hand', born:-1});
+  },
+
+  quiz:[
+    {q:'Why is the classic lazy singleton (if null, create) a bug in a multi-threaded app?',
+     o:['It is slower than eager creation','Two threads can both see null and both create an instance, so "only one" quietly stops being true','It leaks memory','It only works with interfaces'], a:1,
+     w:'The check and the assignment are not atomic. Fixes: a static initialiser, <code>Lazy&lt;T&gt;</code>, a Java enum, or double-checked locking with a volatile field.'},
+    {q:'What is the difference between a singleton and a static class?',
+     o:['Nothing','A singleton is an object: it can implement an interface, be passed as a dependency and be substituted in tests. A static class cannot','Static classes are thread-safe','Singletons cannot hold state'], a:1,
+     w:'This is the question behind "when would you use one?" — the answer is when you need one shared instance that is still an object.'},
+    {q:'Why do singletons make test suites fragile?',
+     o:['Tests run slower','The one object survives between tests, so what one test writes another test reads, and failures depend on test order','They cannot be mocked at all, ever','Frameworks forbid them'], a:1,
+     w:'Say "global state" out loud. The fix is either a reset hook you must remember, or not reaching for global state in the first place.'},
+    {q:'What do most teams use instead today?',
+     o:['A static class','Register the type with a singleton lifetime in the DI container, behind an interface: one instance in production, an ordinary object in tests','A global variable','Copy the object everywhere'], a:1,
+     w:'Same guarantee, but the dependency is visible in the constructor instead of hidden inside a method.'}
+  ],
+  soundbite:'"Singleton means one instance and a global way to reach it. I get the single instance from the language or the container rather than hand-rolling a null check, because that check is not thread-safe. And I keep the dependency visible: registering it with a singleton lifetime and injecting it gives the same one object in production, while a test can still build its own, so tests do not leak state into each other."'
+});
+</script>
+</body>
+</html>

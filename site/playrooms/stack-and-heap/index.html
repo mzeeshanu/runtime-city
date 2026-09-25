@@ -1,0 +1,445 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Stack and Heap Playroom · Runtime City</title>
+<meta name="description" content="See variables, references and copies for real: change one object through two names, watch a shallow copy share its parts, and watch the collector take what nobody holds. A playroom from Runtime City.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,600;12..96,800&family=IBM+Plex+Sans:wght@400;500&family=JetBrains+Mono:wght@400&display=swap">
+<link rel="stylesheet" href="../../assets/playroom.css">
+<style>
+/* memory: a stack of slots on the left, a heap of objects on the right */
+.zone{fill:none;stroke:var(--hair);stroke-width:1.5;stroke-dasharray:5 4}
+.zonelbl{font:400 10px var(--mono);fill:var(--muted);letter-spacing:.08em}
+.slot{fill:var(--surface);stroke:var(--ink);stroke-width:1.5}
+.slotname{font:400 11px var(--mono);fill:var(--ink)}
+.slotval{font:400 11px var(--mono);fill:var(--accent)}
+.slot.frame{stroke-dasharray:4 3;stroke:var(--muted)}
+.obj{fill:var(--surface);stroke:var(--ink);stroke-width:2}
+.obj.shared{stroke:var(--accent)}
+.obj.dead{stroke:var(--muted);stroke-dasharray:5 4;opacity:.5}
+.objlbl{font:400 11px var(--mono);fill:var(--ink)}
+.objfield{font:400 11px var(--mono);fill:var(--muted)}
+.objfield b{fill:var(--ink)}
+.dead .objlbl,.dead .objfield{fill:var(--muted)}
+.ref{stroke:var(--ink);stroke-width:1.5;fill:none;marker-end:url(#arrow)}
+.ref.hot{stroke:var(--accent);stroke-width:2}
+.ref.gone{stroke:var(--bad);stroke-dasharray:4 3;marker-end:url(#arrowBad)}
+.changed{animation:blink 1s ease-out}
+@keyframes blink{0%{fill:var(--accent);opacity:.4}100%{opacity:1}}
+.tag{font:400 9px var(--mono);fill:var(--muted);text-anchor:middle}
+.tag.warn{fill:var(--bad)} .tag.ok{fill:var(--good)}
+</style>
+</head>
+<body>
+<div id="playroom"></div>
+
+<script src="../../assets/playroom.js"></script>
+<script>
+const STAGE = `
+<svg viewBox="0 0 600 320" role="img" aria-label="Stack slots pointing at heap objects">
+  <defs>
+    <pattern id="grid" width="24" height="24" patternUnits="userSpaceOnUse"><path d="M24 0H0V24" class="gridline" fill="none"/></pattern>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto"><path d="M0 0 L10 5 L0 10 z" fill="var(--ink)"/></marker>
+    <marker id="arrowBad" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto"><path d="M0 0 L10 5 L0 10 z" fill="var(--bad)"/></marker>
+  </defs>
+  <rect width="600" height="320" fill="url(#grid)" opacity=".6"/>
+
+  <rect class="zone" x="16" y="34" width="210" height="266" rx="8"/>
+  <text class="zonelbl" x="24" y="26">STACK — names and values</text>
+
+  <rect class="zone" x="258" y="34" width="326" height="266" rx="8"/>
+  <text class="zonelbl" x="266" y="26">HEAP — objects</text>
+
+  <g id="refs"></g>
+  <g id="slots"></g>
+  <g id="objs"></g>
+</svg>`;
+
+const NOTES = {
+  1:'<b>A value type holds the value itself.</b> Copying the variable copies the number, so the two names can never affect each other.',
+  2:'<b>A reference type holds an address.</b> Copying the variable copies the address, so both names reach the same object on the heap.',
+  3:'<b>Arguments are copied too — including the address.</b> That is why a method can change the object you passed, but cannot make your variable point somewhere else.',
+  4:'<b>A shallow copy copies the outer object only.</b> Its fields are still addresses, so the copy and the original share whatever those fields point at.',
+  5:'<b>The collector frees what nothing can reach.</b> Reachability, not scope: one forgotten list entry keeps an object alive forever.',
+  6:'<b>Interview tip:</b> say "value versus reference", then "the reference itself is passed by value". That one sentence answers most questions in this area.'
+};
+
+/* -------- what the memory looks like at each step -------- */
+function model(S){
+  const s = S.step;
+  if(s === 1) return {
+    slots:[{n:'a', v:String(S.a)}, {n:'b', v:String(S.b)}],
+    objs:[], refs:[]
+  };
+  if(s === 2) return {
+    slots:[{n:'p1', v:'→ 0x8a2'}, ...(S.aliased ? [{n:'p2', v:'→ 0x8a2'}] : [])],
+    objs:[{id:'ana', title:'Person', fields:[['Name', S.name]], shared:S.aliased,
+           tag:S.aliased ? 'one object, two names' : ''}],
+    refs:[{from:0, to:'ana'}, ...(S.aliased ? [{from:1, to:'ana', hot:true}] : [])]
+  };
+  if(s === 3) return {
+    slots:[{n:'p1', v:'→ 0x8a2'}, {n:'person', v:S.reassigned ? '→ 0x9f4' : '→ 0x8a2', frame:true}],
+    objs:[
+      {id:'ana', title:'Person', fields:[['Name', S.name]], shared:!S.reassigned,
+       tag:S.reassigned ? 'caller still holds this one' : 'both names, one object'},
+      ...(S.reassigned ? [{id:'new', title:'Person', fields:[['Name','Bo']], tag:'made inside the method, lost at return'}] : [])
+    ],
+    refs:[{from:0, to:'ana'}, {from:1, to:S.reassigned ? 'new' : 'ana', hot:true}]
+  };
+  if(s === 4) return {
+    slots:[{n:'original', v:'→ 0x8a2'}, ...(S.copied ? [{n:'copy', v:'→ 0xb13'}] : [])],
+    objs:[
+      {id:'ana', title:'Person', fields:[['Name','Ana'],['Address','→ 0xc07']]},
+      ...(S.copied ? [{id:'clone', title:'Person (copy)', fields:[['Name','Ana'],['Address', S.deep ? '→ 0xd51' : '→ 0xc07']]}] : []),
+      {id:'addr', title:'Address', fields:[['City', S.city]], shared:S.copied && !S.deep,
+       tag:S.copied ? (S.deep ? 'copied too' : 'shared by both') : ''},
+      ...(S.copied && S.deep ? [{id:'addr2', title:'Address (copy)', fields:[['City','Porto']], tag:'the copy owns this one'}] : [])
+    ],
+    refs:[{from:0, to:'ana'}, ...(S.copied ? [{from:1, to:'clone', hot:true}] : [])]
+  };
+  return {
+    slots:[{n:'session', v:S.dropped ? 'null' : '→ 0x8a2'},
+           {n:'cache', v:'→ 0xe20'}],
+    objs:[
+      {id:'ana', title:'Session', fields:[['User','Ana'],['Data','48 MB']],
+       dead:S.dropped && !S.cached, shared:S.cached,
+       tag:S.dropped ? (S.cached ? 'unreachable from your code, but the cache holds it' : 'nothing reaches it — collected') : ''},
+      {id:'cache', title:'List<Session>', fields:[['Count', S.cached ? '1' : '0']]}
+    ],
+    refs:[...(S.dropped ? [] : [{from:0, to:'ana'}]),
+          {from:1, to:'cache'},
+          ...(S.cached ? [{from:'cache', to:'ana', hot:true, side:true}] : [])]
+  };
+}
+
+function files(S){
+  const L = S.lang, s = S.step;
+  if(s === 1) return {
+    cs:[{n:'Values.cs', lines:[
+      ['int a = 5;'],
+      ['int b = a;        // the VALUE is copied','hl'],
+      [`b = ${S.b};           // only b changes`, S.b !== 5 ? 'hl' : ''],
+      [`// a is still ${S.a}`]]}],
+    java:[{n:'Values.java', lines:[
+      ['int a = 5;'],
+      ['int b = a;        // the VALUE is copied','hl'],
+      [`b = ${S.b};           // only b changes`, S.b !== 5 ? 'hl' : ''],
+      [`// a is still ${S.a}`]]}],
+    ts:[{n:'values.ts', lines:[
+      ['let a = 5;'],
+      ['let b = a;        // the VALUE is copied','hl'],
+      [`b = ${S.b};           // only b changes`, S.b !== 5 ? 'hl' : ''],
+      [`// a is still ${S.a}`]]}]
+  }[L];
+
+  if(s === 2) return {
+    cs:[{n:'References.cs', lines:[
+      ['var p1 = new Person { Name = "Ana" };   // object lives on the heap'],
+      ['var p2 = p1;                            // the ADDRESS is copied', S.aliased ? 'hl' : ''],
+      [`p2.Name = "${S.name}";`, S.name !== 'Ana' ? 'bad' : ''],
+      [`Console.WriteLine(p1.Name);   // "${S.name}" — same object`, S.name !== 'Ana' ? 'bad' : '']]}],
+    java:[{n:'References.java', lines:[
+      ['Person p1 = new Person("Ana");   // object lives on the heap'],
+      ['Person p2 = p1;                  // the ADDRESS is copied', S.aliased ? 'hl' : ''],
+      [`p2.setName("${S.name}");`, S.name !== 'Ana' ? 'bad' : ''],
+      [`System.out.println(p1.getName());   // "${S.name}" — same object`, S.name !== 'Ana' ? 'bad' : '']]}],
+    ts:[{n:'references.ts', lines:[
+      ['const p1 = { name: "Ana" };   // object lives on the heap'],
+      ['const p2 = p1;                // the ADDRESS is copied', S.aliased ? 'hl' : ''],
+      [`p2.name = "${S.name}";`, S.name !== 'Ana' ? 'bad' : ''],
+      [`console.log(p1.name);   // "${S.name}" — same object`, S.name !== 'Ana' ? 'bad' : '']]}]
+  }[L];
+
+  if(s === 3) return {
+    cs:[{n:'Methods.cs', lines:[
+      ['void Rename(Person person) => person.Name = "Bo";   // changes the object you passed','hl'],
+      ['void Replace(Person person) => person = new Person { Name = "Bo" };   // changes only the local copy', S.reassigned ? 'bad' : ''],[''],
+      ['Rename(p1);    // p1.Name is now "Bo"'],
+      ['Replace(p1);   // p1 is untouched: the reference was passed BY VALUE','hl'],[''],
+      ['// ref makes the variable itself reachable:'],
+      ['void ReallyReplace(ref Person person) => person = new Person { Name = "Bo" };']]}],
+    java:[{n:'Methods.java', lines:[
+      ['void rename(Person person) { person.setName("Bo"); }   // changes the object you passed','hl'],
+      ['void replace(Person person) { person = new Person("Bo"); }   // changes only the local copy', S.reassigned ? 'bad' : ''],[''],
+      ['rename(p1);    // p1 name is now "Bo"'],
+      ['replace(p1);   // p1 is untouched: Java is always pass-by-value','hl'],[''],
+      ['// There is no ref/out in Java: return the new object instead.']]}],
+    ts:[{n:'methods.ts', lines:[
+      ['function rename(person: Person) { person.name = "Bo"; }   // changes the object you passed','hl'],
+      ['function replace(person: Person) { person = { name: "Bo" }; }   // changes only the local copy', S.reassigned ? 'bad' : ''],[''],
+      ['rename(p1);    // p1.name is now "Bo"'],
+      ['replace(p1);   // p1 is untouched: the reference was passed by value','hl']]}]
+  }[L];
+
+  if(s === 4) return {
+    cs:[{n:'Copies.cs', lines:[
+      ['var copy = original with { };            // record: a SHALLOW copy', S.copied && !S.deep ? 'bad' : ''],
+      ['// or MemberwiseClone(), or new Person { Name = original.Name, Address = original.Address }'],[''],
+      [`copy.Address.City = "${S.city}";`, S.copied && !S.deep ? 'bad' : ''],
+      [`Console.WriteLine(original.Address.City);   // "${S.deep ? 'Lisbon' : S.city}"`, S.copied && !S.deep ? 'bad' : ''],[''],
+      ['// A deep copy clones what the fields point at as well:'],
+      ['var deep = original with { Address = new Address(original.Address) };', S.deep ? 'new' : '']]}],
+    java:[{n:'Copies.java', lines:[
+      ['Person copy = person.clone();            // Object.clone() is SHALLOW', S.copied && !S.deep ? 'bad' : ''],[''],
+      [`copy.getAddress().setCity("${S.city}");`, S.copied && !S.deep ? 'bad' : ''],
+      [`System.out.println(person.getAddress().getCity());   // "${S.deep ? 'Lisbon' : S.city}"`, S.copied && !S.deep ? 'bad' : ''],[''],
+      ['// A deep copy clones the fields too:'],
+      ['Person deep = new Person(person.getName(), new Address(person.getAddress()));', S.deep ? 'new' : '']]}],
+    ts:[{n:'copies.ts', lines:[
+      ['const copy = { ...original };            // spread is a SHALLOW copy', S.copied && !S.deep ? 'bad' : ''],[''],
+      [`copy.address.city = "${S.city}";`, S.copied && !S.deep ? 'bad' : ''],
+      [`console.log(original.address.city);   // "${S.deep ? 'Lisbon' : S.city}"`, S.copied && !S.deep ? 'bad' : ''],[''],
+      ['// Deep copies:'],
+      ['const deep = structuredClone(original);', S.deep ? 'new' : '']]}]
+  }[L];
+
+  if(s === 5) return {
+    cs:[{n:'Lifetime.cs', lines:[
+      ['var session = new Session(user);   // 48 MB on the heap'],
+      ['_cache.Add(session);               // the cache now holds a reference too', S.cached ? 'bad' : ''],[''],
+      ['session = null;                    // your variable lets go', S.dropped ? 'hl' : ''],
+      S.cached
+        ? ['// still reachable through _cache → never collected. This is a leak.','bad']
+        : ['// nothing reaches the object → the collector takes it, whenever it likes','new'],[''],
+      ['// Not "freed at the closing brace": freed when nothing can reach it.']]}],
+    java:[{n:'Lifetime.java', lines:[
+      ['Session session = new Session(user);   // 48 MB on the heap'],
+      ['cache.add(session);                    // the cache now holds a reference too', S.cached ? 'bad' : ''],[''],
+      ['session = null;                        // your variable lets go', S.dropped ? 'hl' : ''],
+      S.cached
+        ? ['// still reachable through the cache → never collected. This is a leak.','bad']
+        : ['// nothing reaches the object → eligible for collection','new'],[''],
+      ['// A static or long-lived collection is the most common Java leak.']]}],
+    ts:[{n:'lifetime.ts', lines:[
+      ['let session = new Session(user);   // 48 MB on the heap'],
+      ['cache.push(session);               // the cache now holds a reference too', S.cached ? 'bad' : ''],[''],
+      ['session = null;                    // your variable lets go', S.dropped ? 'hl' : ''],
+      S.cached
+        ? ['// still reachable through cache → never collected. This is a leak.','bad']
+        : ['// nothing reaches the object → eligible for collection','new'],[''],
+      ['// WeakMap / WeakRef hold an object without keeping it alive.']]}]
+  }[L];
+
+  return files({...S, step:2});
+}
+
+const P = Playroom({
+  district:'Memory Harbour',
+  title:'Stack and Heap',
+  dek:'Where your variables live, and why two names can change one thing.',
+  steps:['A value','A reference','Into a method','Copies','What dies','Interview check'],
+  stage:STAGE,
+  park:{current:'Stack and Heap', items:[
+    {label:'Stack and Heap'}, {label:'Garbage collection'}, {label:'Boxing'},
+    {label:'Pointers and null'}, {label:'Caching'}]},
+
+  state:{a:5, b:5, aliased:false, name:'Ana', reassigned:false,
+         copied:false, deep:false, city:'Lisbon', dropped:false, cached:false},
+
+  story(S, api){
+    const fb = api.fb();
+    return {
+      1:`<h2>A number is the value itself</h2><p><code>int a = 5; int b = a;</code> — both slots sit on the stack and each holds its own 5. Change <code>b</code> and watch <code>a</code>.</p>${fb}`,
+      2:`<h2>An object is an address</h2><p><code>Person p1</code> holds the <b>address</b> of an object on the heap, not the object. Copy the variable, then rename through the copy.</p>${fb || '<p>Copy the variable into <code>p2</code> first.</p>'}`,
+      3:`<h2>Passing it to a method</h2><p>The method gets its own slot holding a copy of the address. Changing the object works. Pointing that slot at a new object does nothing to yours.</p>${fb}`,
+      4:`<h2>Copying, and what "shallow" costs</h2><p>Copy the person, then change the copy's <b>city</b>. A shallow copy duplicates the outer object but keeps the same address for every field.</p>${fb}`,
+      5:`<h2>What actually dies</h2><p>Objects are not freed at the end of a method. They are freed when nothing can reach them. Drop your variable, then try it again with a cache holding on.</p>${fb}`,
+      6:`<h2>Interview check</h2>${api.quizHTML()}`
+    }[S.step];
+  },
+
+  controls(S){
+    const s = S.step;
+    if(s === 1) return `<button class="btn primary" data-a="setb">Set b = 9</button><button class="btn" data-a="reset1">Reset</button>`;
+    if(s === 2) return (S.aliased ? '' : `<button class="btn primary" data-a="alias">Copy p1 into p2</button>`) +
+      (S.aliased ? `<button class="btn primary" data-a="rename">Rename through p2</button>` : '');
+    if(s === 3) return `<button class="btn" data-a="mrename">Call Rename(p1)</button><button class="btn" data-a="mreplace">Call Replace(p1)</button>`;
+    if(s === 4) return (S.copied ? '' : `<button class="btn primary" data-a="shallow">Make a shallow copy</button>`) +
+      (S.copied && !S.deep ? `<button class="btn primary" data-a="movecity">Change the copy's city</button><button class="btn" data-a="deep">Make it a deep copy instead</button>` : '') +
+      (S.deep ? `<button class="btn primary" data-a="movecity">Change the copy's city</button>` : '');
+    if(s === 5) return (S.cached ? '' : `<button class="btn" data-a="cache">Add it to the cache</button>`) +
+      `<button class="btn primary" data-a="drop">session = null</button>` +
+      (S.cached ? `<button class="btn" data-a="uncache">Remove it from the cache</button>` : '');
+    return '';
+  },
+
+  statusLine(S){
+    const s = S.step;
+    if(s === 1) return `a = <b>${S.a}</b> · b = <b>${S.b}</b>` +
+      (S.b !== S.a ? `<span class="ok"> · two independent values</span>` : '');
+    if(s === 2) return S.aliased
+      ? `Objects on the heap <b>1</b> · names pointing at it <b>2</b>` +
+        (S.name !== 'Ana' ? `<span class="warn"> · renaming through p2 changed p1 too</span>` : `<span class="warn"> · a change through either name is seen by both</span>`)
+      : `Objects on the heap <b>1</b> · names pointing at it <b>1</b>`;
+    if(s === 3) return S.reassigned
+      ? `Caller's p1 <b>unchanged</b><span class="ok"> · the method reassigned its own copy of the address</span>`
+      : `Caller's p1 → <b>${S.name}</b><span class="warn"> · the method changed the object you passed</span>`;
+    if(s === 4){
+      if(!S.copied) return `Heap objects <b>2</b> · Person and its Address`;
+      return S.deep
+        ? `Heap objects <b>4</b><span class="ok"> · the copy owns its own Address</span>`
+        : `Heap objects <b>3</b><span class="warn"> · two Persons, one shared Address</span>`;
+    }
+    if(s === 5) return S.dropped
+      ? (S.cached
+          ? `Reachable <b>yes</b><span class="warn"> · through the cache · 48 MB never freed</span>`
+          : `Reachable <b>no</b><span class="ok"> · eligible for collection</span>`)
+      : `Reachable <b>yes</b><span> · your variable still holds it</span>`;
+    return `value vs reference · the reference itself is passed by value`;
+  },
+
+  files,
+  note: S => NOTES[S.step],
+
+  onStage(S){
+    const m = model(S), id = document.getElementById.bind(document);
+    const slotY = i => 62 + i * 58;
+
+    id('slots').innerHTML = m.slots.map((s, i) =>
+      `<g><rect class="slot ${s.frame ? 'frame' : ''}" x="34" y="${slotY(i)}" width="174" height="40" rx="5"/>` +
+      `<text class="slotname" x="48" y="${slotY(i) + 25}">${s.n}</text>` +
+      `<text class="slotval" x="190" y="${slotY(i) + 25}" text-anchor="end">${s.v}</text></g>`).join('');
+
+    const objY = i => 58 + i * 76;
+    id('objs').innerHTML = m.objs.map((o, i) =>
+      `<g class="${o.dead ? 'dead' : ''}">` +
+      `<rect class="obj ${o.shared ? 'shared' : ''} ${o.dead ? 'dead' : ''}" x="292" y="${objY(i)}" width="262" height="60" rx="8"/>` +
+      `<text class="objlbl" x="306" y="${objY(i) + 22}">${o.title}</text>` +
+      o.fields.map((f, j) =>
+        `<text class="objfield" x="${306 + j * 132}" y="${objY(i) + 44}">${f[0]}: <tspan font-weight="600" fill="${o.dead ? 'var(--muted)' : 'var(--ink)'}">${f[1]}</tspan></text>`).join('') +
+      (o.tag ? `<text class="tag ${o.dead ? '' : o.shared ? 'warn' : 'ok'}" x="423" y="${objY(i) + 72}">${o.tag}</text>` : '') +
+      `</g>`).join('');
+
+    const objIndex = id2 => m.objs.findIndex(o => o.id === id2);
+    id('refs').innerHTML = m.refs.map(r => {
+      const toI = objIndex(r.to);
+      if(toI < 0) return '';
+      const y2 = objY(toI) + 30;
+      if(r.side){
+        const fromI = objIndex('cache');
+        if(fromI < 0) return '';
+        const y1 = objY(fromI) + 30;
+        return `<path class="ref ${r.hot ? 'hot' : ''}" d="M560 ${y1} C 584 ${y1}, 584 ${y2}, 560 ${y2}"/>`;
+      }
+      const y1 = slotY(r.from) + 20;
+      return `<path class="ref ${r.hot ? 'hot' : ''}" d="M208 ${y1} C 250 ${y1}, 252 ${y2}, 290 ${y2}"/>`;
+    }).join('');
+  },
+
+  onStep(S, n){
+    if(n === 1){ S.a = 5; S.b = 5; }
+    if(n === 2){ S.aliased = false; S.name = 'Ana'; }
+    if(n === 3){ S.name = 'Ana'; S.reassigned = false; }
+    if(n === 4){ S.copied = false; S.deep = false; S.city = 'Lisbon'; }
+    if(n === 5){ S.dropped = false; S.cached = false; }
+  },
+
+  onClick(S, b, api){
+    const a = b.dataset.a;
+    if(a === 'setb'){
+      S.b = 9;
+      api.tell('good', '<b>Only b moved.</b> <code>b = a</code> copied the number itself, so the two slots have nothing to do with each other. This is what "value type" means.');
+      api.out('b = 9  ·  a = 5');
+      return;
+    }
+    if(a === 'reset1'){ S.b = 5; api.out('b = a'); return; }
+    if(a === 'alias'){
+      S.aliased = true;
+      api.tell('good', '<b>Two slots, one object.</b> The copy duplicated the address, not the person. Nothing on the heap was created.');
+      api.out('p2 = p1  →  both hold 0x8a2');
+      return;
+    }
+    if(a === 'rename'){
+      S.name = S.name === 'Ana' ? 'Bo' : 'Ana';
+      api.tell('bad', `<b>p1 changed as well.</b> You renamed the object, and both names lead to it. This is the bug behind half of all "but I only changed the copy" reports.`);
+      api.out(`p2.Name = "${S.name}"  →  p1.Name is "${S.name}"`);
+      return;
+    }
+    if(a === 'mrename'){
+      S.reassigned = false; S.name = 'Bo';
+      api.tell('bad', '<b>Your object changed.</b> The method got a copy of the address, which still points at your person, so the change is visible to you.');
+      api.out('Rename(p1)  →  p1.Name is "Bo"');
+      return;
+    }
+    if(a === 'mreplace'){
+      S.reassigned = true;
+      api.tell('good', '<b>Nothing happened to p1.</b> The method pointed <b>its own slot</b> at a new object. Your slot still holds the old address, and the new person is unreachable the moment the method returns. This is what "the reference is passed by value" means.');
+      api.out('Replace(p1)  →  p1 unchanged');
+      return;
+    }
+    if(a === 'shallow'){
+      S.copied = true; S.deep = false;
+      api.tell('good', '<b>Two Person objects now.</b> But look at the Address field: both copies hold the same address, so they share one Address object.');
+      api.out('copy = original with { }   // shallow');
+      return;
+    }
+    if(a === 'deep'){
+      S.deep = true; S.city = 'Lisbon';
+      api.tell('good', '<b>Now the copy owns its parts.</b> A deep copy clones what the fields point at as well, so changing the copy cannot reach the original.');
+      api.out('deep = original with { Address = new Address(original.Address) }');
+      return;
+    }
+    if(a === 'movecity'){
+      S.city = S.city === 'Lisbon' ? 'Porto' : 'Lisbon';
+      if(S.deep){
+        api.tell('good', `<b>Only the copy moved to ${S.city}.</b> Two Address objects, two independent cities.`);
+        api.out(`deep.Address.City = "${S.city}"  ·  original stays "Lisbon"`);
+      } else {
+        api.tell('bad', `<b>The original moved too.</b> One Address object, reached from both Persons. Shallow copies feel safe right up to the first nested change.`);
+        api.out(`copy.Address.City = "${S.city}"  →  original.Address.City is "${S.city}"`);
+      }
+      return;
+    }
+    if(a === 'cache'){
+      S.cached = true;
+      api.tell('good', '<b>The cache holds a reference now.</b> Harmless today; the reason for tomorrow\'s leak.');
+      api.out('_cache.Add(session)');
+      return;
+    }
+    if(a === 'uncache'){
+      S.cached = false;
+      api.tell('good', '<b>Nothing reaches it any more.</b> The collector can take the 48 MB whenever it next runs. Note "whenever": you do not control when, only whether it is reachable.');
+      api.out('_cache.Remove(session)  →  unreachable');
+      return;
+    }
+    if(a === 'drop'){
+      S.dropped = true;
+      if(S.cached){
+        api.tell('bad', '<b>Setting it to null did nothing.</b> The cache still holds the object, so it stays in memory for the life of the cache. Reachability decides, not your variable, and not the closing brace.');
+        api.out('session = null  ·  still reachable via _cache  ·  48 MB retained');
+      } else {
+        api.tell('good', '<b>Unreachable, so collectable.</b> No code can get to that object any more, so the collector may free it. It is not freed the instant you say null: it becomes eligible.');
+        api.out('session = null  →  eligible for collection');
+      }
+      return;
+    }
+    return false;
+  },
+
+  reset(S){
+    Object.assign(S, {a:5, b:5, aliased:false, name:'Ana', reassigned:false,
+                      copied:false, deep:false, city:'Lisbon', dropped:false, cached:false});
+  },
+
+  quiz:[
+    {q:'You pass an object to a method and the method sets the parameter to a new object. What does the caller see?',
+     o:['The caller now has the new object','Nothing changed for the caller: the reference was passed by value, so the method reassigned only its own copy','A compile error','It depends on the garbage collector'], a:1,
+     w:'Changing the object through the parameter is visible; pointing the parameter somewhere else is not. C# <code>ref</code>/<code>out</code> is the exception.'},
+    {q:'A colleague copies an order with a spread or clone, then edits the copy\'s line items, and the original changes too. Why?',
+     o:['A bug in the language','The copy is shallow: the outer object was duplicated, but its fields still hold the same addresses, so both share the nested objects','The objects were on the stack','Garbage collection moved it'], a:1,
+     w:'Fix with a deep copy (<code>structuredClone</code>, a copy constructor, cloning each field) or by making the nested data immutable.'},
+    {q:'When is a heap object freed?',
+     o:['At the end of the method','When the variable goes out of scope','When nothing can reach it any more, at a time the collector chooses','When you set it to null'], a:2,
+     w:'Reachability, not scope, and not on your schedule. Setting a variable to null only removes one path to the object.'},
+    {q:'Which of these is the usual cause of a managed memory leak?',
+     o:['Forgetting to call free','A long-lived collection, cache or event subscription that keeps holding objects you have finished with','Creating too many short-lived objects','Using interfaces'], a:1,
+     w:'Same shape as the Observer leak: something long-lived keeps a reference, so the collector cannot help you.'}
+  ],
+  soundbite:'"A variable holds either the value or the address of an object. Copying a reference copies the address, so both names see one object on the heap. Arguments are copied too, including the address, which is why a method can change the object you passed but cannot repoint your variable. And an object lives until nothing can reach it, so leaks come from long-lived caches and subscriptions rather than from forgetting to free."'
+});
+</script>
+</body>
+</html>
