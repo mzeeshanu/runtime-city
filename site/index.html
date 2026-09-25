@@ -105,12 +105,17 @@ li.soon{color:var(--muted);padding:14px 2px;font-size:14px}
   </section>
 
   <section id="concurrency-crossing">
-    <h2>Concurrency Crossing <span class="state">planned</span></h2>
+    <h2>Concurrency Crossing <span class="state">4 playrooms</span></h2>
     <p class="blurb">Two things at once, and what goes wrong.</p>
     <ul>
-    <li class="soon">Threads · Locks · Deadlocks · async/await — coming soon</li>
+    <li data-room="threads"><a href="playrooms/threads/"><span class="t">Threads</span> <span class="d">two threads, one counter, a different answer every run</span><span class="state" hidden></span></a></li>
+    <li data-room="locks"><a href="playrooms/locks/"><span class="t">Locks</span> <span class="d">correctness, bought with a queue</span><span class="state" hidden></span></a></li>
+    <li data-room="deadlocks"><a href="playrooms/deadlocks/"><span class="t">Deadlocks</span> <span class="d">both waiting, both polite, forever</span><span class="state" hidden></span></a></li>
+    <li data-room="async-await"><a href="playrooms/async-await/"><span class="t">Async / Await</span> <span class="d">waiting without holding a thread hostage</span><span class="state" hidden></span></a></li>
     </ul>
   </section>
+
+
 
   <p class="loop">Every playroom runs the same loop: <b>see it</b> working, <b>break it</b> yourself, <b>fix it</b>, read the <b>same code</b> in C#, Java or TypeScript, then take the <b>interview check</b>.</p>
 </div>

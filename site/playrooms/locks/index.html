@@ -1,0 +1,340 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Locks Playroom · Runtime City</title>
+<meta name="description" content="Make the counter correct with a lock, then watch eight threads queue behind it, shrink the critical section, split the lock by key, and see what a network call inside one costs. A playroom from Runtime City.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,600;12..96,800&family=IBM+Plex+Sans:wght@400;500&family=JetBrains+Mono:wght@400&display=swap">
+<link rel="stylesheet" href="../../assets/playroom.css">
+<style>
+.thr{fill:var(--surface);stroke:var(--ink);stroke-width:1.5}
+.thr.waiting{stroke:var(--bad);stroke-dasharray:5 4}
+.thr.running{stroke:var(--good);fill:rgba(31,132,105,.16)}
+.thrlbl{font:400 10px var(--mono);fill:var(--ink);text-anchor:middle}
+.thrsub{font:400 9px var(--mono);fill:var(--muted);text-anchor:middle}
+.thrsub.wait{fill:var(--bad)}
+.gate{fill:none;stroke:var(--accent);stroke-width:2}
+.gatelbl{font:400 10px var(--mono);fill:var(--accent);text-anchor:middle}
+.bar{fill:var(--good);opacity:.55}
+.bar.wait{fill:var(--bad);opacity:.4}
+.barlbl{font:400 9px var(--mono);fill:var(--muted)}
+.axis{stroke:var(--hair);stroke-width:1}
+</style>
+</head>
+<body>
+<div id="playroom"></div>
+
+<script src="../../assets/city.js"></script>
+<script src="../../assets/nav.js"></script>
+<script src="../../assets/playroom.js"></script>
+<script>
+const STRATEGY = {
+  big:    {name:'one lock for everything', share:1,  work:10, note:'every thread queues behind every other'},
+  small:  {name:'shrink the section',      share:1,  work:1,  note:'the lock is held for a tenth of the time'},
+  striped:{name:'a lock per key',          share:8,  work:1,  note:'threads on different keys never meet'},
+  rw:     {name:'reader / writer lock',    share:8,  work:1,  note:'many readers at once, writers exclusive'}
+};
+
+const STAGE = `
+<svg viewBox="0 0 600 300" role="img" aria-label="Threads queueing for a lock">
+  <defs><pattern id="grid" width="24" height="24" patternUnits="userSpaceOnUse"><path d="M24 0H0V24" class="gridline" fill="none"/></pattern></defs>
+  <rect width="600" height="300" fill="url(#grid)" opacity=".6"/>
+  <g id="threads"></g>
+  <g id="gate"></g>
+  <g id="timeline"></g>
+</svg>`;
+
+const NOTES = {
+  1:'<b>A lock makes a section of code single-threaded.</b> That is all it does, and it is why it is correct.',
+  2:'<b>Everything inside the lock happens one at a time.</b> Add threads and they queue: the locked part sets your ceiling.',
+  3:'<b>Hold the lock for less time.</b> Prepare outside, mutate inside. Most critical sections are far bigger than they need to be.',
+  4:'<b>Split the lock.</b> If two threads are working on different keys they have no reason to wait for each other.',
+  5:'<b>Never hold a lock across I/O.</b> The wait is now as long as someone else\'s network, and everyone behind you pays for it.',
+  6:'<b>Interview tip:</b> "a lock is correctness bought with serialisation" — then talk about shrinking the critical section and never doing I/O inside it.'
+};
+
+function files(S){
+  const L = S.lang, s = S.step, pick = o => o[L];
+
+  if(s === 3) return pick({
+    cs:[{n:'Shrink.cs', lines:[
+      ['// Before: everything inside'],
+      ['lock (_gate)','bad'],
+      ['{','bad'],
+      ['    var parsed = Parse(payload);        // pure CPU, needs no lock','bad'],
+      ['    var total  = Recalculate(parsed);   // also needs no lock','bad'],
+      ['    _state[key] = total;                // this is the only shared write','bad'],
+      ['}','bad'],[''],
+      ['// After: prepare outside, mutate inside'],
+      ['var parsed = Parse(payload);','new'],
+      ['var total  = Recalculate(parsed);','new'],
+      ['lock (_gate) { _state[key] = total; }   // microseconds, not milliseconds','hl']]}],
+    java:[{n:'Shrink.java', lines:[
+      ['// Before'],
+      ['synchronized (gate) {','bad'],
+      ['    var parsed = parse(payload);','bad'],
+      ['    var total  = recalculate(parsed);','bad'],
+      ['    state.put(key, total);','bad'],
+      ['}','bad'],[''],
+      ['// After'],
+      ['var parsed = parse(payload);','new'],
+      ['var total  = recalculate(parsed);','new'],
+      ['synchronized (gate) { state.put(key, total); }','hl']]}],
+    ts:[{n:'shrink.ts', lines:[
+      ['// JavaScript has no threads to block, but the same shape applies to'],
+      ['// any exclusive resource you hold — a connection, a semaphore slot:'],[''],
+      ['const parsed = parse(payload);          // outside','new'],
+      ['const total  = recalculate(parsed);     // outside','new'],
+      ['await mutex.runExclusive(() => { state.set(key, total); });   // inside','hl']]}]
+  });
+
+  if(s === 4) return pick({
+    cs:[{n:'Striping.cs', lines:[
+      ['// One lock for the whole map: every key waits for every other key'],
+      ['lock (_gate) { _counts[key]++; }','bad'],[''],
+      ['// A lock per key (striped): only collisions wait'],
+      ['var gate = _gates[key.GetHashCode() & 0xFF];','new'],
+      ['lock (gate) { _counts[key]++; }','hl'],[''],
+      ['// Or use the collection built for it, which stripes internally:'],
+      ['_counts.AddOrUpdate(key, 1, (_, v) => v + 1);   // ConcurrentDictionary','new'],[''],
+      ['// Reader/writer, when reads hugely outnumber writes:'],
+      ['_rw.EnterReadLock();  …  _rw.ExitReadLock();']]}],
+    java:[{n:'Striping.java', lines:[
+      ['synchronized (gate) { counts.merge(key, 1, Integer::sum); }   // one lock','bad'],[''],
+      ['// ConcurrentHashMap stripes the locking for you:'],
+      ['counts.merge(key, 1, Integer::sum);   // on a ConcurrentHashMap','new'],[''],
+      ['// Reader/writer:'],
+      ['ReadWriteLock rw = new ReentrantReadWriteLock();','hl'],
+      ['rw.readLock().lock();   …   rw.readLock().unlock();']]}],
+    ts:[{n:'striping.ts', lines:[
+      ['// The same idea with any limited resource: one semaphore per key'],
+      ['const gates = new Map<string, Mutex>();','new'],
+      ['const gate = gates.get(key) ?? gates.set(key, new Mutex()).get(key)!;','hl'],
+      ['await gate.runExclusive(() => { counts.set(key, (counts.get(key) ?? 0) + 1); });']]}]
+  });
+
+  if(s === 5) return pick({
+    cs:[{n:'NeverThis.cs', lines:[
+      ['lock (_gate)','bad'],
+      ['{','bad'],
+      ['    var rate = await _fx.GetRateAsync();   // 800 ms over the network','bad'],
+      ['    _cache[pair] = rate;','bad'],
+      ['}','bad'],[''],
+      ['// Everyone else is blocked for 800 ms because a third party was slow.'],
+      ['// (You also cannot await inside lock() in C# — which is the compiler'],
+      ['//  telling you this is a bad idea.)','hl'],[''],
+      ['var rate = await _fx.GetRateAsync();      // outside','new'],
+      ['lock (_gate) { _cache[pair] = rate; }     // inside, microseconds','new']]}],
+    java:[{n:'NeverThis.java', lines:[
+      ['synchronized (gate) {','bad'],
+      ['    var rate = fx.getRate();      // 800 ms HTTP call, lock held','bad'],
+      ['    cache.put(pair, rate);','bad'],
+      ['}','bad'],[''],
+      ['var rate = fx.getRate();          // outside','new'],
+      ['synchronized (gate) { cache.put(pair, rate); }','new']]}],
+    ts:[{n:'never-this.ts', lines:[
+      ['await mutex.runExclusive(async () => {','bad'],
+      ['  const rate = await fetchRate();      // 800 ms with the mutex held','bad'],
+      ['  cache.set(pair, rate);','bad'],
+      ['});','bad'],[''],
+      ['const rate = await fetchRate();        // outside','new'],
+      ['await mutex.runExclusive(() => { cache.set(pair, rate); });','new']]}]
+  });
+
+  return pick({
+    cs:[{n:'Locked.cs', lines:[
+      ['private readonly object _gate = new();'],
+      ['private long _counter;'],[''],
+      ['public void Increment()'],['{'],
+      ['    lock (_gate)          // one thread inside at a time','hl'],
+      ['    {'],
+      ['        _counter++;       // now safe, and now serialised'],
+      ['    }'],['}'],[''],
+      ['// Correct. The question the next steps ask is: at what cost?']]}],
+    java:[{n:'Locked.java', lines:[
+      ['private final Object gate = new Object();'],
+      ['private long counter;'],[''],
+      ['public void increment() {'],
+      ['    synchronized (gate) {      // one thread at a time','hl'],
+      ['        counter++;'],
+      ['    }'],['}'],[''],
+      ['// ReentrantLock gives the same guarantee plus tryLock and fairness.']]}],
+    ts:[{n:'locked.ts', lines:[
+      ['// JavaScript runs your code on one thread, so there is no lock keyword.'],
+      ['// You still need mutual exclusion for async critical sections:'],[''],
+      ['const mutex = new Mutex();','hl'],
+      ['await mutex.runExclusive(async () => {'],
+      ['  const current = await read();'],
+      ['  await write(current + 1);     // no interleaving with other awaits'],
+      ['});']]}]
+  });
+}
+
+const P = Playroom({
+  district:'Concurrency Crossing',
+  title:'Locks',
+  dek:'Correctness, bought with a queue. The price is the interesting part.',
+  steps:['Guard it','The queue','Shrink it','Split it','Never across I/O','Interview check'],
+  stage:STAGE,
+
+  state:{threads:2, strategy:'big', ran:false, io:true},
+
+  story(S, api){
+    const fb = api.fb();
+    return {
+      1:`<h2>One at a time</h2><p>A lock makes the code inside it single-threaded. The counter from the last playroom is now correct, whatever the threads do.</p>${fb}`,
+      2:`<h2>What it costs</h2><p>Add threads. The work inside the lock cannot overlap, so they queue — and beyond a point, more threads make things worse rather than better.</p>${fb}`,
+      3:`<h2>Hold it for less time</h2><p>Most critical sections contain work that does not need protecting. Move the thinking outside; keep only the shared write inside.</p>${fb}`,
+      4:`<h2>Stop using one lock for everything</h2><p>Two threads updating different keys have no reason to wait for each other. Split the lock by key, or use a collection that does it for you.</p>${fb}`,
+      5:`<h2>The one that takes systems down</h2><p>A network call inside a lock. Your critical section is now as long as someone else's worst day.</p>${fb}`,
+      6:`<h2>Interview check</h2>${api.quizHTML()}`
+    }[S.step];
+  },
+
+  controls(S){
+    const s = S.step;
+    if(s === 1) return `<button class="btn primary" data-a="run">Run two threads</button>`;
+    if(s === 2) return [2,4,8].map(n =>
+      `<button class="chip" data-th="${n}" aria-pressed="${S.threads === n}"><i style="background:${n > 4 ? 'var(--bad)' : 'var(--accent)'}"></i>${n} threads</button>`).join('') +
+      `<button class="btn primary" data-a="run" style="margin-left:auto">Run</button>`;
+    if(s === 3) return `<button class="chip" data-st="big" aria-pressed="${S.strategy === 'big'}"><i style="background:var(--bad)"></i>everything inside</button>` +
+      `<button class="chip" data-st="small" aria-pressed="${S.strategy === 'small'}"><i style="background:var(--good)"></i>only the write inside</button>` +
+      `<button class="btn primary" data-a="run" style="margin-left:auto">Run</button>`;
+    if(s === 4) return `<button class="chip" data-st="small" aria-pressed="${S.strategy === 'small'}"><i style="background:var(--accent)"></i>one lock</button>` +
+      `<button class="chip" data-st="striped" aria-pressed="${S.strategy === 'striped'}"><i style="background:var(--good)"></i>lock per key</button>` +
+      `<button class="chip" data-st="rw" aria-pressed="${S.strategy === 'rw'}"><i style="background:var(--good)"></i>reader / writer</button>` +
+      `<button class="btn primary" data-a="run" style="margin-left:auto">Run</button>`;
+    if(s === 5) return `<button class="chip" data-io="1" aria-pressed="${S.io}"><i style="background:var(--bad)"></i>HTTP call inside</button>` +
+      `<button class="chip" data-io="0" aria-pressed="${!S.io}"><i style="background:var(--good)"></i>HTTP call outside</button>` +
+      `<button class="btn primary" data-a="run" style="margin-left:auto">Run 8 threads</button>`;
+    return '';
+  },
+
+  statusLine(S){
+    const s = S.step;
+    if(s === 5) return S.io
+      ? `Lock held <b>800 ms</b> per thread · 8 threads → <b>6.4 s</b><span class="warn"> · one slow API stalls everything</span>`
+      : `Lock held <b>0.2 ms</b> per thread · 8 threads → <b>0.8 s</b><span class="ok"> · the slow call overlaps freely</span>`;
+    if(!S.ran) return S.step === 1 ? `Two threads · counter guarded by a lock` : `Pick a setting and run it`;
+    const st = STRATEGY[S.strategy];
+    const waitEach = st.work * (S.threads / st.share - 1);
+    const total = st.work * Math.ceil(S.threads / st.share);
+    return `Threads <b>${S.threads}</b> · lock held <b>${st.work} ms</b> each · wall clock <b>${total} ms</b>` +
+      (waitEach > 0.5 ? `<span class="warn"> · ${st.note}</span>` : `<span class="ok"> · ${st.note}</span>`);
+  },
+
+  files,
+  note: S => NOTES[S.step],
+
+  onStage(S){
+    const id = document.getElementById.bind(document);
+    const st = STRATEGY[S.strategy];
+    const n = S.step === 5 ? 8 : S.threads;
+    const held = S.step === 5 ? (S.io ? 800 : 0.2) : st.work;
+    const lanes = S.step === 5 ? 1 : st.share;
+
+    id('threads').innerHTML = Array.from({length:n}, (_, i) => {
+      const x = 24 + i * (552 / n);
+      const w = Math.min(64, 552 / n - 8);
+      const running = S.ran && i < lanes;
+      const waiting = S.ran && i >= lanes;
+      return `<rect class="thr ${running ? 'running' : waiting ? 'waiting' : ''}" x="${x}" y="34" width="${w}" height="44" rx="6"/>` +
+        `<text class="thrlbl" x="${x + w / 2}" y="${54}">T${i + 1}</text>` +
+        `<text class="thrsub ${waiting ? 'wait' : ''}" x="${x + w / 2}" y="${69}">${!S.ran ? 'ready' : running ? 'in' : 'waiting'}</text>`;
+    }).join('');
+
+    id('gate').innerHTML =
+      `<rect class="gate" x="${300 - (lanes > 1 ? 150 : 70)}" y="104" width="${lanes > 1 ? 300 : 140}" height="36" rx="8"/>` +
+      `<text class="gatelbl" x="300" y="127">${lanes > 1 ? lanes + ' locks · one per key' : 'one lock'}</text>`;
+
+    /* a little wall-clock chart */
+    const slots = Math.ceil(n / lanes);
+    const unit = Math.min(60, 520 / Math.max(slots, 1));
+    id('timeline').innerHTML = S.ran ? Array.from({length:n}, (_, i) => {
+      const slot = Math.floor(i / lanes);
+      const y = 164 + i * Math.min(14, 120 / n);
+      const h = Math.max(6, Math.min(11, 110 / n));
+      return `<rect class="bar wait" x="40" y="${y}" width="${Math.max(0, slot * unit)}" height="${h}" rx="2"/>` +
+             `<rect class="bar" x="${40 + Math.max(0, slot * unit)}" y="${y}" width="${unit}" height="${h}" rx="2"/>`;
+    }).join('') + `<line class="axis" x1="40" y1="${160}" x2="560" y2="${160}"/>` +
+      `<text class="barlbl" x="40" y="292">waiting (red) then working (green) · total ${(held * slots).toFixed(held < 1 ? 1 : 0)} ms</text>` : '';
+  },
+
+  onStep(S, n){
+    S.ran = false;
+    if(n <= 2) S.strategy = 'big';
+    if(n === 2) S.threads = 2;
+    if(n === 3){ S.strategy = 'big'; S.threads = 8; }
+    if(n === 4){ S.strategy = 'small'; S.threads = 8; }
+    if(n === 5){ S.io = true; S.threads = 8; S.strategy = 'small'; }
+  },
+
+  onClick(S, b, api){
+    if(b.dataset.th){ S.threads = +b.dataset.th; S.ran = false; api.out(S.threads + ' threads'); return; }
+    if(b.dataset.st){ S.strategy = b.dataset.st; S.ran = false; api.out(STRATEGY[S.strategy].name); return; }
+    if(b.dataset.io){ S.io = b.dataset.io === '1'; S.ran = false; api.out(S.io ? 'HTTP call inside the lock' : 'HTTP call outside the lock'); return; }
+    const a = b.dataset.a;
+    if(a === 'run'){
+      S.ran = true;
+      const s = S.step, st = STRATEGY[S.strategy];
+      if(s === 1){
+        api.tell('good', '<b>Correct, every run.</b> The lock makes that section single-threaded, so read-modify-write cannot be interleaved. Everything after this step is about what you paid for it.');
+        api.out('counter = 2,000,000 · lock held per increment');
+        return;
+      }
+      if(s === 2){
+        api.tell(S.threads > 2 ? 'bad' : 'good', S.threads > 2
+          ? `<b>${S.threads} threads, ${S.threads * st.work} ms.</b> The locked section cannot overlap, so the work is serialised no matter how many cores you own. This is Amdahl's law with a name you can point at: the locked fraction is your ceiling.`
+          : '<b>Two threads, and one is always waiting.</b> Correct, but you are running on half a machine.');
+        api.out(`${S.threads} threads · ${S.threads * st.work} ms wall clock · ${st.work} ms each inside`);
+        return;
+      }
+      if(s === 3){
+        api.tell(S.strategy === 'small' ? 'good' : 'bad', S.strategy === 'small'
+          ? '<b>Ten times shorter, same correctness.</b> Parsing and recalculating never needed protection: only the shared write did. Shrinking the critical section is the cheapest concurrency win there is.'
+          : '<b>Everything is inside, so everything is serialised.</b> Look at what is in there: parsing and arithmetic on local data, neither of which another thread can see.');
+        api.out(S.strategy === 'small' ? '8 threads · 8 ms' : '8 threads · 80 ms');
+        return;
+      }
+      if(s === 4){
+        api.tell(S.strategy === 'small' ? 'bad' : 'good', S.strategy === 'small'
+          ? '<b>Different keys, same queue.</b> Two threads updating unrelated entries still wait for each other, because the lock protects the whole map rather than the entry.'
+          : S.strategy === 'striped'
+            ? '<b>Eight locks, eight threads, no waiting.</b> Hash the key to a lock. This is exactly what ConcurrentDictionary and ConcurrentHashMap do internally.'
+            : '<b>Readers no longer block readers.</b> A reader/writer lock lets any number of readers in together and writers in alone — a big win when reads dominate, and a trap when writes are frequent, because writers can starve.');
+        api.out({small:'1 lock · 8 threads · 8 ms', striped:'8 locks · 8 threads · 1 ms', rw:'readers concurrent · writers exclusive'}[S.strategy]);
+        return;
+      }
+      api.tell(S.io ? 'bad' : 'good', S.io
+        ? '<b>6.4 seconds of your service doing nothing.</b> Every thread holds the lock across an 800 ms network call, so the queue is eight calls long. The API being slow was never your problem — holding a lock across it made it your outage. Notice C# will not even let you <code>await</code> inside <code>lock</code>.'
+        : '<b>0.8 seconds, and the calls overlap.</b> Fetch outside, mutate inside. The lock is held for microseconds and a slow third party stays a slow third party.');
+      api.out(S.io ? '8 threads × 800 ms serialised · 6.4 s' : '8 calls in parallel · lock held 0.2 ms each · 0.8 s');
+      return;
+    }
+    return false;
+  },
+
+  reset(S){ Object.assign(S, {threads:2, strategy:'big', ran:false, io:true}); },
+
+  quiz:[
+    {q:'What does a lock buy and what does it cost?',
+     o:['Speed, at the cost of memory','Correctness — one thread in the section at a time — at the cost of serialising that section, which caps how much your extra cores can help'], a:1,
+     w:'That framing (Amdahl) is what interviewers are listening for, rather than just "it makes it thread-safe".'},
+    {q:'What is the cheapest way to reduce lock contention?',
+     o:['Use more threads','Hold the lock for less time: do parsing and computation outside, keep only the shared mutation inside'], a:1,
+     w:'After that, split the lock by key (striping) so unrelated work stops queueing.'},
+    {q:'Why must you never make a network call while holding a lock?',
+     o:['It is slower','The critical section becomes as long as the remote call, so every waiting thread is blocked by someone else’s latency — one slow dependency becomes your outage'], a:1,
+     w:'Same lesson as a transaction holding row locks across an API call. C# refuses to compile <code>await</code> inside <code>lock</code> for this reason.'},
+    {q:'When does a reader/writer lock help?',
+     o:['Always','When reads greatly outnumber writes, since readers can proceed together — but frequent writes can starve them, and the lock itself is more expensive'], a:1,
+     w:'Measure. For small critical sections a plain lock is often faster than the bookkeeping a reader/writer lock needs.'}
+  ],
+  soundbite:'"A lock buys correctness by making a section single-threaded, and the cost is that the section cannot scale with your cores. So I keep critical sections as small as possible — prepare outside, mutate inside — and split the lock by key when unrelated work is queueing, which is what the concurrent collections do internally. The rule I never break is no I/O inside a lock, because then your critical section is as long as someone else\'s network call."'
+});
+</script>
+</body>
+</html>

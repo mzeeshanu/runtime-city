@@ -77,8 +77,14 @@
         name: 'Concurrency Crossing',
         slug: 'concurrency-crossing',
         blurb: 'Two things at once, and what goes wrong.',
-        open: false, playrooms: [],
-        soon: ['Threads', 'Locks', 'Deadlocks', 'async/await']
+        open: true,
+        playrooms: [
+          {slug:'threads',     title:'Threads',       blurb:'two threads, one counter, a different answer every run'},
+          {slug:'locks',       title:'Locks',         blurb:'correctness, bought with a queue'},
+          {slug:'deadlocks',   title:'Deadlocks',     blurb:'both waiting, both polite, forever'},
+          {slug:'async-await', title:'Async / Await', blurb:'waiting without holding a thread hostage'}
+        ],
+        soon: []
       }
     ]
   };

@@ -33,6 +33,10 @@ Audience: students preparing for interviews first, then early-career developers.
 | Database Vault | [Joins](site/playrooms/joins/index.html) | Prototype |
 | Database Vault | [Transactions](site/playrooms/transactions/index.html) | Prototype |
 | Database Vault | [Isolation Levels](site/playrooms/isolation-levels/index.html) | Prototype |
+| Concurrency Crossing | [Threads](site/playrooms/threads/index.html) | Prototype |
+| Concurrency Crossing | [Locks](site/playrooms/locks/index.html) | Prototype |
+| Concurrency Crossing | [Deadlocks](site/playrooms/deadlocks/index.html) | Prototype |
+| Concurrency Crossing | [Async / Await](site/playrooms/async-await/index.html) | Prototype |
 
 Every playroom follows the same loop: **see it → break it → fix it → code it (C#, Java, TypeScript) → interview check**.
 

@@ -1,0 +1,324 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Threads Playroom · Runtime City</title>
+<meta name="description" content="Run one counter from two threads and lose increments, see why ++ is three operations, then fix it with atomics, a lock, or by not sharing at all. A playroom from Runtime City.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,600;12..96,800&family=IBM+Plex+Sans:wght@400;500&family=JetBrains+Mono:wght@400&display=swap">
+<link rel="stylesheet" href="../../assets/playroom.css">
+</head>
+<body>
+<div id="playroom"></div>
+
+<script src="../../assets/city.js"></script>
+<script src="../../assets/nav.js"></script>
+<script src="../../assets/sequence.js"></script>
+<script src="../../assets/playroom.js"></script>
+<script>
+const LANES = [{name:'Thread A'}, {name:'counter', sub:'shared memory'}, {name:'Thread B'}];
+
+const FIXES = {
+  none:   {name:'plain ++',        result:1374928, ok:false, note:'three operations pretending to be one'},
+  atomic: {name:'atomic increment',result:2000000, ok:true,  note:'one uninterruptible instruction'},
+  lock:   {name:'lock',            result:2000000, ok:true,  note:'correct, and every increment queues'},
+  local:  {name:'count separately',result:2000000, ok:true,  note:'nothing shared until the end'}
+};
+
+const NOTES = {
+  1:'<b>One thread, no surprises.</b> Every operation happens in the order you wrote it, because there is nobody else to interleave with.',
+  2:'<b>Two threads, and the answer is wrong and different every run.</b> Nothing crashed: increments were simply overwritten.',
+  3:'<b><code>counter++</code> is read, add, write.</b> Two threads can read the same value, add one to it, and store the same result. One increment disappears.',
+  4:'<b>Atomics do the read-add-write as one indivisible step.</b> A lock works too, by letting only one thread into that section at a time.',
+  5:'<b>The fastest fix is not to share.</b> Each thread counts its own total and they are added once at the end: no contention, no atomics, no lock.',
+  6:'<b>Interview tip:</b> say "++ is not atomic — read, modify, write", then mention that visibility is a second problem, solved by the same tools.'
+};
+
+function files(S){
+  const L = S.lang, s = S.step;
+  const pick = o => o[L];
+
+  if(s === 5) return pick({
+    cs:[{n:'NoSharing.cs', lines:[
+      ['// Each worker keeps its own total; they meet once, at the end'],
+      ['long total = Enumerable.Range(0, 2)','new'],
+      ['    .AsParallel()'],
+      ['    .Select(_ => { long local = 0; for (int i = 0; i < 1_000_000; i++) local++; return local; })','hl'],
+      ['    .Sum();          // one combine, no contention'],[''],
+      ['// Same idea in the concurrent collections:'],
+      ['var counts = new ConcurrentDictionary<string, int>();'],
+      ['counts.AddOrUpdate(key, 1, (_, v) => v + 1);   // atomic per key','hl']]}],
+    java:[{n:'NoSharing.java', lines:[
+      ['long total = IntStream.range(0, 2).parallel()','new'],
+      ['    .mapToLong(t -> { long local = 0; for (int i = 0; i < 1_000_000; i++) local++; return local; })','hl'],
+      ['    .sum();          // combine once'],[''],
+      ['// Or a striped counter built for exactly this:'],
+      ['LongAdder adder = new LongAdder();   // per-thread cells, summed on read','hl'],
+      ['adder.increment();']]}],
+    ts:[{n:'no-sharing.ts', lines:[
+      ['// JavaScript gives you this by default: one thread, no shared memory'],
+      ['// Workers communicate by messages, not by touching the same variable:'],
+      ['const worker = new Worker("./count.js");','hl'],
+      ['worker.postMessage({ from: 0, to: 1_000_000 });'],
+      ['worker.onmessage = e => total += e.data;   // combine on the main thread','new'],[''],
+      ['// SharedArrayBuffer does allow real sharing — and brings back every'],
+      ['// problem in this playroom, which is why Atomics exists.','bad']]}]
+  });
+
+  if(s === 4 || s === 3) return pick({
+    cs:[{n:'Counter.cs', lines:[
+      ['long counter = 0;'],[''],
+      [S.fix === 'none'   ? 'counter++;                              // read, add, write — three steps' : '',
+       S.fix === 'none' ? 'bad' : ''],
+      [S.fix === 'atomic' ? 'Interlocked.Increment(ref counter);     // one indivisible instruction' : '',
+       S.fix === 'atomic' ? 'new' : ''],
+      [S.fix === 'lock'   ? 'lock (_gate) { counter++; }             // one thread at a time' : '',
+       S.fix === 'lock' ? 'new' : ''],
+      [S.fix === 'local'  ? 'localCount++;   // merged into counter once, at the end' : '',
+       S.fix === 'local' ? 'new' : ''],[''],
+      ['// The other half of the problem is visibility: without a barrier one'],
+      ['// thread can keep reading a stale copy. volatile and Interlocked both'],
+      ['// publish the write; a lock does too.','hl']]}],
+    java:[{n:'Counter.java', lines:[
+      ['long counter = 0;'],[''],
+      [S.fix === 'none'   ? 'counter++;                                  // not atomic' : '', S.fix === 'none' ? 'bad' : ''],
+      [S.fix === 'atomic' ? 'AtomicLong counter = new AtomicLong();  counter.incrementAndGet();' : '', S.fix === 'atomic' ? 'new' : ''],
+      [S.fix === 'lock'   ? 'synchronized (gate) { counter++; }' : '', S.fix === 'lock' ? 'new' : ''],
+      [S.fix === 'local'  ? 'long local = 0; …; total.addAndGet(local);   // merge once' : '', S.fix === 'local' ? 'new' : ''],[''],
+      ['// volatile fixes visibility only — it does NOT make ++ atomic.','hl']]}],
+    ts:[{n:'counter.ts', lines:[
+      ['// One JavaScript thread means no data race on a plain variable.'],
+      ['let counter = 0;  counter++;            // always safe here','new'],[''],
+      ['// With SharedArrayBuffer you are back in the same world:'],
+      [S.fix === 'none' ? 'view[0]++;                              // read-modify-write, racy' : '', S.fix === 'none' ? 'bad' : ''],
+      [S.fix === 'atomic' ? 'Atomics.add(view, 0, 1);                // indivisible' : '', S.fix === 'atomic' ? 'new' : ''],
+      [S.fix === 'lock' ? '// no locks in JS: Atomics.wait/notify build them' : '', S.fix === 'lock' ? 'hl' : ''],
+      [S.fix === 'local' ? 'let local = 0; …; postMessage(local);    // combine in one place' : '', S.fix === 'local' ? 'new' : '']]}]
+  });
+
+  return pick({
+    cs:[{n:'Race.cs', lines:[
+      ['long counter = 0;'],[''],
+      [S.threads === 1 ? 'for (int i = 0; i < 2_000_000; i++) counter++;   // one thread'
+                       : 'Parallel.Invoke(', S.threads === 1 ? 'hl' : ''],
+      ...(S.threads === 2 ? [
+        ['    () => { for (int i = 0; i < 1_000_000; i++) counter++; },','bad'],
+        ['    () => { for (int i = 0; i < 1_000_000; i++) counter++; });','bad']] : []),
+      [''],
+      [`// counter == ${S.ran ? S.result.toLocaleString() : '?'}   (expected 2,000,000)`,
+       S.ran && S.result !== 2000000 ? 'bad' : (S.ran ? 'new' : '')]]}],
+    java:[{n:'Race.java', lines:[
+      ['long counter = 0;'],[''],
+      [S.threads === 1 ? 'for (int i = 0; i < 2_000_000; i++) counter++;'
+                       : 'Thread a = new Thread(() -> { for (int i = 0; i < 1_000_000; i++) counter++; });',
+       S.threads === 2 ? 'bad' : 'hl'],
+      ...(S.threads === 2 ? [['Thread b = new Thread(() -> { for (int i = 0; i < 1_000_000; i++) counter++; });','bad'],
+                             ['a.start(); b.start(); a.join(); b.join();']] : []),
+      [''],
+      [`// counter == ${S.ran ? S.result.toLocaleString() : '?'}   (expected 2,000,000)`,
+       S.ran && S.result !== 2000000 ? 'bad' : (S.ran ? 'new' : '')]]}],
+    ts:[{n:'race.ts', lines:[
+      ['// A plain JS variable cannot race: one thread runs your code.'],
+      ['// This playroom is what happens with real threads — workers plus'],
+      ['// SharedArrayBuffer, or any of C#, Java, Go, Rust.','hl'],[''],
+      ['const view = new Int32Array(sharedBuffer);'],
+      [S.threads === 1 ? 'for (let i = 0; i < 2_000_000; i++) view[0]++;   // one worker'
+                       : '// two workers, both doing view[0]++ one million times', S.threads === 2 ? 'bad' : 'hl'],[''],
+      [`// view[0] === ${S.ran ? S.result.toLocaleString() : '?'}   (expected 2,000,000)`,
+       S.ran && S.result !== 2000000 ? 'bad' : (S.ran ? 'new' : '')]]}]
+  });
+}
+
+const P = Playroom({
+  district:'Concurrency Crossing',
+  title:'Threads',
+  dek:'Two threads, one variable, and an answer that changes every run.',
+  steps:['One thread','Two threads','Why it breaks','Make it atomic','Stop sharing','Interview check'],
+  stage:Sequence.stage({lanes:LANES, height:300}),
+
+  state:{threads:1, ran:false, result:0, fix:'none', runs:[]},
+
+  story(S, api){
+    const fb = api.fb();
+    return {
+      1:`<h2>Count to two million</h2><p>One thread, one counter. Run it as many times as you like: the answer never moves.</p>${fb}`,
+      2:`<h2>Now split the work</h2><p>Two threads, a million each. Same total expected. Run it several times.</p>${fb}`,
+      3:`<h2>What actually happened</h2><p><code>counter++</code> is not one operation. It is <b>read</b>, <b>add one</b>, <b>write back</b> — and the other thread can slip between any two of those.</p>${fb}`,
+      4:`<h2>Make the three steps one</h2><p>An atomic increment is a single instruction the hardware will not interleave. A lock achieves the same by admitting one thread at a time.</p>${fb}`,
+      5:`<h2>Or share nothing at all</h2><p>Give each thread its own counter and add them up once at the end. No contention, no atomics, and it is faster than both.</p>${fb}`,
+      6:`<h2>Interview check</h2>${api.quizHTML()}`
+    }[S.step];
+  },
+
+  controls(S){
+    const s = S.step;
+    if(s === 1) return `<button class="btn primary" data-a="run">Run it</button>`;
+    if(s === 2) return `<button class="btn primary" data-a="run">Run it</button><button class="btn" data-a="run5">Run it five times</button>`;
+    if(s === 3) return `<button class="btn primary" data-a="interleave">Show one bad interleaving</button>`;
+    if(s === 4) return Object.keys(FIXES).filter(k => k !== 'local').map(k =>
+      `<button class="chip" data-fx="${k}" aria-pressed="${S.fix === k}"><i style="background:${FIXES[k].ok ? 'var(--good)' : 'var(--bad)'}"></i>${FIXES[k].name}</button>`).join('') +
+      `<button class="btn primary" data-a="run" style="margin-left:auto">Run it</button>`;
+    if(s === 5) return `<button class="chip" data-fx="atomic" aria-pressed="${S.fix === 'atomic'}"><i style="background:var(--accent)"></i>shared atomic</button>` +
+      `<button class="chip" data-fx="local" aria-pressed="${S.fix === 'local'}"><i style="background:var(--good)"></i>count separately</button>` +
+      `<button class="btn primary" data-a="bench" style="margin-left:auto">Measure both</button>`;
+    return '';
+  },
+
+  statusLine(S){
+    const s = S.step;
+    if(s === 5) return S.fix === 'local'
+      ? `2,000,000 · <b>12 ms</b><span class="ok"> · no shared writes, so the cores never fight</span>`
+      : `2,000,000 · <b>64 ms</b><span class="warn"> · correct, but every increment touches the same cache line</span>`;
+    if(!S.ran) return S.threads === 1 ? `One thread · expected 2,000,000` : `Two threads · expected 2,000,000`;
+    const wrong = S.result !== 2000000;
+    return `counter = <b>${S.result.toLocaleString()}</b> · expected <b>2,000,000</b>` +
+      (wrong ? `<span class="warn"> · ${(2000000 - S.result).toLocaleString()} increments lost, no error raised</span>`
+             : `<span class="ok"> · correct, every run</span>`) +
+      (S.runs.length > 1 ? `<span class="out">runs: ${S.runs.map(r => r.toLocaleString()).join(' · ')}</span>` : '');
+  },
+
+  files,
+  note: S => NOTES[S.step],
+
+  onStage(S){
+    const s = S.step;
+    let messages = [], caption = '';
+
+    if(s === 1){
+      messages = S.ran ? [
+        {from:0, to:1, label:'read 0 · add 1 · write 1'},
+        {from:0, to:1, label:'read 1 · add 1 · write 2'},
+        {from:0, to:1, label:'… 2,000,000 times', kind:'cached'},
+        {from:1, to:0, label:'counter = 2,000,000', kind:'cached'}
+      ] : [];
+      caption = 'one thread: nothing can interleave';
+    } else if(s === 2 || (s === 4 && S.fix === 'none')){
+      messages = S.ran ? [
+        {from:0, to:1, label:'A: read 41'},
+        {from:2, to:1, label:'B: read 41', kind:'bad'},
+        {from:0, to:1, label:'A: write 42'},
+        {from:2, to:1, label:'B: write 42 — A\'s increment is gone', kind:'bad'},
+        {from:1, to:1, label:`final: ${S.result.toLocaleString()} of 2,000,000`, kind:'bad'}
+      ] : [];
+      caption = 'a lost update, several hundred thousand times over';
+    } else if(s === 3){
+      messages = S.shown ? [
+        {from:1, to:0, label:'A reads counter → 41'},
+        {from:1, to:2, label:'B reads counter → 41', kind:'bad'},
+        {from:0, to:0, label:'A computes 41 + 1 = 42'},
+        {from:2, to:2, label:'B computes 41 + 1 = 42', kind:'bad'},
+        {from:0, to:1, label:'A writes 42'},
+        {from:2, to:1, label:'B writes 42', kind:'bad'},
+        {from:1, to:1, label:'two increments, one moved the value', kind:'bad'}
+      ] : [];
+      caption = 'read · modify · write — three chances to be interrupted';
+    } else if(s === 4){
+      messages = S.ran ? (S.fix === 'atomic' ? [
+        {from:0, to:1, label:'A: atomic add 1 (indivisible)', kind:'cached'},
+        {from:2, to:1, label:'B: atomic add 1 — waits for the cache line', kind:'cached'},
+        {from:1, to:1, label:'2,000,000 · correct every time', kind:'cached'}
+      ] : [
+        {from:0, to:1, label:'A: acquire lock · ++ · release', kind:'cached'},
+        {from:2, to:2, label:'B: blocked, waiting for the lock', kind:'slow'},
+        {from:2, to:1, label:'B: acquire · ++ · release', kind:'cached'},
+        {from:1, to:1, label:'2,000,000 · correct, and serialised', kind:'slow'}
+      ]) : [];
+      caption = S.fix === 'atomic' ? 'one instruction, nothing to interleave' : 'one thread inside the section at a time';
+    } else {
+      messages = S.benched ? (S.fix === 'local' ? [
+        {from:0, to:0, label:'A counts to 1,000,000 in its own variable', kind:'cached'},
+        {from:2, to:2, label:'B counts to 1,000,000 in its own variable', kind:'cached'},
+        {from:0, to:1, label:'add 1,000,000 once', kind:'cached'},
+        {from:2, to:1, label:'add 1,000,000 once · 12 ms total', kind:'cached'}
+      ] : [
+        {from:0, to:1, label:'A: atomic add', kind:'slow'},
+        {from:2, to:1, label:'B: atomic add — same cache line', kind:'slow'},
+        {from:1, to:1, label:'2,000,000 atomic operations · 64 ms', kind:'slow'}
+      ]) : [];
+      caption = S.fix === 'local' ? 'no shared writes in the hot loop' : 'correct, but the cores pass one cache line back and forth';
+    }
+
+    Sequence.draw({lanes:LANES, messages, caption});
+  },
+
+  onStep(S, n){
+    S.ran = false; S.shown = false; S.benched = false; S.runs = [];
+    if(n === 1) S.threads = 1;
+    if(n >= 2) S.threads = 2;
+    if(n === 4) S.fix = 'none';
+    if(n === 5) S.fix = 'atomic';
+  },
+
+  onClick(S, b, api){
+    if(b.dataset.fx){ S.fix = b.dataset.fx; S.ran = false; S.benched = false; api.out(FIXES[S.fix].name); return; }
+    const a = b.dataset.a;
+    if(a === 'run'){
+      S.ran = true;
+      if(S.threads === 1){
+        S.result = 2000000; S.runs = [2000000];
+        api.tell('good', '<b>Two million, every time.</b> With one thread the operations cannot be interleaved, so the obvious code is the correct code.');
+        api.out('counter = 2,000,000');
+        return;
+      }
+      if(S.step === 4 && S.fix !== 'none'){
+        S.result = 2000000; S.runs = [2000000];
+        api.tell('good', S.fix === 'atomic'
+          ? '<b>Correct, every run.</b> An atomic increment is one instruction that the hardware will not split: no other core can observe or interrupt a half-finished update.'
+          : '<b>Correct, every run — and slower.</b> The lock lets one thread into the critical section at a time. Right answer, but every increment now queues, which is the subject of the next playroom.');
+        api.out(`counter = 2,000,000 · ${S.fix === 'atomic' ? 'Interlocked / AtomicLong' : 'lock / synchronized'}`);
+        return;
+      }
+      const r = 1200000 + Math.floor(Math.random() * 700000);
+      S.result = r; S.runs = [...S.runs.slice(-4), r];
+      api.tell('bad', `<b>${r.toLocaleString()}, not 2,000,000.</b> Nothing threw, nothing warned: roughly ${(2000000 - r).toLocaleString()} increments were simply overwritten. And the number is different every run, which is what makes these bugs so unpleasant to reproduce.`);
+      api.out(`counter = ${r.toLocaleString()} · lost ${(2000000 - r).toLocaleString()}`);
+      return;
+    }
+    if(a === 'run5'){
+      S.ran = true;
+      S.runs = Array.from({length:5}, () => 1200000 + Math.floor(Math.random() * 700000));
+      S.result = S.runs[4];
+      api.tell('bad', '<b>Five runs, five answers.</b> A race condition is not a crash you can catch; it is a result that is wrong by an amount nobody can predict. It also behaves differently on your laptop and on the server, which is why these reach production.');
+      api.out('runs: ' + S.runs.map(r => r.toLocaleString()).join(' · '));
+      return;
+    }
+    if(a === 'interleave'){
+      S.shown = true;
+      api.tell('bad', '<b>Both threads read 41, both wrote 42.</b> Two increments happened; the value moved by one. Nothing here is exotic — this is the ordinary behaviour of <code>++</code> once two threads share the variable. Visibility is the second half of the problem: without a memory barrier, a thread can keep reading a stale copy from its own core\'s cache.');
+      api.out('A reads 41 · B reads 41 · A writes 42 · B writes 42');
+      return;
+    }
+    if(a === 'bench'){
+      S.benched = true;
+      api.tell('good', S.fix === 'local'
+        ? '<b>12 ms, and no synchronisation at all.</b> Each thread owns its counter, so the cores never fight over the same cache line. One addition at the end merges the results. When you can arrange it, this beats every lock and every atomic.'
+        : '<b>64 ms for the same answer.</b> Correct, but two million atomic operations on one variable mean the cache line ping-pongs between cores. Right answer, wasted machine.');
+      api.out(S.fix === 'local' ? 'per-thread counters + one merge · 12 ms' : 'shared atomic counter · 64 ms');
+      return;
+    }
+    return false;
+  },
+
+  reset(S){ Object.assign(S, {threads:1, ran:false, result:0, fix:'none', runs:[], shown:false, benched:false}); },
+
+  quiz:[
+    {q:'Why is counter++ unsafe from two threads?',
+     o:['It is too slow','It is three operations — read, add, write — so two threads can read the same value and write the same result, losing one increment'], a:1,
+     w:'Nothing crashes. You get a number that is wrong by an unpredictable amount, differently on every run and every machine.'},
+    {q:'Does making the field volatile fix it?',
+     o:['Yes','No: volatile fixes visibility, so threads stop reading stale copies, but it does not make read-modify-write atomic'], a:1,
+     w:'A very common trap. Use an atomic type, or a lock, for compound operations.'},
+    {q:'You need a counter updated by many threads. What is usually fastest?',
+     o:['A lock around ++','Keep per-thread counts and combine them at the end (or a striped counter like LongAdder), so threads do not write the same cache line'], a:1,
+     w:'Atomics are correct but still contend on one line. Not sharing beats sharing carefully.'},
+    {q:'Why are race conditions so hard to reproduce?',
+     o:['They only affect old hardware','The outcome depends on timing, core count and the compiler’s freedom to reorder, so a debugger or a slower machine can hide them entirely'], a:1,
+     w:'Which is why you reason about them from the memory model rather than by testing until it looks fine.'}
+  ],
+  soundbite:'"A data race happens when two threads touch the same memory and at least one writes, with no synchronisation. The classic is counter++, which is really read, add and write, so two threads can read the same value and one increment disappears — no exception, just a wrong number that changes every run. I fix it with an atomic operation or a lock, but the better answer is usually to stop sharing: give each thread its own accumulator and combine once at the end."'
+});
+</script>
+</body>
+</html>

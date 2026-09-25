@@ -1,0 +1,345 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Async / Await Playroom · Runtime City</title>
+<meta name="description" content="Block threads waiting on I/O until the pool runs out, hand them back with await, learn why async is not parallel, and see what .Result costs. A playroom from Runtime City.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,600;12..96,800&family=IBM+Plex+Sans:wght@400;500&family=JetBrains+Mono:wght@400&display=swap">
+<link rel="stylesheet" href="../../assets/playroom.css">
+<style>
+.slot{fill:var(--surface);stroke:var(--hair);stroke-width:1.5}
+.slot.busy{stroke:var(--bad);fill:rgba(185,59,51,.18)}
+.slot.free{stroke:var(--good);fill:rgba(31,132,105,.14)}
+.slotlbl{font:400 9px var(--mono);fill:var(--muted);text-anchor:middle}
+.qlbl{font:400 10px var(--mono);fill:var(--muted)}
+.req{fill:var(--accent);opacity:.65}
+.req.queued{fill:var(--bad);opacity:.45}
+.track{stroke:var(--hair);stroke-width:1}
+.tlbl{font:400 10px var(--mono);fill:var(--muted)}
+.bar{fill:var(--accent);opacity:.6}
+.bar.io{fill:var(--good);opacity:.45}
+.total{font:400 11px var(--mono);fill:var(--ink);text-anchor:end}
+.total.warn{fill:var(--bad)} .total.ok{fill:var(--good)}
+</style>
+</head>
+<body>
+<div id="playroom"></div>
+
+<script src="../../assets/city.js"></script>
+<script src="../../assets/nav.js"></script>
+<script src="../../assets/playroom.js"></script>
+<script>
+const POOL = 8;
+
+const NOTES = {
+  1:'<b>A blocked thread is a thread doing nothing, expensively.</b> It holds a stack and a pool slot while the database does the work.',
+  2:'<b><code>await</code> hands the thread back.</b> The same eight threads can now have hundreds of requests in flight, because waiting no longer occupies one.',
+  3:'<b>Async is about not blocking, not about doing several things at once.</b> Awaiting in a loop is still one call after another.',
+  4:'<b>Blocking on async code wastes the thread you just freed.</b> On older frameworks it deadlocks outright; on modern ones it quietly exhausts the pool.',
+  5:'<b>Async helps when you are waiting; parallelism helps when you are computing.</b> Using one for the other makes things worse.',
+  6:'<b>Interview tip:</b> "async frees the thread during I/O; it does not create parallelism" — then mention WhenAll for overlap and never blocking with .Result.'
+};
+
+function files(S){
+  const L = S.lang, s = S.step, pick = o => o[L];
+
+  if(s === 3) return pick({
+    cs:[{n:'Sequential.cs', lines:[
+      ['// Awaited one at a time: 3 × 200 ms'],
+      ['foreach (var id in ids)','bad'],
+      ['    results.Add(await _api.GetAsync(id));   // waits for each in turn','bad'],[''],
+      ['// Started together, awaited once: 200 ms'],
+      ['var tasks = ids.Select(id => _api.GetAsync(id));','new'],
+      ['var results = await Task.WhenAll(tasks);','hl'],[''],
+      ['// Keep a lid on it when the list is long:'],
+      ['await Parallel.ForEachAsync(ids, new ParallelOptions { MaxDegreeOfParallelism = 10 },','hl'],
+      ['    async (id, ct) => await _api.GetAsync(id, ct));']]}],
+    java:[{n:'Sequential.java', lines:[
+      ['// One at a time'],
+      ['for (var id : ids) results.add(api.get(id).join());   // blocks each turn','bad'],[''],
+      ['// Started together'],
+      ['var futures = ids.stream().map(api::getAsync).toList();','new'],
+      ['CompletableFuture.allOf(futures.toArray(new CompletableFuture[0])).join();','hl'],[''],
+      ['// Java 21 virtual threads: blocking code that scales like async'],
+      ['try (var scope = Executors.newVirtualThreadPerTaskExecutor()) { … }','new']]}],
+    ts:[{n:'sequential.ts', lines:[
+      ['// One at a time: 600 ms'],
+      ['for (const id of ids) results.push(await api.get(id));','bad'],[''],
+      ['// Overlapped: 200 ms'],
+      ['const results = await Promise.all(ids.map(id => api.get(id)));','hl'],[''],
+      ['// With a concurrency limit, so you do not hammer the dependency:'],
+      ['const results = await pMap(ids, id => api.get(id), { concurrency: 10 });','new']]}]
+  });
+
+  if(s === 4) return pick({
+    cs:[{n:'Blocking.cs', lines:[
+      ['var user = GetUserAsync(id).Result;      // blocks this thread','bad'],
+      ['var user = GetUserAsync(id).GetAwaiter().GetResult();   // same thing','bad'],[''],
+      ['// Old ASP.NET / WPF: the continuation needs the captured context,'],
+      ['// which this thread is holding → hang, forever.','bad'],
+      ['// ASP.NET Core: no context, so no hang — instead every blocked'],
+      ['// request occupies a pool thread and throughput collapses.','bad'],[''],
+      ['var user = await GetUserAsync(id);       // await all the way up','new'],[''],
+      ['// If you truly must bridge, do it at the very top, once,'],
+      ['// or expose a synchronous API instead.']]}],
+    java:[{n:'Blocking.java', lines:[
+      ['var user = future.get();     // blocks the calling thread','bad'],[''],
+      ['// Inside a task on the same executor this is the classic self-deadlock:'],
+      ['// the work that would complete the future has nowhere to run.','bad'],[''],
+      ['future.thenApply(…)          // compose instead of blocking','new'],
+      ['// or run it on a virtual thread, where blocking is cheap','new']]}],
+    ts:[{n:'blocking.ts', lines:[
+      ['// JavaScript cannot block on a promise at all — and that is a feature.'],
+      ['const user = await getUser(id);','new'],[''],
+      ['// The equivalent mistake is blocking the event loop:'],
+      ['while (Date.now() < until) {}        // nothing else runs, at all','bad'],
+      ['JSON.parse(hugeString);              // 400 ms where every request waits','bad'],[''],
+      ['// Move heavy CPU work to a worker thread.','hl']]}]
+  });
+
+  if(s === 5) return pick({
+    cs:[{n:'Choosing.cs', lines:[
+      ['// I/O-bound — waiting on someone else: async'],
+      ['var rows = await db.QueryAsync(sql);','new'],[''],
+      ['// CPU-bound — your own work: parallelism, not async'],
+      ['var result = await Task.Run(() => Crunch(data));   // gets it off the request thread','hl'],
+      ['Parallel.For(0, n, i => Crunch(i));                // actually uses the cores','new'],[''],
+      ['// Making a CPU-bound method "async" adds overhead and no benefit.','bad'],[''],
+      ['// And pass cancellation through, so abandoned work stops:'],
+      ['await _api.GetAsync(id, cancellationToken);','hl']]}],
+    java:[{n:'Choosing.java', lines:[
+      ['// I/O-bound: async, or a virtual thread'],
+      ['var rows = jdbc.query(sql);   // on a virtual thread, blocking is fine','new'],[''],
+      ['// CPU-bound: a real thread pool sized to the cores'],
+      ['ForkJoinPool.commonPool().submit(() -> crunch(data));','hl'],[''],
+      ['// Never run CPU work on the event loop of a reactive framework.','bad']]}],
+    ts:[{n:'choosing.ts', lines:[
+      ['// I/O-bound: async is exactly right'],
+      ['const rows = await db.query(sql);','new'],[''],
+      ['// CPU-bound: Node has one thread for your code — use a worker'],
+      ['const worker = new Worker("./crunch.js");','hl'],
+      ['// async does nothing for CPU work; it just yields between awaits.','bad'],[''],
+      ['// Cancellation:'],
+      ['await fetch(url, { signal: controller.signal });','hl']]}]
+  });
+
+  return pick({
+    cs:[{n:'Handler.cs', lines:[
+      [S.async ? 'public async Task<IActionResult> Get(int id)' : 'public IActionResult Get(int id)','hl'],
+      ['{'],
+      [S.async ? '    var user = await _db.GetUserAsync(id);   // thread returns to the pool'
+               : '    var user = _db.GetUser(id);              // thread blocks for 200 ms',
+       S.async ? 'new' : 'bad'],
+      ['    return Ok(user);'],
+      ['}'],[''],
+      [`// ${S.inflight} concurrent requests · pool of ${POOL} threads`],
+      [S.async ? '//  → all in flight, threads free while waiting'
+               : `//  → ${POOL} running, ${Math.max(0, S.inflight - POOL)} queued`,
+       S.async ? 'new' : 'bad']]}],
+    java:[{n:'Handler.java', lines:[
+      [S.async ? '@GetMapping("/users/{id}") Mono<User> get(@PathVariable int id) {'
+               : '@GetMapping("/users/{id}") User get(@PathVariable int id) {','hl'],
+      [S.async ? '    return repo.findByIdAsync(id);   // no thread parked' : '    return repo.findById(id);       // thread blocks',
+       S.async ? 'new' : 'bad'],
+      ['}'],[''],
+      ['// Java 21: virtual threads give you the same scaling with blocking code.','hl']]}],
+    ts:[{n:'handler.ts', lines:[
+      [S.async ? 'app.get("/users/:id", async (req, res) => {' : 'app.get("/users/:id", (req, res) => {','hl'],
+      [S.async ? '  const user = await db.getUser(req.params.id);   // event loop free'
+               : '  const user = db.getUserSync(req.params.id);     // blocks everything',
+       S.async ? 'new' : 'bad'],
+      ['  res.json(user);'],
+      ['});'],[''],
+      ['// Node has one thread for your code: a synchronous call blocks','hl'],
+      ['// every other request, not just this one.']]}]
+  });
+}
+
+const P = Playroom({
+  district:'Concurrency Crossing',
+  title:'Async / Await',
+  dek:'Waiting without holding a thread hostage.',
+  steps:['Blocking','Await it','Not parallel','Never .Result','I/O or CPU','Interview check'],
+  stage:`
+<svg viewBox="0 0 600 300" role="img" aria-label="A thread pool and requests in flight">
+  <defs><pattern id="grid" width="24" height="24" patternUnits="userSpaceOnUse"><path d="M24 0H0V24" class="gridline" fill="none"/></pattern></defs>
+  <rect width="600" height="300" fill="url(#grid)" opacity=".6"/>
+  <text class="qlbl" x="20" y="28">thread pool · 8 threads</text>
+  <g id="pool"></g>
+  <text class="qlbl" x="20" y="132">requests</text>
+  <g id="reqs"></g>
+  <g id="timeline"></g>
+  <text class="total" id="total" x="580" y="290"></text>
+</svg>`,
+
+  state:{async:false, inflight:8, ran:false, mode:'seq', blocked:false, work:'io'},
+
+  story(S, api){
+    const fb = api.fb();
+    return {
+      1:`<h2>A thread per request, waiting</h2><p>The handler calls the database and blocks for 200 ms. The thread is not computing anything — it is holding a stack and a pool slot while somebody else works. Raise the load.</p>${fb}`,
+      2:`<h2>Give the thread back</h2><p><code>await</code> registers a continuation and returns the thread to the pool. The same eight threads now serve every request in flight.</p>${fb}`,
+      3:`<h2>Async is not parallel</h2><p>Three calls, awaited one at a time, take three times as long. Async only means "not blocking" — overlapping is something you ask for.</p>${fb}`,
+      4:`<h2>The mistake that undoes all of it</h2><p><code>.Result</code> or <code>.Wait()</code> blocks the thread you just freed. On older frameworks it hangs; on modern ones it starves the pool under load.</p>${fb}`,
+      5:`<h2>Waiting versus working</h2><p>Async helps when you are waiting for someone else. For your own CPU work it adds ceremony and no throughput — that needs real parallelism.</p>${fb}`,
+      6:`<h2>Interview check</h2>${api.quizHTML()}`
+    }[S.step];
+  },
+
+  controls(S){
+    const s = S.step;
+    if(s === 1) return [8,50,200].map(n =>
+      `<button class="chip" data-n2="${n}" aria-pressed="${S.inflight === n}"><i style="background:${n > 8 ? 'var(--bad)' : 'var(--accent)'}"></i>${n} requests</button>`).join('') +
+      `<button class="btn primary" data-a="run" style="margin-left:auto">Send them</button>`;
+    if(s === 2) return `<button class="chip" data-as="0" aria-pressed="${!S.async}"><i style="background:var(--bad)"></i>blocking</button>` +
+      `<button class="chip" data-as="1" aria-pressed="${S.async}"><i style="background:var(--good)"></i>async / await</button>` +
+      `<button class="btn primary" data-a="run" style="margin-left:auto">Send 200 requests</button>`;
+    if(s === 3) return `<button class="chip" data-md="seq" aria-pressed="${S.mode === 'seq'}"><i style="background:var(--bad)"></i>await in a loop</button>` +
+      `<button class="chip" data-md="all" aria-pressed="${S.mode === 'all'}"><i style="background:var(--good)"></i>start all, await once</button>` +
+      `<button class="btn primary" data-a="three" style="margin-left:auto">Call three APIs</button>`;
+    if(s === 4) return `<button class="chip" data-bl="1" aria-pressed="${S.blocked}"><i style="background:var(--bad)"></i>.Result</button>` +
+      `<button class="chip" data-bl="0" aria-pressed="${!S.blocked}"><i style="background:var(--good)"></i>await</button>` +
+      `<button class="btn primary" data-a="run" style="margin-left:auto">Send 200 requests</button>`;
+    if(s === 5) return `<button class="chip" data-wk="io" aria-pressed="${S.work === 'io'}"><i style="background:var(--good)"></i>waiting on a database</button>` +
+      `<button class="chip" data-wk="cpu" aria-pressed="${S.work === 'cpu'}"><i style="background:var(--accent)"></i>hashing a file</button>` +
+      `<button class="btn primary" data-a="run" style="margin-left:auto">Run it</button>`;
+    return '';
+  },
+
+  statusLine(S){
+    const s = S.step;
+    if(s === 3) return S.mode === 'all'
+      ? `3 calls · wall clock <b>200 ms</b><span class="ok"> · started together, awaited once</span>`
+      : `3 calls · wall clock <b>600 ms</b><span class="warn"> · each await finishes before the next begins</span>`;
+    if(s === 4) return S.blocked
+      ? `200 requests · threads blocked <b>8/8</b> · completed <b>8</b><span class="warn"> · the await freed the thread, .Result took it back</span>`
+      : `200 requests · threads busy <b>~1</b> · completed <b>200</b><span class="ok"> · await all the way up</span>`;
+    if(s === 5) return S.work === 'io'
+      ? `I/O-bound · async <b>helps</b><span class="ok"> · the thread is free while the database works</span>`
+      : `CPU-bound · async <b>does not help</b><span class="warn"> · the work still needs a core; use parallelism</span>`;
+    const running = S.async ? Math.min(S.inflight, 2) : Math.min(S.inflight, POOL);
+    const queued = S.async ? 0 : Math.max(0, S.inflight - POOL);
+    return `In flight <b>${S.inflight}</b> · threads busy <b>${running}/${POOL}</b> · queued <b>${queued}</b>` +
+      (queued ? `<span class="warn"> · ${(Math.ceil(S.inflight / POOL) * 200)} ms for the last one</span>`
+              : `<span class="ok"> · everything served in about 200 ms</span>`);
+  },
+
+  files,
+  note: S => NOTES[S.step],
+
+  onStage(S){
+    const id = document.getElementById.bind(document);
+    const s = S.step;
+    const asyncOn = (s === 2 || s === 4) ? (s === 4 ? !S.blocked : S.async) : (s >= 2 ? true : false);
+    const inflight = s === 1 ? S.inflight : (s === 3 ? 3 : 200);
+    const busy = !S.ran ? 0 : (asyncOn ? (s === 3 ? 1 : 1) : Math.min(POOL, inflight));
+
+    id('pool').innerHTML = Array.from({length:POOL}, (_, i) =>
+      `<rect class="slot ${!S.ran ? '' : i < busy ? 'busy' : 'free'}" x="${24 + i * 68}" y="38" width="58" height="48" rx="6"/>` +
+      `<text class="slotlbl" x="${53 + i * 68}" y="${66}">${!S.ran ? 'idle' : i < busy ? 'blocked' : 'free'}</text>`).join('');
+
+    const shown = Math.min(inflight, 60);
+    const servedNow = !S.ran ? 0 : (asyncOn ? shown : Math.min(shown, POOL));
+    id('reqs').innerHTML = Array.from({length:shown}, (_, i) =>
+      `<rect class="req ${i < servedNow ? '' : 'queued'}" x="${24 + (i % 20) * 27}" y="${142 + Math.floor(i / 20) * 16}" width="22" height="11" rx="2"/>`).join('') +
+      (inflight > shown ? `<text class="qlbl" x="24" y="${210}">+ ${inflight - shown} more</text>` : '');
+
+    if(s === 3 && S.ran){
+      const seq = S.mode === 'seq';
+      id('timeline').innerHTML = [0,1,2].map(i =>
+        `<rect class="bar io" x="${40 + (seq ? i * 160 : 0)}" y="${222 + i * 20}" width="150" height="13" rx="3"/>` +
+        `<text class="tlbl" x="${44 + (seq ? i * 160 : 0)}" y="${232 + i * 20}">api ${i + 1} · 200 ms</text>`).join('') +
+        `<line class="track" x1="40" y1="216" x2="560" y2="216"/>`;
+    } else id('timeline').innerHTML = '';
+
+    const t = id('total');
+    if(!S.ran){ t.textContent = ''; return; }
+    if(s === 3){ t.textContent = S.mode === 'seq' ? '600 ms' : '200 ms'; t.setAttribute('class', 'total ' + (S.mode === 'seq' ? 'warn' : 'ok')); }
+    else if(asyncOn){ t.textContent = 'all served · ~200 ms'; t.setAttribute('class', 'total ok'); }
+    else { t.textContent = `${Math.ceil(inflight / POOL) * 200} ms for the last request`; t.setAttribute('class', 'total warn'); }
+  },
+
+  onStep(S, n){
+    S.ran = false;
+    if(n === 1){ S.async = false; S.inflight = 8; }
+    if(n === 2){ S.async = false; S.inflight = 200; }
+    if(n === 3) S.mode = 'seq';
+    if(n === 4) S.blocked = true;
+    if(n === 5) S.work = 'io';
+  },
+
+  onClick(S, b, api){
+    if(b.dataset.n2){ S.inflight = +b.dataset.n2; S.ran = false; api.out(S.inflight + ' concurrent requests'); return; }
+    if(b.dataset.as){ S.async = b.dataset.as === '1'; S.ran = false; api.out(S.async ? 'async handler' : 'blocking handler'); return; }
+    if(b.dataset.md){ S.mode = b.dataset.md; S.ran = false; api.out(S.mode === 'seq' ? 'await inside the loop' : 'Task.WhenAll / Promise.all'); return; }
+    if(b.dataset.bl){ S.blocked = b.dataset.bl === '1'; S.ran = false; api.out(S.blocked ? '.Result' : 'await'); return; }
+    if(b.dataset.wk){ S.work = b.dataset.wk; S.ran = false; api.out(S.work === 'io' ? 'I/O-bound work' : 'CPU-bound work'); return; }
+    const a = b.dataset.a;
+    if(a === 'run'){
+      S.ran = true;
+      const s = S.step;
+      if(s === 1){
+        api.tell(S.inflight > POOL ? 'bad' : 'good', S.inflight > POOL
+          ? `<b>${S.inflight} requests, 8 threads, all of them asleep.</b> Every thread is parked waiting for a database that is answering perfectly quickly. The last request waits ${Math.ceil(S.inflight / POOL) * 200} ms for a 200 ms query, and the fix is not more threads — each one costs a megabyte of stack and a context switch.`
+          : '<b>Eight requests, eight threads, 200 ms.</b> Fine — until the ninth arrives.');
+        api.out(`${S.inflight} requests · ${Math.min(S.inflight, POOL)} running · ${Math.max(0, S.inflight - POOL)} queued`);
+        return;
+      }
+      if(s === 2){
+        api.tell(S.async ? 'good' : 'bad', S.async
+          ? '<b>200 requests, 8 threads, and the pool is mostly idle.</b> At the <code>await</code> the thread is handed back; when the database answers, any free thread resumes the rest of the method. The waiting no longer costs a thread, which is the entire point.'
+          : '<b>Same 200 requests, queued eight at a time.</b> Nothing is broken; the threads are simply asleep while the machine has nothing else to do.');
+        api.out(S.async ? '200 in flight · threads free during I/O · ~200 ms' : '200 requests · 25 batches · 5 s for the last');
+        return;
+      }
+      if(s === 4){
+        api.tell(S.blocked ? 'bad' : 'good', S.blocked
+          ? '<b>You freed the thread and then took it straight back.</b> <code>.Result</code> blocks the pool thread until the task completes. On ASP.NET or WPF, where the continuation needs that exact thread, it hangs forever. On ASP.NET Core it does not hang — it just occupies a thread per request, so you are back to the blocking model with extra overhead, and it collapses under load.'
+          : '<b>Await all the way up.</b> If a method calls something async, it should be async itself, right to the top of the stack. Bridging with .Result anywhere in the middle undoes the benefit for everything below it.');
+        api.out(S.blocked ? '200 requests · 8 threads blocked on .Result · 8 completed' : '200 requests · await throughout · 200 completed');
+        return;
+      }
+      if(s === 5){
+        api.tell(S.work === 'io' ? 'good' : 'bad', S.work === 'io'
+          ? '<b>This is what async is for.</b> The thread is released while the database works, so a handful of threads serve thousands of concurrent requests.'
+          : '<b>Async does nothing for this.</b> Hashing a file needs a core, not a continuation: marking it async just adds state-machine overhead and moves the work around. If it must not block the request thread, push it to a background worker or a queue; to make it faster, use real parallelism across cores.');
+        api.out(S.work === 'io' ? 'await db.Query(...) · thread free during the wait' : 'CPU work · async adds overhead, not throughput');
+        return;
+      }
+      return;
+    }
+    if(a === 'three'){
+      S.ran = true;
+      api.tell(S.mode === 'all' ? 'good' : 'bad', S.mode === 'all'
+        ? '<b>200 ms for all three.</b> Start the calls first, then await the collection. That is where concurrency comes from — not from the word async.'
+        : '<b>600 ms, and the code looks perfectly reasonable.</b> Each <code>await</code> completes before the next call starts, so three independent 200 ms calls run one after another. This is probably the most common performance bug in async code.');
+      api.out(S.mode === 'all' ? 'Task.WhenAll / Promise.all → 200 ms' : 'await in a loop → 600 ms');
+      return;
+    }
+    return false;
+  },
+
+  reset(S){ Object.assign(S, {async:false, inflight:8, ran:false, mode:'seq', blocked:true, work:'io'}); },
+
+  quiz:[
+    {q:'What does await actually do for a web server?',
+     o:['Runs the work on another thread','Releases the current thread back to the pool while the I/O is outstanding, so a few threads can serve many concurrent requests'], a:1,
+     w:'No extra thread is doing the waiting: the operating system signals completion and any free thread resumes the method.'},
+    {q:'Three independent API calls, each awaited in a loop, take 600 ms. Why?',
+     o:['The server is slow','Await means "wait for this one to finish" — the calls never overlap. Start them all, then await together with WhenAll or Promise.all'], a:1,
+     w:'Async is about not blocking; concurrency is something you explicitly ask for.'},
+    {q:'What is wrong with calling .Result on a task?',
+     o:['Nothing, it is just synchronous','It blocks the thread until the task completes: a deadlock where the continuation needs that thread, and thread-pool starvation where it does not'], a:1,
+     w:'"Never block on async code." Await all the way up, or provide a synchronous API instead.'},
+    {q:'Your endpoint spends 300 ms hashing a large file. Does async help?',
+     o:['Yes, always use async','No — that is CPU-bound work that still needs a core. Async helps when waiting; for computation you need parallelism or to move the work off the request path'], a:1,
+     w:'Marking CPU-bound code async adds overhead and hides the real fix.'}
+  ],
+  soundbite:'"Await releases the thread while an I/O operation is outstanding, so a small pool can serve thousands of concurrent requests — blocking would park one thread per request and queue the rest. It is not parallelism though: awaiting in a loop still runs the calls one after another, so I start them and await with WhenAll when they are independent. And I never block on async code with .Result, because it either deadlocks on the captured context or quietly exhausts the thread pool."'
+});
+</script>
+</body>
+</html>

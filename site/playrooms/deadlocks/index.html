@@ -1,0 +1,361 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Deadlocks Playroom · Runtime City</title>
+<meta name="description" content="Freeze two threads against each other, see the cycle, break it with lock ordering and timeouts, then meet livelock and the async deadlock. A playroom from Runtime City.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,600;12..96,800&family=IBM+Plex+Sans:wght@400;500&family=JetBrains+Mono:wght@400&display=swap">
+<link rel="stylesheet" href="../../assets/playroom.css">
+</head>
+<body>
+<div id="playroom"></div>
+
+<script src="../../assets/city.js"></script>
+<script src="../../assets/nav.js"></script>
+<script src="../../assets/sequence.js"></script>
+<script src="../../assets/playroom.js"></script>
+<script>
+const LANES = [{name:'Thread A', sub:'transfer 1 → 2'}, {name:'Accounts', sub:'two locks'}, {name:'Thread B', sub:'transfer 2 → 1'}];
+
+const NOTES = {
+  1:'<b>Two threads, two locks, opposite order.</b> Each holds what the other needs, and neither will let go. Nothing crashes: the work simply stops.',
+  2:'<b>Four conditions have to hold at once.</b> Break any one of them and a deadlock cannot form.',
+  3:'<b>Lock ordering is the fix you should reach for first.</b> If everyone takes locks in the same global order, a cycle is impossible.',
+  4:'<b>When ordering is impractical, use timeouts.</b> Fail, release everything, back off with jitter and try again.',
+  5:'<b>Two relatives worth knowing.</b> Livelock is everybody moving and nobody progressing; the async deadlock is the one you will actually cause.',
+  6:'<b>Interview tip:</b> name the circular wait, then say "consistent lock ordering, and timeouts where that is not possible". Mentioning the async version wins extra credit.'
+};
+
+function files(S){
+  const L = S.lang, s = S.step, pick = o => o[L];
+
+  if(s === 3) return pick({
+    cs:[{n:'Ordered.cs', lines:[
+      ['// Always take the lower id first, whatever the direction of the transfer'],
+      ['var (first, second) = from.Id < to.Id ? (from, to) : (to, from);','new'],[''],
+      ['lock (first.Gate)','hl'],
+      ['{'],
+      ['    lock (second.Gate)','hl'],
+      ['    {'],
+      ['        from.Balance -= amount;'],
+      ['        to.Balance   += amount;'],
+      ['    }'],
+      ['}'],[''],
+      ['// With one global order, a cycle cannot form: everyone is queueing'],
+      ['// for the same lock first.']]}],
+    java:[{n:'Ordered.java', lines:[
+      ['Account first  = from.id() < to.id() ? from : to;','new'],
+      ['Account second = first == from ? to : from;','new'],[''],
+      ['synchronized (first) {','hl'],
+      ['    synchronized (second) {','hl'],
+      ['        from.debit(amount);'],
+      ['        to.credit(amount);'],
+      ['    }'],
+      ['}']]}],
+    ts:[{n:'ordered.ts', lines:[
+      ['// Same rule for any pair of exclusive resources'],
+      ['const [first, second] = from.id < to.id ? [from, to] : [to, from];','new'],[''],
+      ['await first.mutex.runExclusive(async () =>','hl'],
+      ['  await second.mutex.runExclusive(async () => {','hl'],
+      ['    from.balance -= amount;'],
+      ['    to.balance   += amount;'],
+      ['  }));']]}]
+  });
+
+  if(s === 4) return pick({
+    cs:[{n:'Timeout.cs', lines:[
+      ['if (Monitor.TryEnter(first.Gate, TimeSpan.FromMilliseconds(50)))','hl'],
+      ['{'],
+      ['    try'],
+      ['    {'],
+      ['        if (Monitor.TryEnter(second.Gate, TimeSpan.FromMilliseconds(50)))','hl'],
+      ['        { try { Transfer(); } finally { Monitor.Exit(second.Gate); } }'],
+      ['        else { /* give up, release, retry with jitter */ }','new'],
+      ['    }'],
+      ['    finally { Monitor.Exit(first.Gate); }','new'],
+      ['}'],[''],
+      ['// Databases do this for you: one transaction is chosen as the deadlock'],
+      ['// victim and rolled back, so callers must be ready to retry.','hl']]}],
+    java:[{n:'Timeout.java', lines:[
+      ['if (first.lock.tryLock(50, MILLISECONDS)) {','hl'],
+      ['    try {'],
+      ['        if (second.lock.tryLock(50, MILLISECONDS)) {','hl'],
+      ['            try { transfer(); } finally { second.lock.unlock(); }'],
+      ['        } else { /* back off with jitter and retry */ }','new'],
+      ['    } finally { first.lock.unlock(); }','new'],
+      ['}'],[''],
+      ['// jstack shows "Found one Java-level deadlock" with both stacks.','hl']]}],
+    ts:[{n:'timeout.ts', lines:[
+      ['const got = await first.mutex.acquire({ timeout: 50 });','hl'],
+      ['if (!got) return retryWithJitter();','new'],
+      ['try {'],
+      ['  const got2 = await second.mutex.acquire({ timeout: 50 });'],
+      ['  if (!got2) return retryWithJitter();','new'],
+      ['  …'],
+      ['} finally { first.release(); }','new']]}]
+  });
+
+  if(s === 5) return pick({
+    cs:[{n:'Relatives.cs', lines:[
+      ['// LIVELOCK — both back off politely, forever'],
+      ['while (!TryTakeBoth()) { ReleaseAll(); Thread.Sleep(10); }   // no jitter','bad'],
+      ['//  → add randomised backoff so the two stop matching each other','new'],[''],
+      ['// STARVATION — one thread never gets in because others keep arriving'],[''],
+      ['// ASYNC DEADLOCK — the one you will actually write:'],
+      ['var result = GetAsync().Result;      // blocks the thread','bad'],
+      ['//  the continuation needs that same context → both wait forever','bad'],
+      ['var result = await GetAsync();       // never block on async code','new'],[''],
+      ['// ASP.NET Core has no sync context, so this hangs less often now —'],
+      ['// but it still exhausts the thread pool under load.','hl']]}],
+    java:[{n:'Relatives.java', lines:[
+      ['// LIVELOCK — retrying in lockstep'],
+      ['while (!tryBoth()) { releaseAll(); Thread.sleep(10); }   // same delay every time','bad'],
+      ['//  → randomise the backoff','new'],[''],
+      ['// STARVATION — an unfair lock can leave one thread waiting indefinitely'],
+      ['new ReentrantLock(true);   // fair mode, slower but nobody starves','hl'],[''],
+      ['// Blocking a pooled thread on a future is the JVM version of the'],
+      ['// async deadlock: future.get() inside a task on the same executor.','bad']]}],
+    ts:[{n:'relatives.ts', lines:[
+      ['// LIVELOCK — two retries with identical timing keep colliding'],
+      ['await sleep(10);                      // same delay for everyone','bad'],
+      ['await sleep(10 + Math.random() * 20); // jitter breaks the symmetry','new'],[''],
+      ['// The JavaScript deadlock is the event loop being blocked:'],
+      ['while (!done) {}                      // nothing else can ever run','bad'],
+      ['//  → await, or move the work to a worker.','new']]}]
+  });
+
+  return pick({
+    cs:[{n:'Deadlock.cs', lines:[
+      ['// Thread A: transfer from account 1 to account 2'],
+      ['lock (a1.Gate)      // takes 1','hl'],
+      ['{'],
+      ['    lock (a2.Gate)  // then wants 2', S.stuck ? 'bad' : ''],
+      ['    { … }'],
+      ['}'],[''],
+      ['// Thread B: transfer from account 2 to account 1'],
+      ['lock (a2.Gate)      // takes 2','hl'],
+      ['{'],
+      ['    lock (a1.Gate)  // then wants 1', S.stuck ? 'bad' : ''],
+      ['    { … }'],
+      ['}'],
+      ...(S.stuck ? [['',''],['// Both threads are alive, using no CPU, and will wait forever.','bad']] : [])]}],
+    java:[{n:'Deadlock.java', lines:[
+      ['// Thread A'],
+      ['synchronized (a1) {','hl'],
+      ['    synchronized (a2) { … }', S.stuck ? 'bad' : ''],
+      ['}'],[''],
+      ['// Thread B'],
+      ['synchronized (a2) {','hl'],
+      ['    synchronized (a1) { … }', S.stuck ? 'bad' : ''],
+      ['}'],
+      ...(S.stuck ? [['',''],['// jstack: "Found one Java-level deadlock"','bad']] : [])]}],
+    ts:[{n:'deadlock.ts', lines:[
+      ['// Two async tasks, two mutexes, opposite order'],
+      ['await m1.acquire(); await m2.acquire();   // task A','hl'],
+      ['await m2.acquire(); await m1.acquire();   // task B', S.stuck ? 'bad' : ''],
+      ...(S.stuck ? [['',''],['// Neither promise ever resolves.','bad']] : [])]}]
+  });
+}
+
+const P = Playroom({
+  district:'Concurrency Crossing',
+  title:'Deadlocks',
+  dek:'Two threads, both waiting, both polite, forever.',
+  steps:['Freeze it','The four conditions','Order the locks','Timeouts','Cousins','Interview check'],
+  stage:Sequence.stage({lanes:LANES, height:300}),
+
+  state:{stuck:false, ordered:false, timeout:false, variant:'livelock', ran:false},
+
+  story(S, api){
+    const fb = api.fb();
+    return {
+      1:`<h2>Two transfers, opposite directions</h2><p>A moves money from account 1 to 2 and locks them in that order. B moves 2 to 1 and locks them in <b>its</b> order. Run them at the same time.</p>${fb}`,
+      2:`<h2>Why it froze</h2><p>Four things were true at once. Take any one away and this cannot happen.</p>${fb}`,
+      3:`<h2>The first fix: one order for everyone</h2><p>Sort the locks — by id, by name, by anything consistent — and take them in that order. A cycle becomes impossible.</p>${fb}`,
+      4:`<h2>When you cannot order them</h2><p>Take locks with a timeout. If you cannot get all of them, release what you hold, wait a random moment, try again.</p>${fb}`,
+      5:`<h2>Two cousins</h2><p><b>Livelock</b>: everyone is busy and nothing progresses. <b>The async deadlock</b>: blocking on an async call from a thread the continuation needs.</p>${fb}`,
+      6:`<h2>Interview check</h2>${api.quizHTML()}`
+    }[S.step];
+  },
+
+  controls(S){
+    const s = S.step;
+    if(s === 1) return `<button class="btn primary" data-a="run">Run both transfers</button>` + (S.stuck ? `<button class="btn" data-a="dump">Take a thread dump</button>` : '');
+    if(s === 2) return `<button class="btn primary" data-a="conditions">Show the four conditions</button>`;
+    if(s === 3) return `<button class="chip" data-o="0" aria-pressed="${!S.ordered}"><i style="background:var(--bad)"></i>each its own order</button>` +
+      `<button class="chip" data-o="1" aria-pressed="${S.ordered}"><i style="background:var(--good)"></i>lowest id first</button>` +
+      `<button class="btn primary" data-a="run" style="margin-left:auto">Run both</button>`;
+    if(s === 4) return `<button class="chip" data-t2="0" aria-pressed="${!S.timeout}"><i style="background:var(--bad)"></i>wait forever</button>` +
+      `<button class="chip" data-t2="1" aria-pressed="${S.timeout}"><i style="background:var(--good)"></i>tryLock 50 ms</button>` +
+      `<button class="btn primary" data-a="run" style="margin-left:auto">Run both</button>`;
+    if(s === 5) return `<button class="chip" data-vr="livelock" aria-pressed="${S.variant === 'livelock'}"><i style="background:var(--accent)"></i>livelock</button>` +
+      `<button class="chip" data-vr="starve" aria-pressed="${S.variant === 'starve'}"><i style="background:var(--accent)"></i>starvation</button>` +
+      `<button class="chip" data-vr="async" aria-pressed="${S.variant === 'async'}"><i style="background:var(--bad)"></i>async deadlock</button>`;
+    return '';
+  },
+
+  statusLine(S){
+    const s = S.step;
+    if(s === 2) return `mutual exclusion · hold and wait · no preemption · circular wait<span class="warn"> · all four, all at once</span>`;
+    if(s === 3) return S.ordered
+      ? `Both threads take account 1 first<span class="ok"> · no cycle is possible</span>`
+      : `A takes 1 then 2 · B takes 2 then 1<span class="warn"> · a cycle waiting to happen</span>`;
+    if(s === 4) return S.timeout
+      ? `tryLock 50 ms · one thread gives up and retries<span class="ok"> · progress, at the cost of some wasted work</span>`
+      : `Blocking acquire<span class="warn"> · the thread waits forever, using no CPU, looking healthy</span>`;
+    if(s === 5) return {
+      livelock:`Both threads active · <b>0</b> transfers completed<span class="warn"> · busy, and going nowhere</span>`,
+      starve:`Thread C waiting <b>14 s</b><span class="warn"> · others keep arriving and taking the lock first</span>`,
+      async:`Thread blocked on .Result · continuation needs that thread<span class="warn"> · hang, or pool exhaustion</span>`}[S.variant];
+    return S.stuck
+      ? `Threads alive <b>2</b> · CPU <b>0%</b> · transfers completed <b>0</b><span class="warn"> · deadlocked</span>`
+      : `Two transfers, opposite directions`;
+  },
+
+  files,
+  note: S => NOTES[S.step],
+
+  onStage(S){
+    const s = S.step;
+    let messages = [], caption = '';
+
+    if(s === 1 || (s === 3 && !S.ordered) || (s === 4 && !S.timeout)){
+      messages = S.ran ? [
+        {from:0, to:1, label:'A: lock account 1 ✓', kind:'cached'},
+        {from:2, to:1, label:'B: lock account 2 ✓', kind:'cached'},
+        {from:0, to:1, label:'A: lock account 2 … held by B', kind:'bad'},
+        {from:2, to:1, label:'B: lock account 1 … held by A', kind:'bad'},
+        {from:1, to:1, label:'circular wait · neither can proceed', kind:'bad'}
+      ] : [];
+      caption = 'each holds what the other needs';
+    } else if(s === 2){
+      messages = S.shown ? [
+        {from:1, to:1, label:'1 · mutual exclusion — a lock is held by one thread', kind:'slow'},
+        {from:1, to:1, label:'2 · hold and wait — A holds one and asks for another', kind:'slow'},
+        {from:1, to:1, label:'3 · no preemption — nobody can take a lock away', kind:'slow'},
+        {from:1, to:1, label:'4 · circular wait — A waits for B, B waits for A', kind:'bad'},
+        {from:1, to:1, label:'break any one and no deadlock can form', kind:'cached'}
+      ] : [];
+      caption = 'Coffman conditions';
+    } else if(s === 3){
+      messages = S.ran ? [
+        {from:0, to:1, label:'A: lock account 1 ✓', kind:'cached'},
+        {from:2, to:1, label:'B: lock account 1 … waits its turn', kind:'slow'},
+        {from:0, to:1, label:'A: lock account 2 ✓ · transfer · release both', kind:'cached'},
+        {from:1, to:2, label:'B: gets account 1, then 2 · transfer', kind:'cached'},
+        {from:1, to:1, label:'2 transfers completed', kind:'cached'}
+      ] : [];
+      caption = 'one global order · queueing instead of cycling';
+    } else if(s === 4){
+      messages = S.ran ? [
+        {from:0, to:1, label:'A: lock 1 ✓', kind:'cached'},
+        {from:2, to:1, label:'B: lock 2 ✓', kind:'cached'},
+        {from:0, to:1, label:'A: tryLock 2 … 50 ms … failed', kind:'slow'},
+        {from:0, to:0, label:'A releases everything, sleeps 7 ms (jitter)', kind:'slow'},
+        {from:2, to:1, label:'B: tryLock 1 ✓ · transfer · release', kind:'cached'},
+        {from:0, to:1, label:'A retries and succeeds', kind:'cached'}
+      ] : [];
+      caption = 'no cycle survives if somebody lets go';
+    } else {
+      messages = {
+        livelock:[
+          {from:0, to:1, label:'A: takes 1, cannot get 2 → releases', kind:'slow'},
+          {from:2, to:1, label:'B: takes 2, cannot get 1 → releases', kind:'slow'},
+          {from:0, to:1, label:'A: retries after exactly 10 ms', kind:'slow'},
+          {from:2, to:1, label:'B: retries after exactly 10 ms', kind:'bad'},
+          {from:1, to:1, label:'both busy, both polite, nothing done', kind:'bad'}],
+        starve:[
+          {from:0, to:1, label:'short tasks keep acquiring the lock', kind:'cached'},
+          {from:2, to:1, label:'one long-waiting thread asks again', kind:'slow'},
+          {from:1, to:2, label:'denied — another short task arrived first', kind:'bad'},
+          {from:1, to:1, label:'fair locks fix this, at a cost', kind:'slow'}],
+        async:[
+          {from:0, to:0, label:'GetAsync().Result — blocks this thread', kind:'bad'},
+          {from:0, to:1, label:'the await inside needs that same thread', kind:'bad'},
+          {from:1, to:0, label:'it will be free when .Result returns', kind:'bad'},
+          {from:0, to:0, label:'deadlock, or a pool with nothing left to run', kind:'bad'}]
+      }[S.variant];
+      caption = {livelock:'progress is the thing to measure, not activity',
+                 starve:'alive, never served', async:'never block on async code'}[S.variant];
+    }
+
+    Sequence.draw({lanes:LANES, messages, caption});
+  },
+
+  onStep(S, n){
+    S.ran = false; S.shown = false; S.stuck = false;
+    if(n === 3) S.ordered = false;
+    if(n === 4) S.timeout = false;
+    if(n === 5) S.variant = 'livelock';
+  },
+
+  onClick(S, b, api){
+    if(b.dataset.o){ S.ordered = b.dataset.o === '1'; S.ran = false; api.out(S.ordered ? 'lock order: lowest id first' : 'each thread uses its own order'); return; }
+    if(b.dataset.t2){ S.timeout = b.dataset.t2 === '1'; S.ran = false; api.out(S.timeout ? 'tryLock with a 50 ms timeout' : 'blocking acquire'); return; }
+    if(b.dataset.vr){
+      S.variant = b.dataset.vr;
+      api.tell(S.variant === 'async' ? 'bad' : 'good', {
+        livelock:'<b>Livelock looks like work.</b> Both threads keep taking, failing, releasing and retrying — in step, because they back off by the same amount. CPU is busy, throughput is zero. Randomised backoff breaks the symmetry.',
+        starve:'<b>Starvation is unfairness, not a cycle.</b> A thread can wait indefinitely while others keep arriving and being served first. Fair locks solve it and cost throughput, which is why they are not the default.',
+        async:'<b>This is the deadlock you are most likely to cause yourself.</b> Blocking on <code>.Result</code> or <code>.Wait()</code> holds the thread that the awaited continuation needs to finish on. Classic ASP.NET and WPF hang. Modern ASP.NET Core has no synchronisation context so it usually does not hang outright — instead you exhaust the thread pool under load, which is harder to diagnose. The rule is simple: never block on async code.'
+      }[S.variant]);
+      api.out({livelock:'retry · release · retry · 0 completed', starve:'one thread waiting 14 s',
+               async:'.Result on an async call → hang or pool starvation'}[S.variant]);
+      return;
+    }
+    const a = b.dataset.a;
+    if(a === 'run'){
+      S.ran = true;
+      if(S.step === 3 && S.ordered){
+        api.tell('good', '<b>Both complete.</b> Both threads want account 1 first, so one waits briefly and then both proceed. A cycle needs the locks to be taken in different orders; a single global order removes that possibility entirely. Sort by primary key, by name, by memory address — anything, as long as everyone agrees.');
+        api.out('ordered acquisition · 2 transfers completed');
+        return;
+      }
+      if(S.step === 4 && S.timeout){
+        api.tell('good', '<b>One thread gives up, and both finish.</b> The timeout breaks "hold and wait": A releases account 1 rather than waiting forever. Add jitter to the retry so the two do not collide again, and cap the attempts. Databases do exactly this, choosing a deadlock victim and rolling it back — which is why your code should retry those errors.');
+        api.out('tryLock failed → release → jitter → retry → 2 transfers completed');
+        return;
+      }
+      S.stuck = true;
+      api.tell('bad', '<b>Both threads are frozen, and everything looks fine.</b> No exception, no CPU usage, no log line. The only symptoms are requests that never return and a thread count that keeps climbing as new work arrives behind them.');
+      api.out('A holds 1 waits for 2 · B holds 2 waits for 1 · 0 transfers completed');
+      return;
+    }
+    if(a === 'dump'){
+      api.tell('good', '<b>This is how you find it in production.</b> A thread dump — <code>jstack</code>, <code>dotnet-dump</code>, the debugger\'s parallel stacks — shows both threads, what each holds and what each waits for. The JVM will even print "Found one Java-level deadlock" and name the cycle for you.');
+      api.out('jstack → "Found one Java-level deadlock" · Thread A holds 0x1 waiting 0x2 · Thread B the reverse');
+      return;
+    }
+    if(a === 'conditions'){
+      S.shown = true;
+      api.tell('good', '<b>All four have to hold at once, which is what makes deadlock avoidable.</b> You cannot remove mutual exclusion — that is the point of a lock — so in practice you attack <b>circular wait</b> with a consistent lock order, or <b>hold and wait</b> with timeouts and releasing what you hold.');
+      api.out('mutual exclusion · hold and wait · no preemption · circular wait');
+      return;
+    }
+    return false;
+  },
+
+  reset(S){ Object.assign(S, {stuck:false, ordered:false, timeout:false, variant:'livelock', ran:false, shown:false}); },
+
+  quiz:[
+    {q:'What is the defining condition of a deadlock?',
+     o:['Too many threads','A circular wait: each thread holds a resource the next one needs, so none can proceed','High CPU usage','A slow database'], a:1,
+     w:'The other three Coffman conditions — mutual exclusion, hold and wait, no preemption — must also hold, but the cycle is what you break in practice.'},
+    {q:'What is the standard fix for two locks taken in different orders?',
+     o:['Add a delay','Acquire them in one consistent global order, for example by sorted id, so a cycle cannot form','Use more locks','Increase the timeout'], a:1,
+     w:'Where a global order is impractical, use tryLock with a timeout, release everything on failure, and retry with jitter.'},
+    {q:'How does a deadlock present in production?',
+     o:['A crash and a stack trace','Requests that never return, no CPU use, no errors — you find it with a thread dump showing what each thread holds and waits for'], a:1,
+     w:'Naming the diagnostic tool (jstack, dotnet-dump, parallel stacks) is what separates reading about it from having debugged it.'},
+    {q:'Why does calling .Result on an async method deadlock?',
+     o:['It is a compiler bug','It blocks the thread the awaited continuation needs in order to resume, so each waits for the other; in modern ASP.NET Core it instead exhausts the thread pool'], a:1,
+     w:'"Never block on async code" — await all the way up, or use a synchronous API.'}
+  ],
+  soundbite:'"A deadlock is a circular wait: each thread holds a lock the other needs, so both stop, with no exception and no CPU use — you find it in a thread dump. The fix I reach for first is a consistent global lock order, since a cycle cannot form if everyone takes locks in the same sequence. Where that is impractical I use try-lock with a timeout, release everything and retry with jitter. The version people cause most often is blocking on async code with .Result, which deadlocks the very thread the continuation needs."'
+});
+</script>
+</body>
+</html>
