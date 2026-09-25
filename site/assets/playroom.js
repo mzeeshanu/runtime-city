@@ -86,7 +86,13 @@
         (here ? '<span class="roomcount">playroom ' + (here.index + 1) + ' of ' + here.total + '</span>' : '') +
       '</header>' +
       '<section class="intro"><h1>' + esc(cfg.title) + '</h1><p>' + esc(cfg.dek) + '</p></section>' +
-      '<nav class="rail" id="rail" aria-label="Playroom steps"></nav>' +
+      '<div class="steprow">' +
+        '<ol class="rail" id="rail" aria-label="Playroom steps"></ol>' +
+        '<div class="stepjump">' +
+          '<button id="prevTop" aria-label="Previous step" title="Previous step (left arrow key)">←</button>' +
+          '<button id="nextTop" aria-label="Next step" title="Next step (right arrow key)">→</button>' +
+        '</div>' +
+      '</div>' +
       /* phone only: the stage and the code share the screen, one tap apart */
       '<div class="viewtabs" id="viewtabs" role="tablist" aria-label="View">' +
         '<button data-v="play" role="tab">Playroom</button>' +
@@ -156,14 +162,20 @@
       const r = $('rail');
       r.innerHTML = cfg.steps.map((t, i) => {
         const n = i + 1;
-        return '<button data-s="' + n + '"' + (n === S.step ? ' aria-current="step"' : '') +
-          ' class="' + (S.seen.has(n) && n !== S.step ? 'done' : '') + '">' +
-          '<span class="n">' + n + '</span>' + esc(t) + '</button>';
+        const state = n === S.step ? 'now' : (n < S.step || S.seen.has(n) ? 'done' : 'todo');
+        return '<li class="' + state + '">' +
+          '<button data-s="' + n + '"' + (n === S.step ? ' aria-current="step"' : '') +
+          ' title="Step ' + n + ': ' + esc(t) + '">' +
+          '<span class="n">' + (state === 'done' ? '✓' : n) + '</span>' +
+          '<span class="t">' + esc(t) + '</span></button></li>';
       }).join('');
       if(r.scrollWidth > r.clientWidth){
         const cur = r.querySelector('[aria-current]');
         if(cur) cur.scrollIntoView({block:'nearest', inline:'center'});
       }
+      $('prevTop').disabled = S.step === 1;
+      $('nextTop').disabled = S.step === LAST;
+
       const p = $('prev');
       p.hidden = S.step === 1;
       p.textContent = S.step > 1 ? '← ' + cfg.steps[S.step - 2] : '';
@@ -181,7 +193,10 @@
     }
 
     function story(){
-      $('story').innerHTML = cfg.story(S, api);
+      /* ties the step name in the rail to the section you are reading */
+      const eyebrow = '<p class="eyebrow">Step ' + S.step + ' of ' + LAST +
+        '<span class="sep">·</span>' + esc(cfg.steps[S.step - 1]) + '</p>';
+      $('story').innerHTML = eyebrow + cfg.story(S, api);
       $('story').querySelectorAll('.opt').forEach(b => b.onclick = () => {
         S.quiz[b.dataset.quiz] = +b.dataset.opt;
         story();
@@ -299,8 +314,8 @@
       }
       if(b.dataset.quiz !== undefined) return;       // handled in story()
       if(b.dataset.v) return setView(b.dataset.v);
-      if(b.id === 'prev') return go(S.step - 1);
-      if(b.id === 'next') return go(S.step + 1);
+      if(b.id === 'prev' || b.id === 'prevTop') return go(S.step - 1);
+      if(b.id === 'next' || b.id === 'nextTop') return go(S.step + 1);
       if(b.id === 'again') return restart();
       if(cfg.onClick && cfg.onClick(S, b, api) !== false){
         render();

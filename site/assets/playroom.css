@@ -46,15 +46,34 @@ button:focus-visible{outline:2px solid var(--accent);outline-offset:3px;border-r
 .intro h1{font-family:var(--display);font-weight:800;font-size:clamp(38px,7vw,62px);line-height:.96;letter-spacing:-.035em;margin:0 0 10px;text-wrap:balance}
 .intro p{margin:0;font-size:17px;color:var(--muted)}
 
-/* named steps */
-.rail{display:flex;gap:26px;margin-bottom:30px;border-bottom:1px solid var(--hair);overflow-x:auto;scrollbar-width:none}
+/* the stepper: a numbered sequence, not a menu */
+.steprow{display:flex;align-items:center;gap:18px;margin-bottom:28px;padding-bottom:16px;border-bottom:1px solid var(--hair)}
+.rail{display:flex;align-items:center;gap:0;flex:1;min-width:0;margin:0;padding:0;list-style:none;overflow-x:auto;scrollbar-width:none}
 .rail::-webkit-scrollbar{display:none}
-.rail button{display:flex;align-items:baseline;gap:7px;white-space:nowrap;padding:0 0 12px;margin-bottom:-1px;border-bottom:2px solid transparent;color:var(--muted);font-size:14px}
-.rail button .n{font-family:var(--mono);font-size:11px;opacity:.7}
+.rail li{display:flex;align-items:center;gap:10px;flex:1 1 auto;min-width:0}
+.rail li:last-child{flex:0 0 auto}
+.rail li:not(:last-child)::after{content:"";flex:1 1 12px;min-width:12px;height:1px;background:var(--hair);margin:0 10px}
+.rail button{display:flex;align-items:center;gap:8px;white-space:nowrap;color:var(--muted);font-size:13.5px;padding:4px 2px}
+.rail .n{width:24px;height:24px;flex:0 0 24px;border-radius:50%;border:1px solid var(--hair);
+         display:grid;place-items:center;font-family:var(--mono);font-size:11px;line-height:1}
 .rail button:hover{color:var(--ink)}
-.rail button.done{color:var(--ink)}
-.rail button[aria-current="step"]{color:var(--ink);border-bottom-color:var(--accent);font-weight:500}
-.rail button[aria-current="step"] .n{color:var(--accent);opacity:1}
+.rail button:hover .n{border-color:var(--muted)}
+.rail li.done .n{background:var(--muted);border-color:var(--muted);color:var(--ground)}
+.rail li.done .t{color:var(--muted)}
+.rail li.now button{color:var(--ink);font-weight:500}
+.rail li.now .n{background:var(--accent);border-color:var(--accent);color:#fff}
+.rail li.todo .t{opacity:.75}
+
+.stepjump{display:flex;gap:6px;flex:0 0 auto}
+.stepjump button{width:34px;height:34px;border:1px solid var(--hair);border-radius:8px;color:var(--muted);
+                 display:grid;place-items:center;font-size:15px;background:var(--surface)}
+.stepjump button:hover:not(:disabled){color:var(--ink);border-color:var(--muted)}
+.stepjump button:disabled{opacity:.35;cursor:default}
+
+/* the step name, above the section it belongs to */
+.eyebrow{font-family:var(--mono);font-size:11px;letter-spacing:.06em;text-transform:uppercase;
+         color:var(--accent);margin:0 0 8px;display:flex;gap:8px;align-items:baseline}
+.eyebrow .sep{opacity:.5}
 
 .lesson{display:grid;grid-template-columns:minmax(0,1.05fr) minmax(0,1fr);gap:30px;align-items:start}
 @media (max-width:920px){.lesson{grid-template-columns:1fr;gap:22px}}
@@ -159,10 +178,14 @@ pre{margin:0;padding:0 0 6px;overflow-x:auto;font-family:var(--mono);font-size:1
   .intro h1{font-size:clamp(32px,9vw,44px)}
   .intro p{font-size:16px}
 
-  .rail{gap:18px;margin-bottom:22px;
-        -webkit-mask-image:linear-gradient(to right,#000 88%,transparent);
-        mask-image:linear-gradient(to right,#000 88%,transparent)}
-  .rail button{font-size:13.5px;padding-bottom:14px}
+  /* on a phone only the current step is named, so the sequence still fits */
+  .steprow{gap:12px;margin-bottom:22px;padding-bottom:14px}
+  .rail li:not(.now) .t{display:none}
+  .rail li:not(:last-child)::after{flex-basis:8px;min-width:8px;margin:0 6px}
+  .rail li.now{flex:0 0 auto}
+  .rail .n{width:28px;height:28px;flex-basis:28px}
+  .rail button{padding:6px 2px}
+  .stepjump button{width:40px;height:40px}
 
   .viewtabs{display:flex}
   :root[data-view="play"] .col-code{display:none}
