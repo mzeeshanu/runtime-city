@@ -36,6 +36,7 @@
 <body>
 <div id="playroom"></div>
 
+<script src="../../assets/city.js"></script>
 <script src="../../assets/playroom.js"></script>
 <script>
 const STAGE = `
@@ -232,9 +233,6 @@ const P = Playroom({
   dek:'Where your variables live, and why two names can change one thing.',
   steps:['A value','A reference','Into a method','Copies','What dies','Interview check'],
   stage:STAGE,
-  park:{current:'Stack and Heap', items:[
-    {label:'Stack and Heap'}, {label:'Garbage collection'}, {label:'Boxing'},
-    {label:'Pointers and null'}, {label:'Caching'}]},
 
   state:{a:5, b:5, aliased:false, name:'Ana', reassigned:false,
          copied:false, deep:false, city:'Lisbon', dropped:false, cached:false},

@@ -38,6 +38,7 @@
 <body>
 <div id="playroom"></div>
 
+<script src="../../assets/city.js"></script>
 <script src="../../assets/playroom.js"></script>
 <script>
 const PROD = {
@@ -306,9 +307,6 @@ const P = Playroom({
   dek:'Keep the workflow. Let a subclass decide what gets built.',
   steps:['One product','Break it','Cut a hole','Add without editing','Which factory?','Interview check'],
   stage:STAGE,
-  park:{current:'Factory Method', items:[
-    {label:'Dependency Injection', href:'../dependency-injection/'}, {label:'Factory Method'},
-    {label:'Strategy'}, {label:'Observer'}, {label:'Singleton'}]},
 
   state:{handled:['car'], edits:0, cracked:false, fitted:false,
          prod:'car', lastReal:'car', shipped:new Set(), variant:'method'},

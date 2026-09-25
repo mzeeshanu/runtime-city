@@ -65,3 +65,16 @@ To share a playroom as a single file (for a Claude artifact or an email):
 ```bash
 node tools/build-artifact.js site/playrooms/factory-method/index.html out.html
 ```
+
+## The city map
+
+`site/assets/city.js` lists every district and playroom, in order. It is the only
+place that knows the map: the engine reads it for breadcrumbs, the district line
+and the next-playroom hand-off, and the home page is generated from it.
+
+```bash
+node tools/build-index.js     # rewrites site/index.html from the map
+```
+
+Adding a playroom: create `site/playrooms/<slug>/index.html`, add it to the
+district's `playrooms` array in `city.js`, then run the command above.

@@ -1,4 +1,32 @@
-<!doctype html>
+/* Write site/index.html from the city map, so the home page can never drift
+   from site/assets/city.js.
+
+   Usage: node tools/build-index.js
+*/
+const fs = require('fs');
+const CITY = require('../site/assets/city.js');
+
+const esc = s => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+
+const district = d => {
+  const rooms = d.playrooms.map(p =>
+    `    <li><a href="playrooms/${p.slug}/"><span class="t">${esc(p.title)}</span> <span class="d">${esc(p.blurb)}</span></a></li>`);
+  const soon = d.soon.length
+    ? [`    <li class="soon">${d.soon.map(esc).join(' · ')} — coming soon</li>`]
+    : [];
+  return `  <section id="${d.slug}">
+    <h2>${esc(d.name)} <span class="state">${d.open ? `${d.playrooms.length} playroom${d.playrooms.length === 1 ? '' : 's'}` : 'planned'}</span></h2>
+    <p class="blurb">${esc(d.blurb)}</p>
+    <ul>
+${rooms.concat(soon).join('\n')}
+    </ul>
+  </section>`;
+};
+
+const open = CITY.districts.filter(d => d.open);
+const planned = CITY.districts.filter(d => !d.open);
+
+const html = `<!doctype html>
 <html lang="en">
 <head>
 <meta charset="utf-8">
@@ -43,62 +71,17 @@ li.soon{color:var(--muted);padding:14px 2px;font-size:14px}
 
   <h1>Learn by breaking</h1>
   <p class="dek">Software engineering concepts you can walk into, take apart and put back together. Built for students heading into interviews.</p>
-  <nav class="jump"><a href="#pattern-park">Pattern Park</a><a href="#memory-harbour">Memory Harbour</a><a href="#solid-quarter">SOLID Quarter</a><a href="#network-highway">Network Highway</a><a href="#database-vault">Database Vault</a><a href="#concurrency-crossing">Concurrency Crossing</a></nav>
+  <nav class="jump">${CITY.districts.map(d => `<a href="#${d.slug}">${esc(d.name)}</a>`).join('')}</nav>
 
-  <section id="pattern-park">
-    <h2>Pattern Park <span class="state">5 playrooms</span></h2>
-    <p class="blurb">The design patterns interviewers ask about.</p>
-    <ul>
-    <li><a href="playrooms/dependency-injection/"><span class="t">Dependency Injection</span> <span class="d">weld an engine in, then cut a socket</span></a></li>
-    <li><a href="playrooms/factory-method/"><span class="t">Factory Method</span> <span class="d">grow a switch until it breaks, then cut a hole</span></a></li>
-    <li><a href="playrooms/strategy/"><span class="t">Strategy</span> <span class="d">drown a method in flags, then hand the algorithm in</span></a></li>
-    <li><a href="playrooms/observer/"><span class="t">Observer</span> <span class="d">wire every listener by name, then let them subscribe</span></a></li>
-    <li><a href="playrooms/singleton/"><span class="t">Singleton</span> <span class="d">one instance, a thread race, and poisoned tests</span></a></li>
-    </ul>
-  </section>
+${open.map(district).join('\n\n')}
 
-  <section id="memory-harbour">
-    <h2>Memory Harbour <span class="state">1 playroom</span></h2>
-    <p class="blurb">Where your objects actually live.</p>
-    <ul>
-    <li><a href="playrooms/stack-and-heap/"><span class="t">Stack and Heap</span> <span class="d">two names, one object, and what the collector takes</span></a></li>
-    <li class="soon">Garbage collection · Boxing · Pointers and null · Caching — coming soon</li>
-    </ul>
-  </section>
-
-  <section id="solid-quarter">
-    <h2>SOLID Quarter <span class="state">planned</span></h2>
-    <p class="blurb">Five principles, five buildings that crack when you break them.</p>
-    <ul>
-    <li class="soon">Single Responsibility · Open/Closed · Liskov Substitution · Interface Segregation · Dependency Inversion — coming soon</li>
-    </ul>
-  </section>
-
-  <section id="network-highway">
-    <h2>Network Highway <span class="state">planned</span></h2>
-    <p class="blurb">What happens when you type a URL.</p>
-    <ul>
-    <li class="soon">DNS · TCP · HTTP · TLS — coming soon</li>
-    </ul>
-  </section>
-
-  <section id="database-vault">
-    <h2>Database Vault <span class="state">planned</span></h2>
-    <p class="blurb">Indexes, joins and the promises a transaction makes.</p>
-    <ul>
-    <li class="soon">Indexes · Joins · Transactions · Isolation levels — coming soon</li>
-    </ul>
-  </section>
-
-  <section id="concurrency-crossing">
-    <h2>Concurrency Crossing <span class="state">planned</span></h2>
-    <p class="blurb">Two things at once, and what goes wrong.</p>
-    <ul>
-    <li class="soon">Threads · Locks · Deadlocks · async/await — coming soon</li>
-    </ul>
-  </section>
+${planned.map(district).join('\n\n')}
 
   <p class="loop">Every playroom runs the same loop: <b>see it</b> working, <b>break it</b> yourself, <b>fix it</b>, read the <b>same code</b> in C#, Java or TypeScript, then take the <b>interview check</b>.</p>
 </div>
 </body>
 </html>
+`;
+
+fs.writeFileSync('site/index.html', html);
+console.log(`site/index.html  ${CITY.all.length} playrooms across ${CITY.districts.length} districts`);

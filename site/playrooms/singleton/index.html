@@ -31,6 +31,7 @@
 <body>
 <div id="playroom"></div>
 
+<script src="../../assets/city.js"></script>
 <script src="../../assets/playroom.js"></script>
 <script>
 const SHAPES = {hand:'Hand-rolled singleton', container:'Container lifetime'};
@@ -230,12 +231,6 @@ const P = Playroom({
   dek:'One instance, on purpose. And everything that costs you.',
   steps:['Two copies','One instance','Break it','Make it safe','The grown-up version','Interview check'],
   stage:STAGE,
-  park:{current:'Singleton', items:[
-    {label:'Dependency Injection', href:'../dependency-injection/'},
-    {label:'Factory Method', href:'../factory-method/'},
-    {label:'Strategy', href:'../strategy/'},
-    {label:'Observer', href:'../observer/'},
-    {label:'Singleton'}]},
 
   state:{instances:[{theme:'light'},{theme:'light'}], billing:0, signs:1,
          locked:false, raced:false, safe:false, testLeak:false, shape:'hand'},

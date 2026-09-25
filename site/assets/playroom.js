@@ -54,18 +54,36 @@
     '<rect x="9" y="4" width="6" height="18" fill="currentColor"/>' +
     '<rect x="17" y="13" width="5" height="9" fill="var(--accent)"/></svg>';
 
-  function chrome(cfg){
-    const park = cfg.park || {};
-    const line = (park.items || []).map(it =>
-      it.label === park.current ? '<b class="now">' + it.label + '</b>'
-      : it.href ? '<a href="' + it.href + '">' + it.label + '</a>'
-      : it.label
-    ).join(' · ');
+  /* where this page sits in the city, when the map can be read */
+  function place(cfg){
+    const city = typeof window !== 'undefined' && window.CITY;
+    if(!city) return null;
+    const parts = location.pathname.replace(/\/+$/, '').split('/');
+    return city.locate(parts[parts.length - 1]) || null;
+  }
+
+  function chrome(cfg, here){
+    const home = here ? '<a href="../../">Runtime City</a>' : 'Runtime City';
+    const district = here
+      ? '<a href="../../#' + here.district.slug + '">' + esc(here.district.name) + '</a>'
+      : esc(cfg.district);
+
+    /* the district line at the foot: every playroom in this district */
+    const line = here
+      ? here.district.playrooms.map(p => p.slug === here.room.slug
+          ? '<b class="now">' + esc(p.title) + '</b>'
+          : '<a href="../' + p.slug + '/">' + esc(p.title) + '</a>'
+        ).concat(here.district.soon.map(s => '<span class="soon">' + esc(s) + '</span>')).join(' · ')
+      : (cfg.park && cfg.park.items || []).map(it =>
+          it.label === (cfg.park.current) ? '<b class="now">' + it.label + '</b>' : it.label).join(' · ');
+
     return '' +
     '<div class="wrap">' +
       '<header class="top">' +
-        '<span class="brand">' + MARK + 'Runtime City</span>' +
-        '<span class="sep">/</span><span>' + esc(cfg.district) + '</span>' +
+        '<span class="brand">' + MARK + home + '</span>' +
+        '<span class="sep">/</span><span>' + district + '</span>' +
+        '<span class="sep">/</span><span class="hereroom">' + esc(cfg.title) + '</span>' +
+        (here ? '<span class="roomcount">playroom ' + (here.index + 1) + ' of ' + here.total + '</span>' : '') +
       '</header>' +
       '<section class="intro"><h1>' + esc(cfg.title) + '</h1><p>' + esc(cfg.dek) + '</p></section>' +
       '<nav class="rail" id="rail" aria-label="Playroom steps"></nav>' +
@@ -76,7 +94,7 @@
             '<div class="controls" id="controls"></div>' +
             '<div class="status" id="status" aria-live="polite"></div>' +
           '</div>' +
-          '<div class="nav"><button id="prev"></button><button id="next" class="fwd"></button></div>' +
+          '<div class="nav"><button id="prev"></button><span id="nextslot"></span></div>' +
         '</div>' +
         '<aside><div class="code">' +
           '<div class="langs" id="langs">' +
@@ -85,8 +103,12 @@
           '<div id="files"></div><div class="codenote" id="codenote"></div>' +
         '</div></aside>' +
       '</div>' +
-      '<section class="city"><span class="k">' + esc(cfg.district) + '</span>' + line +
-        '<br>Every concept in Runtime City is a playroom: see it, break it, fix it, then say it in an interview.' +
+      '<section class="city">' +
+        '<span class="k">' + esc(here ? here.district.name : cfg.district) + '</span>' + line +
+        '<p class="cityfoot">' +
+          (here ? '<a href="../../">All districts</a> · ' : '') +
+          'Every concept in Runtime City is a playroom: see it, break it, fix it, then say it in an interview.' +
+        '</p>' +
       '</section>' +
     '</div>';
   }
@@ -98,7 +120,8 @@
     S.quiz = {};
     try{ const l = localStorage.getItem('rc-lang'); if(l && LANGS.some(x => x[0] === l)) S.lang = l; }catch(e){}
 
-    (document.getElementById('playroom') || document.body).innerHTML = chrome(cfg);
+    const here = place(cfg);
+    (document.getElementById('playroom') || document.body).innerHTML = chrome(cfg, here);
     const $ = id => document.getElementById(id);
     const NS = 'http://www.w3.org/2000/svg';
 
@@ -136,11 +159,20 @@
         const cur = r.querySelector('[aria-current]');
         if(cur) cur.scrollIntoView({block:'nearest', inline:'center'});
       }
-      const p = $('prev'), n = $('next');
+      const p = $('prev');
       p.hidden = S.step === 1;
       p.textContent = S.step > 1 ? '← ' + cfg.steps[S.step - 2] : '';
-      if(S.step < LAST){ n.className = 'fwd'; n.textContent = 'Next: ' + cfg.steps[S.step] + ' →'; }
-      else { n.className = 'again'; n.textContent = 'Start the playroom again'; }
+
+      /* the last step hands over to the next playroom instead of dead-ending */
+      const slot = $('nextslot');
+      if(S.step < LAST){
+        slot.innerHTML = '<button class="fwd" id="next">Next: ' + esc(cfg.steps[S.step]) + ' →</button>';
+      } else {
+        const nx = here && here.next;
+        slot.innerHTML = '<button class="again" id="again">Start again</button>' +
+          (nx ? '<a class="fwd" href="../' + nx.slug + '/">Next playroom: ' + esc(nx.title) + ' →</a>'
+              : (here ? '<a class="fwd" href="../../">Back to Runtime City →</a>' : ''));
+      }
     }
 
     function story(){
@@ -196,13 +228,35 @@
       code();
     }
 
-    function go(n){
+    /* each step is a URL, so a step can be linked, reloaded and gone Back from */
+    function stepFromHash(){
+      const m = /^#step-(\d+)$/.exec(location.hash || '');
+      const n = m ? +m[1] : 1;
+      return n >= 1 && n <= LAST ? n : 1;
+    }
+
+    function go(n, push){
       if(n < 1 || n > LAST) return;
+      const moved = n !== S.step;
       S.step = n; S.seen.add(n); S.fb = null; S.out = '';
       if(cfg.onStep) cfg.onStep(S, n);
       render();
-      if(window.innerWidth < 920) $('story').scrollIntoView({behavior:'smooth', block:'start'});
+      if(push !== false && moved){
+        try{ history.pushState({step:n}, '', '#step-' + n); }catch(e){}
+      }
+      if(moved && window.innerWidth < 920) $('story').scrollIntoView({behavior:'smooth', block:'start'});
     }
+
+    window.addEventListener('popstate', () => go(stepFromHash(), false));
+
+    /* arrow keys walk the steps, unless the reader is typing or tabbing controls */
+    document.addEventListener('keydown', ev => {
+      if(ev.metaKey || ev.ctrlKey || ev.altKey) return;
+      const t = ev.target;
+      if(t && (t.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName))) return;
+      if(ev.key === 'ArrowRight' && S.step < LAST){ ev.preventDefault(); go(S.step + 1); }
+      if(ev.key === 'ArrowLeft' && S.step > 1){ ev.preventDefault(); go(S.step - 1); }
+    });
 
     function restart(){
       if(cfg.reset) cfg.reset(S);
@@ -224,11 +278,12 @@
       }
       if(b.dataset.quiz !== undefined) return;       // handled in story()
       if(b.id === 'prev') return go(S.step - 1);
-      if(b.id === 'next') return S.step < LAST ? go(S.step + 1) : restart();
+      if(b.id === 'next') return go(S.step + 1);
+      if(b.id === 'again') return restart();
       if(cfg.onClick && cfg.onClick(S, b, api) !== false) render();
     });
 
-    render();
+    go(stepFromHash(), false);
     return api;
   }
 

@@ -35,6 +35,7 @@
 <body>
 <div id="playroom"></div>
 
+<script src="../../assets/city.js"></script>
 <script src="../../assets/playroom.js"></script>
 <script>
 const WAY = {
@@ -274,10 +275,6 @@ const P = Playroom({
   dek:'One job, many ways to do it. Choose while the app is running.',
   steps:['One route','Break it','Hand it in','Swap live','Class or function?','Interview check'],
   stage:STAGE,
-  park:{current:'Strategy', items:[
-    {label:'Dependency Injection', href:'../dependency-injection/'},
-    {label:'Factory Method', href:'../factory-method/'},
-    {label:'Strategy'}, {label:'Observer'}, {label:'Singleton'}]},
 
   state:{flags:[], edits:0, cracked:false, given:false,
          pick:'shortest', pickReal:'shortest', tried:new Set(), shape:'class'},
