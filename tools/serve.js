@@ -23,7 +23,14 @@ http.createServer((req, res) => {
   if(!file.startsWith(root)){ res.writeHead(403).end('forbidden'); return; }
 
   fs.readFile(file, (err, body) => {
-    if(err){ res.writeHead(404, {'content-type':'text/html'}).end('<h1>404</h1><p><a href="/">Runtime City</a></p>'); return; }
+    if(err){
+      /* the same page the host will serve in production */
+      fs.readFile(path.join(root, '404.html'), (e2, page) => {
+        res.writeHead(404, {'content-type':'text/html; charset=utf-8'})
+           .end(e2 ? '<h1>404</h1><p><a href="/">Runtime City</a></p>' : page);
+      });
+      return;
+    }
     res.writeHead(200, {
       'content-type': types[path.extname(file)] || 'application/octet-stream',
       'cache-control': 'no-store'          // always see the edit you just made

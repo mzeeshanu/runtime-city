@@ -66,46 +66,10 @@
     return match ? Object.assign(city.locate(match.slug), {detached: true}) : null;
   }
 
-  /* links resolve against the site root when known, and relatively otherwise.
-     A single-file copy with no base has no siblings to link to. */
-  function links(here){
-    const base = (window.CITY && window.CITY.base) || '';
-    const detached = here && here.detached;
-    return {
-      home: base ? base + '/' : (detached ? '' : '../../'),
-      district: slug => base ? base + '/#' + slug : (detached ? '' : '../../#' + slug),
-      room: slug => base ? base + '/playrooms/' + slug + '/' : (detached ? '' : '../' + slug + '/')
-    };
-  }
-
-  function anchor(href, cls, html){
-    return href
-      ? '<a class="' + cls + '" href="' + href + '">' + html + '</a>'
-      : '<span class="' + cls + ' nolink">' + html + '</span>';
-  }
-
-  /* the menu behind "Playrooms": the whole city, one tap away */
-  function menuHTML(here, L){
-    const city = window.CITY;
-    if(!city) return '';
-    return city.districts.map(d => {
-      const rooms = d.playrooms.map(p => {
-        const now = here && p.slug === here.room.slug;
-        const inner = '<span class="mt">' + esc(p.title) + '</span><span class="mb">' + esc(p.blurb) + '</span>';
-        return '<li class="' + (now ? 'now' : '') + '">' +
-          (now ? '<span class="mrow">' + inner + '<span class="youare">you are here</span></span>'
-               : anchor(L.room(p.slug), 'mrow', inner)) + '</li>';
-      }).join('');
-      const soon = d.soon.length ? '<li class="msoon">' + d.soon.map(esc).join(' · ') + '</li>' : '';
-      return '<section class="mgroup' + (d.open ? '' : ' planned') + '">' +
-        '<h3>' + anchor(L.district(d.slug), 'mhead', esc(d.name)) +
-        '<span class="mcount">' + (d.open ? d.playrooms.length + ' open' : 'planned') + '</span></h3>' +
-        '<ul>' + rooms + soon + '</ul></section>';
-    }).join('');
-  }
-
   function chrome(cfg, here){
-    const L = links(here);
+    const NAV = window.RuntimeNav;
+    const L = NAV.links(here);
+    const anchor = NAV.anchor;
     const districtName = here ? here.district.name : cfg.district;
     const districtSlug = here ? here.district.slug : '';
 
@@ -119,19 +83,8 @@
 
     return '' +
     /* the top bar is the same on every page: home, where you are, and the whole city */
-    '<header class="topbar"><div class="topbar-in">' +
-      anchor(L.home, 'brand', MARK + '<span>Runtime City</span>') +
-      '<nav class="crumb" aria-label="Breadcrumb">' +
-        '<span class="sep">/</span>' + anchor(L.district(districtSlug), 'cr', esc(districtName)) +
-        '<span class="sep">/</span><span class="cr here">' + esc(cfg.title) + '</span>' +
-      '</nav>' +
-      '<button class="menubtn" id="menubtn" aria-expanded="false" aria-controls="citymenu" aria-haspopup="true">' +
-        '<span class="bars" aria-hidden="true"><i></i><i></i><i></i></span>' +
-        'All playrooms' +
-        (here ? '<span class="of">' + (here.index + 1) + '/' + here.total + '</span>' : '') +
-      '</button>' +
-      '<div class="citymenu" id="citymenu" hidden>' + menuHTML(here, L) + '</div>' +
-    '</div></header>' +
+    NAV.bar({here, L, districtName, districtSlug, title: cfg.title,
+             count: here ? (here.index + 1) + '/' + here.total : ''}) +
     '<div class="wrap">' +
       '<section class="intro"><h1>' + esc(cfg.title) + '</h1><p>' + esc(cfg.dek) + '</p></section>' +
       '<div class="steprow">' +
@@ -225,15 +178,25 @@
       $('nextTop').disabled = S.step === LAST;
 
       const p = $('prev');
-      p.hidden = S.step === 1;
-      p.textContent = S.step > 1 ? '← ' + cfg.steps[S.step - 2] : '';
+      if(S.step > 1){
+        p.hidden = false;
+        p.textContent = '← ' + cfg.steps[S.step - 2];
+        p.removeAttribute('data-room');
+      } else if(here && here.prev){
+        /* step 1 goes back to the previous playroom rather than nowhere */
+        p.hidden = false;
+        p.textContent = '← ' + here.prev.title;
+        p.setAttribute('data-room', window.RuntimeNav.links(here).room(here.prev.slug));
+      } else {
+        p.hidden = true;
+      }
 
       /* the last step hands over to the next playroom instead of dead-ending */
       const slot = $('nextslot');
       if(S.step < LAST){
         slot.innerHTML = '<button class="fwd" id="next">Next: ' + esc(cfg.steps[S.step]) + ' →</button>';
       } else {
-        const L = links(here);
+        const L = window.RuntimeNav.links(here);
         const nx = here && here.next;
         const nextHref = nx ? L.room(nx.slug) : L.home;
         slot.innerHTML = '<button class="again" id="again">Start again</button>' +
@@ -241,6 +204,8 @@
             ? '<a class="fwd" href="' + nextHref + '">' +
               (nx ? 'Next playroom: ' + esc(nx.title) : 'Back to Runtime City') + ' →</a>'
             : '');
+        /* finishing a playroom is worth remembering */
+        if(here) window.RuntimeNav.Progress.mark(here.room.slug, LAST, LAST);
       }
     }
 
@@ -327,6 +292,13 @@
       const moved = n !== S.step;
       S.step = n; S.seen.add(n); S.fb = null; S.out = '';
       if(cfg.onStep) cfg.onStep(S, n);
+      if(here){
+        window.RuntimeNav.Progress.mark(here.room.slug, n, LAST);
+        /* keep the menu's ticks current, while nobody is looking at it */
+        const panel = $('citymenu');
+        if(panel && panel.hidden)
+          panel.innerHTML = window.RuntimeNav.menuHTML(here, window.RuntimeNav.links(here));
+      }
       render();
       if(push !== false && moved){
         try{ history.pushState({step:n}, '', '#step-' + n); }catch(e){}
@@ -353,26 +325,12 @@
       window.scrollTo({top:0, behavior:'smooth'});
     }
 
-    /* the city menu */
-    function menu(open){
-      const btn = $('menubtn'), panel = $('citymenu');
-      if(!btn || !panel) return;
-      panel.hidden = !open;
-      btn.setAttribute('aria-expanded', String(open));
-      document.documentElement.classList.toggle('menu-open', open);
-    }
-    document.addEventListener('keydown', ev => {
-      if(ev.key === 'Escape' && $('citymenu') && !$('citymenu').hidden){ menu(false); $('menubtn').focus(); }
-    });
-    document.addEventListener('click', ev => {
-      const panel = $('citymenu');
-      if(panel && !panel.hidden && !ev.target.closest('#citymenu') && !ev.target.closest('#menubtn')) menu(false);
-    }, true);
+    window.RuntimeNav.wire();
 
     document.addEventListener('click', ev => {
       const b = ev.target.closest('button');
-      if(!b) return;
-      if(b.id === 'menubtn') return menu($('citymenu').hidden);
+      if(!b || b.id === 'menubtn') return;
+      if(b.dataset.room){ location.href = b.dataset.room; return; }
       if(b.dataset.s) return go(+b.dataset.s);
       if(b.dataset.l){
         S.lang = b.dataset.l;

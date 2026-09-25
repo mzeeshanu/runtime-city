@@ -66,6 +66,17 @@ To share a playroom as a single file (for a Claude artifact or an email):
 node tools/build-artifact.js site/playrooms/factory-method/index.html out.html
 ```
 
+## Navigation
+
+Every page carries the same sticky top bar (`site/assets/nav.js`): the wordmark
+links home, the breadcrumb shows district and playroom, and **All playrooms**
+opens the whole city with the current room marked and ticks against the ones
+this visitor has finished.
+
+Progress is stored in the visitor's own browser with `localStorage`. The home
+page uses it for the ticks and for a "pick up where you left off" link, and
+`site/404.html` carries the same bar.
+
 ## The city map
 
 `site/assets/city.js` lists every district and playroom, in order. It is the only
