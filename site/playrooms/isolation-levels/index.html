@@ -1,0 +1,318 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Isolation Levels Playroom · Runtime City</title>
+<meta name="description" content="Run two sessions at once and watch dirty reads, non-repeatable reads, phantoms and lost updates appear and disappear as you raise the isolation level. A playroom from Runtime City.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,600;12..96,800&family=IBM+Plex+Sans:wght@400;500&family=JetBrains+Mono:wght@400&display=swap">
+<link rel="stylesheet" href="../../assets/playroom.css">
+</head>
+<body>
+<div id="playroom"></div>
+
+<script src="../../assets/city.js"></script>
+<script src="../../assets/nav.js"></script>
+<script src="../../assets/sequence.js"></script>
+<script src="../../assets/playroom.js"></script>
+<script>
+const LANES = [{name:'Session A', sub:'reporting'}, {name:'Database'}, {name:'Session B', sub:'a colleague'}];
+
+const LEVELS = {
+  ru: {name:'READ UNCOMMITTED', allows:['dirty read','non-repeatable read','phantom','lost update']},
+  rc: {name:'READ COMMITTED',   allows:['non-repeatable read','phantom','lost update']},
+  rr: {name:'REPEATABLE READ',  allows:['phantom (in the standard)','lost update (unless you lock)']},
+  ser:{name:'SERIALIZABLE',     allows:[]}
+};
+
+const NOTES = {
+  1:'<b>Isolation is about what one session may see of another\'s work in progress.</b> Everything below is a named way that goes wrong.',
+  2:'<b>A dirty read sees work that never happened.</b> Almost no engine defaults to allowing it, and PostgreSQL will not do it at all.',
+  3:'<b>Read committed only promises that what you read was committed at that moment.</b> Read it again and it may have changed underneath you.',
+  4:'<b>Repeatable read freezes your view of the rows you read.</b> New rows matching your filter can still appear, which is a phantom.',
+  5:'<b>Serializable behaves as if transactions ran one after another.</b> You pay with conflicts and retries, which your code has to handle.',
+  6:'<b>Interview tip:</b> name the anomaly, not just the level. "Read committed still allows non-repeatable reads, so for check-then-act I use a version column or SELECT … FOR UPDATE."'
+};
+
+function files(S){
+  const L = S.lang, s = S.step, pick = o => o[L];
+
+  if(s === 5) return pick({
+    cs:[{n:'LostUpdate.cs', lines:[
+      ['// Both sessions read 10 in stock, both sell one, both write 9.'],
+      ['// One sale disappears, at any level below serializable.','bad'],[''],
+      ['// Optimistic: a version column, checked on write'],
+      ['[Timestamp] public byte[] RowVersion { get; set; }','new'],
+      ['// UPDATE … WHERE id = @id AND row_version = @seen   → 0 rows means retry','hl'],[''],
+      ['// Pessimistic: take the lock while you read'],
+      ['var p = await db.Products.FromSql($"SELECT * FROM products WHERE id={id} FOR UPDATE")','hl'],
+      ['                         .SingleAsync();'],[''],
+      ['// Or avoid the read entirely: UPDATE products SET stock = stock - 1 WHERE stock > 0;','new']]}],
+    java:[{n:'LostUpdate.java', lines:[
+      ['// Optimistic locking, built into JPA:'],
+      ['@Version private long version;','new'],
+      ['// commit throws OptimisticLockException if someone else got there first','hl'],[''],
+      ['// Pessimistic:'],
+      ['@Lock(LockModeType.PESSIMISTIC_WRITE)','hl'],
+      ['Optional<Product> findById(Long id);'],[''],
+      ['// Best of all, let the database do the arithmetic:'],
+      ['@Modifying @Query("update Product p set p.stock = p.stock - 1 where p.id = :id and p.stock > 0")','new']]}],
+    ts:[{n:'lost-update.ts', lines:[
+      ['// Read-modify-write is where updates get lost:'],
+      ['const p = await db.product.findUnique({ where: { id } });   // stock = 10'],
+      ['await db.product.update({ where: { id }, data: { stock: p.stock - 1 } });   // writes 9','bad'],[''],
+      ['// Version check — updates nothing if someone else moved first'],
+      ['await db.product.updateMany({ where: { id, version: p.version }, data: { stock: p.stock - 1, version: p.version + 1 } });','new'],[''],
+      ['// Or make it atomic in one statement:'],
+      ['await db.$executeRaw`UPDATE products SET stock = stock - 1 WHERE id = ${id} AND stock > 0`;','hl']]}]
+  });
+
+  return pick({
+    cs:[{n:'Isolation.cs', lines:[
+      [`using var tx = await db.Database.BeginTransactionAsync(IsolationLevel.${
+        {ru:'ReadUncommitted', rc:'ReadCommitted', rr:'RepeatableRead', ser:'Serializable'}[S.level]});`,'hl'],[''],
+      ['var first  = await db.Orders.CountAsync(o => o.Status == "paid");'],
+      ['//  … session B commits a change here …'],
+      ['var second = await db.Orders.CountAsync(o => o.Status == "paid");'],[''],
+      [`// first == second? ${S.level === 'ru' || S.level === 'rc' ? 'not guaranteed' : 'yes, for rows you already read'}`,
+       S.level === 'ru' || S.level === 'rc' ? 'bad' : 'new'],
+      [`// new matching rows can appear? ${S.level === 'ser' ? 'no' : 'yes'}`, S.level === 'ser' ? 'new' : 'bad'],[''],
+      ['// Defaults worth knowing: PostgreSQL and Oracle read committed,'],
+      ['// MySQL InnoDB repeatable read, SQL Server read committed.']]}],
+    java:[{n:'Isolation.java', lines:[
+      [`@Transactional(isolation = Isolation.${
+        {ru:'READ_UNCOMMITTED', rc:'READ_COMMITTED', rr:'REPEATABLE_READ', ser:'SERIALIZABLE'}[S.level]})`,'hl'],
+      ['public Report build() {'],
+      ['    long first  = repo.countPaid();'],
+      ['    //  … another session commits here …'],
+      ['    long second = repo.countPaid();'],
+      [`    // equal? ${S.level === 'ru' || S.level === 'rc' ? 'no guarantee' : 'yes for rows already read'}`,
+       S.level === 'ru' || S.level === 'rc' ? 'bad' : 'new'],
+      ['}'],[''],
+      ['// MySQL InnoDB defaults to REPEATABLE READ and blocks most phantoms'],
+      ['// with gap locks; the SQL standard does not require that.','hl']]}],
+    ts:[{n:'isolation.ts', lines:[
+      [`await db.$transaction(async tx => { … }, { isolationLevel: "${
+        {ru:'ReadUncommitted', rc:'ReadCommitted', rr:'RepeatableRead', ser:'Serializable'}[S.level]}" });`,'hl'],[''],
+      ['// Postgres: SET TRANSACTION ISOLATION LEVEL ' + LEVELS[S.level].name + ';'],
+      [`// allows: ${LEVELS[S.level].allows.length ? LEVELS[S.level].allows.join(', ') : 'none of the anomalies'}`,
+       LEVELS[S.level].allows.length ? 'bad' : 'new'],[''],
+      ['// Postgres never permits dirty reads, even if you ask for read uncommitted.']]}]
+  });
+}
+
+const P = Playroom({
+  district:'Database Vault',
+  title:'Isolation Levels',
+  dek:'What one transaction is allowed to see of another that has not finished.',
+  steps:['Two sessions','Dirty read','It changed','Phantoms','Lost updates','Interview check'],
+  stage:Sequence.stage({lanes:LANES, height:310}),
+
+  state:{level:'rc', ran:false, anomaly:null, guard:'none'},
+
+  story(S, api){
+    const fb = api.fb();
+    return {
+      1:`<h2>Two people, one database</h2><p>Session A is building a report. Session B is editing orders at the same time. Isolation decides what A is allowed to see of B's unfinished work.</p>${fb}`,
+      2:`<h2>Reading something that never happened</h2><p>At <b>read uncommitted</b>, A can see B's changes before B commits — and B might roll back. Your report then contains a number that never existed.</p>${fb}`,
+      3:`<h2>Reading twice, getting two answers</h2><p><b>Read committed</b> — the default in PostgreSQL and SQL Server — only promises the data was committed when you read it. Read it again and it may have moved.</p>${fb}`,
+      4:`<h2>Rows that appear out of nowhere</h2><p><b>Repeatable read</b> freezes the rows you already read. New rows matching your <code>WHERE</code> can still show up in a second query: a phantom.</p>${fb}`,
+      5:`<h2>The one that actually costs money</h2><p>Two sessions read stock 10, both sell one, both write 9. No error, one sale gone. Fix it with a version check, a lock, or by not reading first at all.</p>${fb}`,
+      6:`<h2>Interview check</h2>${api.quizHTML()}`
+    }[S.step];
+  },
+
+  controls(S){
+    const s = S.step;
+    const levels = Object.keys(LEVELS).map(k =>
+      `<button class="chip" data-l2="${k}" aria-pressed="${S.level === k}"><i style="background:${k === 'ser' ? 'var(--good)' : k === 'ru' ? 'var(--bad)' : 'var(--accent)'}"></i>${
+        {ru:'read uncommitted', rc:'read committed', rr:'repeatable read', ser:'serializable'}[k]}</button>`).join('');
+    if(s === 1) return `<button class="btn primary" data-a="run">Run both sessions</button>`;
+    if(s >= 2 && s <= 4) return levels + `<button class="btn primary" data-a="run" style="margin-left:auto">Run it</button>`;
+    if(s === 5) return `<button class="chip" data-g="none" aria-pressed="${S.guard === 'none'}"><i style="background:var(--bad)"></i>read, then write</button>` +
+      `<button class="chip" data-g="version" aria-pressed="${S.guard === 'version'}"><i style="background:var(--good)"></i>version check</button>` +
+      `<button class="chip" data-g="lock" aria-pressed="${S.guard === 'lock'}"><i style="background:var(--accent)"></i>SELECT … FOR UPDATE</button>` +
+      `<button class="chip" data-g="atomic" aria-pressed="${S.guard === 'atomic'}"><i style="background:var(--good)"></i>one UPDATE</button>` +
+      `<button class="btn primary" data-a="sell" style="margin-left:auto">Both sell one</button>`;
+    return '';
+  },
+
+  statusLine(S){
+    const s = S.step;
+    if(s === 5) return {
+      none:`Stock after two sales: <b>9</b><span class="warn"> · one sale lost, no error raised</span>`,
+      version:`Stock after two sales: <b>8</b><span class="ok"> · the second write matched 0 rows and retried</span>`,
+      lock:`Stock after two sales: <b>8</b><span class="ok"> · the second session waited for the lock</span>`,
+      atomic:`Stock after two sales: <b>8</b><span class="ok"> · the database did the arithmetic, no read needed</span>`}[S.guard];
+    const l = LEVELS[S.level];
+    if(s === 1) return `Both sessions running · isolation decides what A sees of B`;
+    return `<b>${l.name}</b> · still allows: ${l.allows.length ? l.allows.join(', ') : '<span class="ok">nothing</span>'}`;
+  },
+
+  files,
+  note: S => NOTES[S.step],
+
+  onStage(S){
+    const s = S.step, lv = S.level;
+    let messages = [], caption = '';
+
+    if(s === 1){
+      messages = S.ran ? [
+        {from:0, to:1, label:'BEGIN · SELECT count(*) → 12'},
+        {from:2, to:1, label:'BEGIN · UPDATE orders SET status = …', kind:'slow'},
+        {from:0, to:1, label:'SELECT count(*) again → ?', kind:'slow'},
+        {from:2, to:1, label:'COMMIT (or ROLLBACK)', kind:'slow'}
+      ] : [];
+      caption = 'the interesting part is what happens between those lines';
+    } else if(s === 2){
+      const dirty = lv === 'ru';
+      messages = S.ran ? [
+        {from:2, to:1, label:'BEGIN · UPDATE total = 900 (not committed)', kind:'slow'},
+        {from:0, to:1, label:'SELECT total'},
+        {from:1, to:0, label: dirty ? '900 — uncommitted data' : '100 — the last committed value', kind: dirty ? 'bad' : 'cached'},
+        {from:2, to:1, label:'ROLLBACK', kind:'slow'},
+        {from:0, to:0, label: dirty ? 'the report contains a number that never existed' : 'unaffected: it never saw the change',
+         kind: dirty ? 'bad' : 'cached'}
+      ] : [];
+      caption = dirty ? 'dirty read' : 'no dirty read at this level';
+    } else if(s === 3){
+      const nonRep = lv === 'ru' || lv === 'rc';
+      messages = S.ran ? [
+        {from:0, to:1, label:'BEGIN · SELECT total → 100'},
+        {from:2, to:1, label:'UPDATE total = 900 · COMMIT', kind:'slow'},
+        {from:0, to:1, label:'SELECT total again'},
+        {from:1, to:0, label: nonRep ? '900 — changed mid-transaction' : '100 — your snapshot', kind: nonRep ? 'bad' : 'cached'},
+        {from:0, to:0, label: nonRep ? 'two answers in one transaction' : 'consistent view for the whole transaction',
+         kind: nonRep ? 'bad' : 'cached'}
+      ] : [];
+      caption = nonRep ? 'non-repeatable read' : 'repeatable: the rows you read are frozen';
+    } else if(s === 4){
+      const phantom = lv !== 'ser';
+      messages = S.ran ? [
+        {from:0, to:1, label:"BEGIN · SELECT count(*) WHERE status='paid' → 12"},
+        {from:2, to:1, label:"INSERT a new paid order · COMMIT", kind:'slow'},
+        {from:0, to:1, label:'the same count again'},
+        {from:1, to:0, label: phantom ? '13 — a row that was not there before' : '12 — serialized against that insert',
+         kind: phantom ? 'bad' : 'cached'},
+        {from:0, to:0, label: phantom ? 'phantom row' : 'no phantom: the engine refuses one of the two transactions',
+         kind: phantom ? 'bad' : 'cached'}
+      ] : [];
+      caption = phantom ? 'existing rows are stable; new matching rows are not'
+                        : 'serializable: as if the two ran one after the other';
+    } else {
+      const g = S.guard;
+      messages = S.ran ? (g === 'none' ? [
+        {from:0, to:1, label:'SELECT stock → 10'},
+        {from:2, to:1, label:'SELECT stock → 10', kind:'slow'},
+        {from:0, to:1, label:'UPDATE stock = 9'},
+        {from:2, to:1, label:'UPDATE stock = 9', kind:'bad'},
+        {from:1, to:1, label:'two sales, stock 9 · one sale vanished', kind:'bad'}
+      ] : g === 'version' ? [
+        {from:0, to:1, label:'SELECT stock, version → 10, v7'},
+        {from:2, to:1, label:'SELECT stock, version → 10, v7', kind:'slow'},
+        {from:0, to:1, label:'UPDATE … WHERE version = 7 → 1 row', kind:'cached'},
+        {from:2, to:1, label:'UPDATE … WHERE version = 7 → 0 rows', kind:'bad'},
+        {from:2, to:2, label:'conflict detected → re-read and retry → stock 8', kind:'cached'}
+      ] : g === 'lock' ? [
+        {from:0, to:1, label:'SELECT … FOR UPDATE → 10 (row locked)', kind:'cached'},
+        {from:2, to:1, label:'SELECT … FOR UPDATE → waits', kind:'slow'},
+        {from:0, to:1, label:'UPDATE stock = 9 · COMMIT', kind:'cached'},
+        {from:1, to:2, label:'lock released → sees 9', kind:'cached'},
+        {from:2, to:1, label:'UPDATE stock = 8 · COMMIT · stock 8', kind:'cached'}
+      ] : [
+        {from:0, to:1, label:'UPDATE stock = stock - 1 WHERE stock > 0', kind:'cached'},
+        {from:2, to:1, label:'UPDATE stock = stock - 1 WHERE stock > 0', kind:'cached'},
+        {from:1, to:1, label:'no read-modify-write · stock 8 · nothing to lose', kind:'cached'}
+      ]) : [];
+      caption = {none:'lost update', version:'optimistic concurrency', lock:'pessimistic locking',
+                 atomic:'let the database do the arithmetic'}[g];
+    }
+
+    Sequence.draw({lanes:LANES, messages, caption});
+  },
+
+  onStep(S, n){
+    S.ran = false;
+    if(n === 2) S.level = 'ru';
+    if(n === 3) S.level = 'rc';
+    if(n === 4) S.level = 'rr';
+    if(n === 5) S.guard = 'none';
+  },
+
+  onClick(S, b, api){
+    if(b.dataset.l2){ S.level = b.dataset.l2; S.ran = false; api.out('SET TRANSACTION ISOLATION LEVEL ' + LEVELS[S.level].name); return; }
+    if(b.dataset.g){ S.guard = b.dataset.g; S.ran = false; api.out({none:'read, then write', version:'optimistic version check',
+      lock:'SELECT … FOR UPDATE', atomic:'UPDATE … SET stock = stock - 1'}[S.guard]); return; }
+    const a = b.dataset.a;
+    if(a === 'run'){
+      S.ran = true;
+      const s = S.step, lv = S.level;
+      if(s === 1){
+        api.tell('good', '<b>Nothing is wrong yet.</b> Two sessions overlapping is completely normal; the question is what A is allowed to observe while B is mid-flight. Each step now names one way that goes wrong.');
+        api.out('two concurrent transactions');
+        return;
+      }
+      if(s === 2){
+        const dirty = lv === 'ru';
+        api.tell(dirty ? 'bad' : 'good', dirty
+          ? '<b>A read 900, then B rolled back.</b> That number never existed in any committed state of the database, and A is now reporting it. This is why almost nothing defaults to this level, and why PostgreSQL refuses to do it at all.'
+          : '<b>No dirty read.</b> A sees the last committed value, whatever B is doing. Every level above read uncommitted guarantees this.');
+        api.out(dirty ? 'read 900 · B rolled back · report is wrong' : 'read 100 · B\'s uncommitted work invisible');
+        return;
+      }
+      if(s === 3){
+        const nonRep = lv === 'ru' || lv === 'rc';
+        api.tell(nonRep ? 'bad' : 'good', nonRep
+          ? '<b>Two reads, two answers, inside one transaction.</b> Read committed is the default in PostgreSQL and SQL Server, so this is the normal state of affairs. It matters whenever you read a value, decide something, and then write — the value can move between the read and the decision.'
+          : '<b>Same answer both times.</b> Repeatable read gives your transaction a consistent snapshot of the rows it has already read, so a report cannot contradict itself halfway through.');
+        api.out(nonRep ? 'first 100 · then 900 · same transaction' : 'first 100 · then 100 · snapshot held');
+        return;
+      }
+      if(s === 4){
+        const phantom = lv !== 'ser';
+        api.tell(phantom ? 'bad' : 'good', phantom
+          ? '<b>A new row appeared inside your transaction.</b> Repeatable read protects rows you have read, not rows that did not exist yet. Worth knowing: MySQL InnoDB takes gap locks and blocks most phantoms anyway, while PostgreSQL uses a snapshot, so in practice the behaviour differs by engine.'
+          : '<b>No phantom.</b> Serializable behaves as if the two transactions ran one after the other. PostgreSQL implements that by detecting the conflict and aborting one of them, so your code must be ready to retry.');
+        api.out(phantom ? 'count 12 → 13 · phantom row' : 'count 12 → 12 · or a serialization failure to retry');
+        return;
+      }
+      return;
+    }
+    if(a === 'sell'){
+      S.ran = true;
+      api.tell(S.guard === 'none' ? 'bad' : 'good', {
+        none:'<b>Two sales, one unit gone.</b> Both read 10, both wrote 9. No error, no conflict, no lock: just quietly wrong stock. Raising the isolation level to serializable would catch it, but the usual fixes are cheaper.',
+        version:'<b>Optimistic concurrency.</b> Each row carries a version; the update only applies if the version is still what you read. Zero rows updated means someone beat you, so you re-read and retry. Ideal when conflicts are rare.',
+        lock:'<b>Pessimistic locking.</b> <code>SELECT … FOR UPDATE</code> locks the row while you decide, so the second session waits its turn. Correct, and it costs you concurrency — keep the held section tiny.',
+        atomic:'<b>Best of all: never read it.</b> <code>UPDATE stock = stock - 1 WHERE stock > 0</code> does the arithmetic inside the database, atomically, and tells you how many rows it changed. No read-modify-write, nothing to lose.'
+      }[S.guard]);
+      api.out({none:'stock 9 · one sale lost', version:'1 row / 0 rows → retry → stock 8',
+               lock:'second session waited → stock 8', atomic:'stock 8 · single statement'}[S.guard]);
+      return;
+    }
+    return false;
+  },
+
+  reset(S){ Object.assign(S, {level:'rc', ran:false, guard:'none'}); },
+
+  quiz:[
+    {q:'What does READ COMMITTED guarantee?',
+     o:['Your reads never change during the transaction','Only that what you read was committed at the moment you read it — read it again and it may differ'], a:1,
+     w:'It is the default in PostgreSQL, Oracle and SQL Server, so non-repeatable reads are the normal condition, not an exotic one.'},
+    {q:'What is a phantom read?',
+     o:['Reading a deleted row','A second query with the same WHERE clause returns new rows that another transaction inserted and committed'], a:1,
+     w:'Repeatable read protects rows you already read, not rows that appear later. Serializable, or range/gap locks, prevent it.'},
+    {q:'Two sessions read stock = 10, both sell one, both write 9. What is this, and what is the cheapest fix?',
+     o:['A deadlock; add a retry','A lost update; use a version check, SELECT … FOR UPDATE, or a single UPDATE that does the arithmetic in the database'], a:1,
+     w:'The atomic UPDATE is usually the best answer: no read-modify-write, no lock held across a decision.'},
+    {q:'What does SERIALIZABLE cost you?',
+     o:['Nothing, use it always','Concurrency: transactions conflict and one gets aborted, so every caller needs retry logic — and throughput drops under contention'], a:1,
+     w:'Correct by construction, but you must be ready to catch serialization failures and retry the whole transaction.'}
+  ],
+  soundbite:'"Isolation levels decide what one transaction sees of another\'s uncommitted or concurrent work. Read committed, the usual default, still allows non-repeatable reads; repeatable read freezes the rows you read but can still show phantoms; serializable removes both and pays for it with conflicts you have to retry. In practice the anomaly I design against is the lost update, and I prefer a single atomic UPDATE or a version check over raising the isolation level for everyone."'
+});
+</script>
+</body>
+</html>

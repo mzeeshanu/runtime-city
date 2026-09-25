@@ -29,6 +29,10 @@ Audience: students preparing for interviews first, then early-career developers.
 | Network Highway | [TCP](site/playrooms/tcp/index.html) | Prototype |
 | Network Highway | [HTTP](site/playrooms/http/index.html) | Prototype |
 | Network Highway | [TLS](site/playrooms/tls/index.html) | Prototype |
+| Database Vault | [Indexes](site/playrooms/indexes/index.html) | Prototype |
+| Database Vault | [Joins](site/playrooms/joins/index.html) | Prototype |
+| Database Vault | [Transactions](site/playrooms/transactions/index.html) | Prototype |
+| Database Vault | [Isolation Levels](site/playrooms/isolation-levels/index.html) | Prototype |
 
 Every playroom follows the same loop: **see it → break it → fix it → code it (C#, Java, TypeScript) → interview check**.
 

@@ -94,10 +94,13 @@ li.soon{color:var(--muted);padding:14px 2px;font-size:14px}
   </section>
 
   <section id="database-vault">
-    <h2>Database Vault <span class="state">planned</span></h2>
+    <h2>Database Vault <span class="state">4 playrooms</span></h2>
     <p class="blurb">Indexes, joins and the promises a transaction makes.</p>
     <ul>
-    <li class="soon">Indexes · Joins · Transactions · Isolation levels — coming soon</li>
+    <li data-room="indexes"><a href="playrooms/indexes/"><span class="t">Indexes</span> <span class="d">read a million rows, then read four</span><span class="state" hidden></span></a></li>
+    <li data-room="joins"><a href="playrooms/joins/"><span class="t">Joins</span> <span class="d">which rows survive, and the accidental 101 queries</span><span class="state" hidden></span></a></li>
+    <li data-room="transactions"><a href="playrooms/transactions/"><span class="t">Transactions</span> <span class="d">crash halfway and lose £100, then do not</span><span class="state" hidden></span></a></li>
+    <li data-room="isolation-levels"><a href="playrooms/isolation-levels/"><span class="t">Isolation Levels</span> <span class="d">two sessions, four anomalies, one lost sale</span><span class="state" hidden></span></a></li>
     </ul>
   </section>
 

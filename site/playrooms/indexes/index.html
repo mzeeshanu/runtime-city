@@ -1,0 +1,299 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Indexes Playroom · Runtime City</title>
+<meta name="description" content="Read a million rows to find one, add an index and read four, then find out what indexes cost on writes and when the planner ignores them. A playroom from Runtime City.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,600;12..96,800&family=IBM+Plex+Sans:wght@400;500&family=JetBrains+Mono:wght@400&display=swap">
+<link rel="stylesheet" href="../../assets/playroom.css">
+<style>
+.page{fill:var(--surface);stroke:var(--hair);stroke-width:1;transition:fill .25s}
+.page.read{fill:rgba(185,59,51,.35);stroke:var(--bad)}
+.page.hit{fill:rgba(31,132,105,.45);stroke:var(--good)}
+.tablelbl{font:400 10px var(--mono);fill:var(--muted)}
+.node{fill:var(--surface);stroke:var(--accent);stroke-width:1.5}
+.node.on{fill:rgba(201,112,29,.2)}
+.nodelbl{font:400 9px var(--mono);fill:var(--ink);text-anchor:middle}
+.edge{stroke:var(--hair);stroke-width:1}
+.edge.on{stroke:var(--accent);stroke-width:1.5}
+.plan{font:400 11px var(--mono);fill:var(--ink)}
+.plan.bad{fill:var(--bad)} .plan.ok{fill:var(--good)}
+.writecost{font:400 10px var(--mono);fill:var(--muted)}
+</style>
+</head>
+<body>
+<div id="playroom"></div>
+
+<script src="../../assets/city.js"></script>
+<script src="../../assets/nav.js"></script>
+<script src="../../assets/playroom.js"></script>
+<script>
+const QUERIES = {
+  eq:     {sql:"WHERE email = 'ana@example.com'",        uses:true,  rows:4,      why:'an exact match on the indexed column'},
+  func:   {sql:"WHERE lower(email) = 'ana@example.com'", uses:false, rows:1000000,why:'the column is wrapped in a function, so the stored values no longer match'},
+  like:   {sql:"WHERE email LIKE '%example.com'",        uses:false, rows:1000000,why:'a leading wildcard has no prefix to seek to'},
+  range:  {sql:"WHERE created_at > '2026-09-01'",        uses:true,  rows:12000,  why:'a range still seeks, then walks the leaves in order'},
+  lowsel: {sql:"WHERE is_active = true",                 uses:false, rows:1000000,why:'900k rows match, so reading the table directly is cheaper than bouncing through an index'}
+};
+
+const STAGE = `
+<svg viewBox="0 0 600 300" role="img" aria-label="A table of pages and an index above it">
+  <defs><pattern id="grid" width="24" height="24" patternUnits="userSpaceOnUse"><path d="M24 0H0V24" class="gridline" fill="none"/></pattern></defs>
+  <rect width="600" height="300" fill="url(#grid)" opacity=".6"/>
+  <g id="tree"></g>
+  <text class="tablelbl" x="20" y="148">users · 1,000,000 rows</text>
+  <g id="pages"></g>
+  <text class="plan" id="plan" x="20" y="286"></text>
+  <text class="writecost" id="wcost" x="580" y="286" text-anchor="end"></text>
+</svg>`;
+
+const NOTES = {
+  1:'<b>No index means reading everything.</b> The database has no idea where that row is, so it looks at all of them.',
+  2:'<b>An index is a sorted structure with pointers.</b> Three or four reads walk down the tree, and one more fetches the row.',
+  3:'<b>Every index is paid for on every write.</b> Inserts, updates and deletes must keep them all current, and they take disk and memory too.',
+  4:'<b>An index that cannot be used is pure cost.</b> Functions on the column, leading wildcards and low selectivity all send the planner back to a scan.',
+  5:'<b>Column order decides what a composite index can answer.</b> And an index that already contains every column the query needs avoids touching the table at all.',
+  6:'<b>Interview tip:</b> "an index makes reads fast and writes slower, and only if the query can use it" — then name one way to accidentally disable it.'
+};
+
+function files(S){
+  const L = S.lang, s = S.step, q = QUERIES[S.query];
+
+  if(s === 3) return [{n:'writes.sql', lines:[
+    ['-- Every index has to be maintained by every write'],
+    ['INSERT INTO users (email, name, created_at) VALUES (…);'],
+    [`--  ${S.indexCount} index${S.indexCount === 1 ? '' : 'es'} to update as well as the row`, S.indexCount > 3 ? 'bad' : 'hl'],[''],
+    ['-- Find indexes nobody is using (PostgreSQL):'],
+    ['SELECT relname, indexrelname, idx_scan','hl'],
+    ['FROM pg_stat_user_indexes WHERE idx_scan = 0;'],[''],
+    ['-- An unused index is all cost and no benefit: drop it.'],
+    ['-- Rule of thumb: index what you filter, join and sort on. Nothing else.']]}];
+
+  if(s === 5) return [{n:'composite.sql', lines:[
+    ['CREATE INDEX ix_orders ON orders (customer_id, created_at);','hl'],[''],
+    ['-- Uses it:'],
+    ['WHERE customer_id = 42                              -- leading column','new'],
+    ['WHERE customer_id = 42 AND created_at > :since      -- both, in order','new'],
+    ['WHERE customer_id = 42 ORDER BY created_at          -- sorted for free','new'],[''],
+    ['-- Cannot use it:'],
+    ['WHERE created_at > :since                           -- skips the leading column','bad'],[''],
+    ['-- A covering index answers the query without touching the table:'],
+    ['CREATE INDEX ix_cover ON orders (customer_id) INCLUDE (total, status);','hl'],
+    ['SELECT total, status FROM orders WHERE customer_id = 42;  -- index-only scan']]}];
+
+  const base = {
+    cs:[{n:'Query.cs', lines:[
+      ['var user = await db.Users'],
+      [`    .SingleOrDefaultAsync(u => ${S.query === 'func' ? 'u.Email.ToLower() == email' : 'u.Email == email'});`,
+       q.uses ? 'hl' : 'bad'],[''],
+      [`-- plan: ${q.uses ? 'Index Seek' : 'Table Scan'} · rows read ${q.rows.toLocaleString()}`, q.uses ? 'new' : 'bad']]}],
+    java:[{n:'Query.java', lines:[
+      ['@Query("select u from User u where ' + (S.query === 'func' ? 'lower(u.email) = :email' : 'u.email = :email') + '")',
+       q.uses ? 'hl' : 'bad'],
+      ['Optional<User> findByEmail(@Param("email") String email);'],[''],
+      [`-- plan: ${q.uses ? 'Index Seek' : 'Full Table Scan'} · rows read ${q.rows.toLocaleString()}`, q.uses ? 'new' : 'bad']]}],
+    ts:[{n:'query.ts', lines:[
+      ['const user = await db.query(',],
+      [`  "SELECT * FROM users ${q.sql}", [email]);`, q.uses ? 'hl' : 'bad'],[''],
+      [`-- plan: ${q.uses ? 'Index Scan using ix_users_email' : 'Seq Scan on users'} · rows ${q.rows.toLocaleString()}`,
+       q.uses ? 'new' : 'bad']]}]
+  }[L];
+
+  if(s <= 2) base.push({n:'schema.sql', lines:[
+    ['CREATE TABLE users (id bigserial PRIMARY KEY, email text, name text, created_at timestamptz);'],
+    [S.indexed ? 'CREATE INDEX ix_users_email ON users (email);   -- the only difference' : '-- no index on email yet',
+     S.indexed ? 'new' : 'bad'],[''],
+    ['EXPLAIN ANALYZE SELECT * FROM users ' + q.sql + ';','hl']]});
+  return base;
+}
+
+const P = Playroom({
+  district:'Database Vault',
+  title:'Indexes',
+  dek:'The difference between reading one row and reading all of them.',
+  steps:['No index','Add one','What it costs','When it is ignored','Composite and covering','Interview check'],
+  stage:STAGE,
+
+  state:{indexed:false, query:'eq', ran:false, rowsRead:0, ms:0, indexCount:1, composite:false},
+
+  story(S, api){
+    const fb = api.fb();
+    return {
+      1:`<h2>One row in a million</h2><p>No index on <code>email</code>, so the only way to know which row matches is to look at every one. Run it.</p>${fb}`,
+      2:`<h2>Add the index</h2><p>A sorted structure with pointers back to the rows. The same query now walks three or four nodes instead of a million rows.</p>${fb}`,
+      3:`<h2>Indexes are not free</h2><p>Every one has to be updated by every insert, update and delete, and they take space and memory. Add a few and watch writes get slower.</p>${fb}`,
+      4:`<h2>The index the planner refuses to use</h2><p>This is the part that surprises people in production. Try each query and read why.</p>${fb}`,
+      5:`<h2>Column order, and covering</h2><p>A composite index on <code>(customer_id, created_at)</code> answers queries that start with <code>customer_id</code> — not ones that start with <code>created_at</code>. And if the index holds every column the query needs, the table is never touched.</p>${fb}`,
+      6:`<h2>Interview check</h2>${api.quizHTML()}`
+    }[S.step];
+  },
+
+  controls(S){
+    const s = S.step;
+    const run = `<button class="btn primary" data-a="run" style="margin-left:auto">Run the query</button>`;
+    if(s === 1) return `<button class="btn primary" data-a="run">Run the query</button>`;
+    if(s === 2) return (S.indexed ? '' : `<button class="btn primary" data-a="index">CREATE INDEX on email</button>`) + run;
+    if(s === 3) return `<button class="btn" data-a="addix">Add another index</button><button class="btn" data-a="insert">Insert a row</button>` +
+      (S.indexCount > 1 ? `<button class="btn" data-a="dropix">Drop an unused index</button>` : '');
+    if(s === 4) return Object.keys(QUERIES).map(k =>
+      `<button class="chip" data-q="${k}" aria-pressed="${S.query === k}"><i style="background:${QUERIES[k].uses ? 'var(--good)' : 'var(--bad)'}"></i>${
+        {eq:'=', func:'lower()', like:"LIKE '%…'", range:'range', lowsel:'is_active'}[k]}</button>`).join('') + run;
+    if(s === 5) return `<button class="chip" data-c="lead" aria-pressed="${S.composite === 'lead'}"><i style="background:var(--good)"></i>WHERE customer_id</button>` +
+      `<button class="chip" data-c="both" aria-pressed="${S.composite === 'both'}"><i style="background:var(--good)"></i>customer_id + created_at</button>` +
+      `<button class="chip" data-c="second" aria-pressed="${S.composite === 'second'}"><i style="background:var(--bad)"></i>WHERE created_at only</button>` +
+      `<button class="chip" data-c="cover" aria-pressed="${S.composite === 'cover'}"><i style="background:var(--accent)"></i>covering</button>`;
+    return '';
+  },
+
+  statusLine(S){
+    const s = S.step;
+    if(s === 3) return `Indexes on users <b>${S.indexCount}</b> · one INSERT writes <b>${1 + S.indexCount}</b> structures` +
+      (S.indexCount > 3 ? `<span class="warn"> · writes now cost several times what the row alone costs</span>`
+                        : `<span class="ok"> · read cost down, write cost up: that is the trade</span>`);
+    if(s === 5) return {
+      lead:`Index (customer_id, created_at) · <b>used</b><span class="ok"> · leading column matched</span>`,
+      both:`Index (customer_id, created_at) · <b>used, fully</b><span class="ok"> · seek, then already in date order</span>`,
+      second:`Index (customer_id, created_at) · <b>not used</b><span class="warn"> · the query skips the leading column</span>`,
+      cover:`Index-only scan<span class="ok"> · every column needed is in the index, the table is never read</span>`,
+      '':`Pick a query and see whether the index can answer it`}[S.composite || ''];
+    if(!S.ran) return S.indexed ? `Index on email: <b>yes</b>` : `Index on email: <b>none</b>`;
+    return `Rows read <b>${S.rowsRead.toLocaleString()}</b> · <b>${S.ms} ms</b>` +
+      (S.rowsRead > 1000 ? `<span class="warn"> · full scan</span>` : `<span class="ok"> · index seek</span>`);
+  },
+
+  files,
+  note: S => NOTES[S.step],
+
+  onStage(S){
+    const id = document.getElementById.bind(document);
+    const cols = 30, rows = 5;
+    const scanning = S.ran && S.rowsRead > 1000;
+    const hitIndex = 47;
+
+    id('pages').innerHTML = Array.from({length: cols * rows}, (_, i) => {
+      const x = 20 + (i % cols) * 19, y = 158 + Math.floor(i / cols) * 19;
+      const cls = !S.ran ? '' : scanning ? 'read' : (i === hitIndex ? 'hit' : '');
+      return `<rect class="page ${cls}" x="${x}" y="${y}" width="16" height="16" rx="2"/>`;
+    }).join('');
+
+    const showTree = S.indexed || S.step >= 4;
+    id('tree').innerHTML = showTree ? (() => {
+      const used = S.ran && S.rowsRead <= 1000;
+      const node = (x, y, w, label, on) =>
+        `<rect class="node ${on ? 'on' : ''}" x="${x}" y="${y}" width="${w}" height="24" rx="4"/>` +
+        `<text class="nodelbl" x="${x + w / 2}" y="${y + 16}">${label}</text>`;
+      return `<text class="tablelbl" x="20" y="28">${S.step === 5 ? 'index (customer_id, created_at)' : 'index on email'}</text>` +
+        node(240, 36, 120, 'a–z', used) +
+        node(120, 84, 110, 'a–m', used) + node(360, 84, 110, 'n–z', false) +
+        node(40, 124, 90, 'ana@…', used) + node(150, 124, 90, 'ben@…', false) +
+        `<path class="edge ${used ? 'on' : ''}" d="M300 60 L 175 84"/>` +
+        `<path class="edge" d="M300 60 L 415 84"/>` +
+        `<path class="edge ${used ? 'on' : ''}" d="M175 108 L 85 124"/>` +
+        `<path class="edge" d="M175 108 L 195 124"/>` +
+        (used ? `<path class="edge on" d="M85 148 L ${20 + (hitIndex % cols) * 19 + 8} 158"/>` : '');
+    })() : '';
+
+    const q = QUERIES[S.query];
+    id('plan').textContent = !S.ran ? '' :
+      (S.rowsRead > 1000 ? `Seq Scan on users · rows=${S.rowsRead.toLocaleString()} · ${S.ms} ms`
+                         : `Index Scan using ix_users_email · rows=${S.rowsRead} · ${S.ms} ms`);
+    id('plan').setAttribute('class', 'plan ' + (S.ran ? (S.rowsRead > 1000 ? 'bad' : 'ok') : ''));
+    id('wcost').textContent = S.step === 3 ? `write cost: row + ${S.indexCount} index${S.indexCount === 1 ? '' : 'es'}` : '';
+  },
+
+  onStep(S, n){
+    S.ran = false;
+    if(n === 1){ S.indexed = false; S.query = 'eq'; }
+    if(n === 2) S.indexed = false;
+    if(n === 3){ S.indexed = true; S.indexCount = 1; }
+    if(n === 4){ S.indexed = true; S.query = 'eq'; }
+    if(n === 5) S.composite = '';
+  },
+
+  onClick(S, b, api){
+    if(b.dataset.q){ S.query = b.dataset.q; S.ran = false; api.out('SELECT * FROM users ' + QUERIES[S.query].sql); return; }
+    if(b.dataset.c){
+      S.composite = b.dataset.c;
+      api.tell(S.composite === 'second' ? 'bad' : 'good', {
+        lead:'<b>Used.</b> A composite index works left to right: matching the leading column is enough to seek into it.',
+        both:'<b>Used to the full.</b> It seeks on customer_id and the matching rows are already in <code>created_at</code> order, so the sort is free too.',
+        second:'<b>Not used.</b> The index is sorted by customer_id first, so rows for a given date are scattered all through it. You would need a separate index led by <code>created_at</code>.',
+        cover:'<b>Index-only scan.</b> Every column the query returns is inside the index, so the database never touches the table. This is the biggest win available on a hot read path.'
+      }[S.composite]);
+      api.out({lead:'Index Scan · leading column', both:'Index Scan · seek + ordered', second:'Seq Scan · leading column missing',
+               cover:'Index Only Scan · heap fetches: 0'}[S.composite]);
+      return;
+    }
+    const a = b.dataset.a;
+    if(a === 'run'){
+      const q = QUERIES[S.query];
+      const uses = S.indexed && q.uses;
+      S.ran = true;
+      S.rowsRead = uses ? (S.query === 'range' ? 12000 : 4) : 1000000;
+      S.ms = uses ? (S.query === 'range' ? 9 : 0.2) : 420;
+      if(uses){
+        api.tell('good', S.query === 'range'
+          ? '<b>A range still uses the index.</b> It seeks to the first matching entry and walks forward in order, which is why sorted structures suit ranges and sorting as well as equality.'
+          : '<b>Four reads instead of a million.</b> Three to walk down the tree, one to fetch the row. That is the whole idea: turn "look at everything" into "look it up".');
+        api.out(`Index Scan · rows=${S.rowsRead} · ${S.ms} ms`);
+      } else {
+        api.tell('bad', S.indexed
+          ? `<b>Full scan, despite the index.</b> ${q.why}. The index exists and is still being paid for on every write, and this query cannot use it.`
+          : '<b>1,000,000 rows read to return one.</b> 420 ms now; it gets slower every week as the table grows. This is the single most common cause of a query that "used to be fast".');
+        api.out(`Seq Scan on users · rows=1000000 · 420 ms`);
+      }
+      return;
+    }
+    if(a === 'index'){
+      S.indexed = true; S.ran = false;
+      api.tell('good', '<b>One statement, and the shape of the problem changes.</b> The database now keeps a sorted copy of the email column with pointers to the rows, so it can seek instead of scan.');
+      api.out('CREATE INDEX ix_users_email ON users (email);');
+      return;
+    }
+    if(a === 'addix'){
+      S.indexCount++;
+      api.tell(S.indexCount > 3 ? 'bad' : 'good', S.indexCount > 3
+        ? `<b>${S.indexCount} indexes now.</b> Every insert writes the row plus ${S.indexCount} index entries, every update may move several of them, and they all compete for memory. Teams add indexes to fix reads and quietly halve their write throughput.`
+        : `<b>${S.indexCount} indexes.</b> Each one speeds up some reads and slows every write a little. That is the trade, and it is worth making deliberately.`);
+      api.out(`CREATE INDEX … · users now has ${S.indexCount} indexes`);
+      return;
+    }
+    if(a === 'dropix'){
+      S.indexCount--;
+      api.tell('good', '<b>Dropping an unused index is free performance.</b> <code>pg_stat_user_indexes</code> (or sys.dm_db_index_usage_stats) tells you which ones have never been scanned.');
+      api.out('DROP INDEX … · unused since the last restart');
+      return;
+    }
+    if(a === 'insert'){
+      api.tell(S.indexCount > 3 ? 'bad' : 'good',
+        `<b>One row, ${1 + S.indexCount} writes.</b> The row itself plus an entry in each index, each of which may split a page. This is why bulk loads often drop indexes first and recreate them afterwards.`);
+      api.out(`INSERT · 1 row + ${S.indexCount} index entr${S.indexCount === 1 ? 'y' : 'ies'}`);
+      return;
+    }
+    return false;
+  },
+
+  reset(S){ Object.assign(S, {indexed:false, query:'eq', ran:false, rowsRead:0, ms:0, indexCount:1, composite:''}); },
+
+  quiz:[
+    {q:'What does an index actually give you?',
+     o:['Compression','A sorted structure the database can seek into, turning "read every row" into "walk a few nodes"','A copy of the table in memory','Faster writes'], a:1,
+     w:'And because it is sorted, it also helps ranges, ORDER BY and some joins — not just equality.'},
+    {q:'Why not index every column?',
+     o:['Disk is expensive','Every index must be maintained by every insert, update and delete, so writes slow down and memory is consumed, while unused indexes give nothing back'], a:1,
+     w:'Index what you filter, join and sort on. Then check which indexes are actually being scanned and drop the rest.'},
+    {q:'Your query filters on lower(email) and the index on email is ignored. Why?',
+     o:['The index is corrupt','The index stores the raw column values, not the function applied to them, so the planner cannot match the expression — use an index on lower(email) or store it normalised'], a:1,
+     w:'Same family: a leading wildcard in LIKE, a type mismatch forcing a cast, or a column so unselective that a scan is genuinely cheaper.'},
+    {q:'You have an index on (customer_id, created_at). Which query cannot use it?',
+     o:['WHERE customer_id = 42','WHERE customer_id = 42 AND created_at > :d','WHERE created_at > :d','WHERE customer_id = 42 ORDER BY created_at'], a:2,
+     w:'Composite indexes work left to right. Filtering on the second column alone means the matching entries are scattered through the index.'}
+  ],
+  soundbite:'"An index is a sorted structure with pointers to rows, so a lookup walks a few nodes instead of scanning the table. The cost is on writes: every insert or update maintains every index, so I index what I filter, join and sort on and drop the rest. The thing to watch is queries that cannot use the index at all — a function around the column, a leading wildcard, or a column so unselective that a scan is cheaper — and with composite indexes, that they only work left to right."'
+});
+</script>
+</body>
+</html>

@@ -1,0 +1,357 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Joins Playroom · Runtime City</title>
+<meta name="description" content="See which rows survive each join, watch an ORM fire 101 queries instead of one, and find out why a SUM doubles when you join a one-to-many. A playroom from Runtime City.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,600;12..96,800&family=IBM+Plex+Sans:wght@400;500&family=JetBrains+Mono:wght@400&display=swap">
+<link rel="stylesheet" href="../../assets/playroom.css">
+<style>
+.tbl{fill:none;stroke:var(--hair);stroke-width:1.5;stroke-dasharray:5 4}
+.tbllbl{font:400 10px var(--mono);fill:var(--muted)}
+.row{fill:var(--surface);stroke:var(--ink);stroke-width:1;transition:opacity .25s}
+.row.kept{stroke:var(--good);fill:rgba(31,132,105,.16)}
+.row.dropped{opacity:.35;stroke-dasharray:3 3}
+.row.nullrow{stroke:var(--accent);fill:rgba(201,112,29,.14)}
+.rowlbl{font:400 10px var(--mono);fill:var(--ink)}
+.rowlbl.dim{fill:var(--muted)}
+.link{stroke:var(--hair);stroke-width:1}
+.link.on{stroke:var(--good);stroke-width:1.5}
+.resultlbl{font:400 10px var(--mono);fill:var(--muted)}
+.count{font:400 11px var(--mono);fill:var(--ink);text-anchor:end}
+.count.warn{fill:var(--bad)} .count.ok{fill:var(--good)}
+.qbar{fill:var(--bad);opacity:.5}
+.qbar.one{fill:var(--good)}
+</style>
+</head>
+<body>
+<div id="playroom"></div>
+
+<script src="../../assets/city.js"></script>
+<script src="../../assets/nav.js"></script>
+<script src="../../assets/playroom.js"></script>
+<script>
+const CUSTOMERS = [
+  {id:1, name:'Ana'},
+  {id:2, name:'Ben'},
+  {id:3, name:'Cleo'}     /* no orders */
+];
+const ORDERS = [
+  {id:101, customer:1, total:40},
+  {id:102, customer:1, total:25},
+  {id:103, customer:2, total:70},
+  {id:104, customer:null, total:15}   /* orphan: guest checkout */
+];
+
+const JOINS = {
+  inner: {name:'INNER JOIN', keeps:'only rows that match on both sides'},
+  left:  {name:'LEFT JOIN',  keeps:'every customer, matched or not'},
+  right: {name:'RIGHT JOIN', keeps:'every order, matched or not'},
+  full:  {name:'FULL JOIN',  keeps:'everything from both sides'}
+};
+
+const STAGE = `
+<svg viewBox="0 0 600 300" role="img" aria-label="Two tables and the rows a join produces">
+  <defs><pattern id="grid" width="24" height="24" patternUnits="userSpaceOnUse"><path d="M24 0H0V24" class="gridline" fill="none"/></pattern></defs>
+  <rect width="600" height="300" fill="url(#grid)" opacity=".6"/>
+  <g id="left"></g>
+  <g id="links"></g>
+  <g id="right"></g>
+  <g id="result"></g>
+  <text class="count" id="count" x="580" y="290"></text>
+</svg>`;
+
+const NOTES = {
+  1:'<b>A join matches rows from two tables on a condition.</b> Nothing more mysterious than that; everything else is which unmatched rows survive.',
+  2:'<b>INNER drops anything unmatched on either side. LEFT keeps every row from the left, padding the other side with NULLs.</b> That is the whole family.',
+  3:'<b>The N+1 is the most expensive mistake in this playroom.</b> One query for the list, then one more per row, usually created by lazy loading rather than by anyone writing it on purpose.',
+  4:'<b>Join a one-to-many and rows multiply.</b> Aggregate after that and every total is wrong, quietly.',
+  5:'<b>The engine chooses how to join.</b> Nested loop with an index, hash for big unsorted sets, merge for sorted ones — and a missing index on the foreign key is what turns a fast plan into a slow one.',
+  6:'<b>Interview tip:</b> explain LEFT vs INNER with unmatched rows, then bring up N+1 unprompted. It is the join problem you actually meet at work.'
+};
+
+function files(S){
+  const L = S.lang, s = S.step, pick = o => o[L];
+
+  if(s === 3) return pick({
+    cs:[{n:'NPlusOne.cs', lines:[
+      ['// The bug: lazy loading inside a loop'],
+      ['var customers = await db.Customers.ToListAsync();        // 1 query'],
+      ['foreach (var c in customers)'],
+      ['    Console.WriteLine(c.Orders.Count);                   // 1 query each','bad'],
+      [`//  → ${1 + S.n} queries for ${S.n} customers`, 'bad'],[''],
+      ['// The fix: ask for it up front'],
+      ['var customers = await db.Customers.Include(c => c.Orders).ToListAsync();','new'],
+      ['//  → 1 query']]}],
+    java:[{n:'NPlusOne.java', lines:[
+      ['List<Customer> customers = repo.findAll();               // 1 query'],
+      ['for (Customer c : customers)'],
+      ['    c.getOrders().size();                                // 1 query each','bad'],
+      [`//  → ${1 + S.n} queries`, 'bad'],[''],
+      ['// Fix with a fetch join or an entity graph:'],
+      ['@Query("select distinct c from Customer c left join fetch c.orders")','new'],
+      ['List<Customer> findAllWithOrders();']]}],
+    ts:[{n:'n-plus-one.ts', lines:[
+      ['const customers = await db.customer.findMany();          // 1 query'],
+      ['for (const c of customers)'],
+      ['  await db.order.findMany({ where: { customerId: c.id } });   // 1 each','bad'],
+      [`//  → ${1 + S.n} queries`, 'bad'],[''],
+      ['// Fix: include the relation, or batch the ids'],
+      ['await db.customer.findMany({ include: { orders: true } });','new'],
+      ['await db.order.findMany({ where: { customerId: { in: ids } } });   // 2 queries','new']]}]
+  });
+
+  if(s === 4) return [{n:'fanout.sql', lines:[
+    ['-- Ana has two orders, so this join produces two rows for her'],
+    ['SELECT c.name, c.credit_limit, o.total'],
+    ['FROM customers c JOIN orders o ON o.customer_id = c.id;'],[''],
+    ['-- Which makes any aggregate over the customer wrong:'],
+    ['SELECT sum(c.credit_limit) FROM customers c JOIN orders o ON …;   -- counted twice','bad'],[''],
+    ['-- Aggregate first, then join:'],
+    ['SELECT c.name, c.credit_limit, o.total','new'],
+    ['FROM customers c','new'],
+    ['LEFT JOIN (SELECT customer_id, sum(total) AS total FROM orders GROUP BY customer_id) o','new'],
+    ['  ON o.customer_id = c.id;','new'],[''],
+    ['-- And beware: a WHERE on the right table turns a LEFT JOIN into an INNER one.'],
+    ['--   … LEFT JOIN orders o ON … WHERE o.total > 50      -- drops unmatched customers','bad'],
+    ['--   … LEFT JOIN orders o ON … AND o.total > 50        -- keeps them','new']]}];
+
+  if(s === 5) return [{n:'plans.sql', lines:[
+    ['EXPLAIN ANALYZE SELECT … FROM customers c JOIN orders o ON o.customer_id = c.id;'],[''],
+    [S.fk ? '-- Nested Loop  (rows=4)' : '-- Hash Join  (rows=4)', 'hl'],
+    [S.fk ? '--   Index Scan using ix_orders_customer_id on orders' : '--   Seq Scan on orders  (1,000,000 rows)',
+     S.fk ? 'new' : 'bad'],[''],
+    ['-- Nested loop: for each left row, look up matches. Great with an index,'],
+    ['--   quadratic without one.'],
+    ['-- Hash join: build a hash table from the smaller side, stream the larger.'],
+    ['--   The usual choice for big unindexed joins.'],
+    ['-- Merge join: both inputs already sorted on the key, walk them together.'],[''],
+    [S.fk ? '-- The index on the foreign key is what made this cheap.' : '-- CREATE INDEX ix_orders_customer_id ON orders (customer_id);',
+     S.fk ? 'new' : 'hl']]}];
+
+  return [{n:'join.sql', lines:[
+    ['SELECT c.name, o.id, o.total'],
+    [`FROM customers c`],
+    [`${JOINS[S.type].name} orders o ON o.customer_id = c.id;`, 'hl'],[''],
+    [`-- ${JOINS[S.type].keeps}`],
+    [`-- rows returned: ${result(S).length}`, 'new']]}];
+}
+
+function result(S){
+  const t = S.type;
+  const out = [];
+  CUSTOMERS.forEach(c => {
+    const matches = ORDERS.filter(o => o.customer === c.id);
+    if(matches.length) matches.forEach(o => out.push({c:c.name, o:'#' + o.id, total:o.total}));
+    else if(t === 'left' || t === 'full') out.push({c:c.name, o:'NULL', total:null, pad:true});
+  });
+  ORDERS.filter(o => o.customer === null).forEach(o => {
+    if(t === 'right' || t === 'full') out.push({c:'NULL', o:'#' + o.id, total:o.total, pad:true});
+  });
+  return out;
+}
+
+const P = Playroom({
+  district:'Database Vault',
+  title:'Joins',
+  dek:'Which rows survive, and how many of them there are afterwards.',
+  steps:['Two tables','Join types','The N+1','Fan-out','How it joins','Interview check'],
+  stage:STAGE,
+
+  state:{type:'inner', n:100, fixed:false, fk:false, fan:false},
+
+  story(S, api){
+    const fb = api.fb();
+    return {
+      1:`<h2>Customers and their orders</h2><p>Three customers, four orders. Ana has two, Cleo has none, and one order belongs to nobody — a guest checkout. Those two odd rows decide everything on the next step.</p>${fb}`,
+      2:`<h2>Which unmatched rows survive?</h2><p>Switch between the join types and watch Cleo and the orphan order appear and disappear.</p>${fb}`,
+      3:`<h2>The one that costs real money</h2><p>Nobody writes 101 queries on purpose. An ORM does it for you, one lazy load at a time, and it only hurts once the list is long.</p>${fb}`,
+      4:`<h2>When a join multiplies rows</h2><p>Ana has two orders, so a join gives two Ana rows. Sum anything about the customer after that and you are counting her twice.</p>${fb}`,
+      5:`<h2>How the engine does it</h2><p>You write what you want; the planner picks how. The main lever you control is whether the join column is indexed.</p>${fb}`,
+      6:`<h2>Interview check</h2>${api.quizHTML()}`
+    }[S.step];
+  },
+
+  controls(S){
+    const s = S.step;
+    if(s === 1) return `<button class="btn primary" data-a="show">Show the matching rows</button>`;
+    if(s === 2) return Object.keys(JOINS).map(k =>
+      `<button class="chip" data-j="${k}" aria-pressed="${S.type === k}"><i style="background:${k === 'inner' ? 'var(--good)' : 'var(--accent)'}"></i>${JOINS[k].name}</button>`).join('');
+    if(s === 3) return `<button class="btn primary" data-a="lazy">Loop and lazy-load</button>` +
+      `<button class="btn" data-a="eager">Load it in one query</button>` +
+      `<button class="chip" data-n="10" aria-pressed="${S.n === 10}"><i style="background:var(--muted)"></i>10 customers</button>` +
+      `<button class="chip" data-n="1000" aria-pressed="${S.n === 1000}"><i style="background:var(--bad)"></i>1,000 customers</button>`;
+    if(s === 4) return `<button class="btn primary" data-a="fan">Join and sum the credit limits</button>` +
+      `<button class="btn" data-a="prefan">Aggregate first, then join</button>`;
+    if(s === 5) return `<button class="chip" data-fk="0" aria-pressed="${!S.fk}"><i style="background:var(--bad)"></i>No index on customer_id</button>` +
+      `<button class="chip" data-fk="1" aria-pressed="${S.fk}"><i style="background:var(--good)"></i>Indexed foreign key</button>` +
+      `<button class="btn primary" data-a="explain" style="margin-left:auto">EXPLAIN the join</button>`;
+    return '';
+  },
+
+  statusLine(S){
+    const s = S.step;
+    if(s === 3){
+      const q = S.fixed ? 1 : 1 + S.n;
+      return `Queries <b>${q.toLocaleString()}</b> · round trips <b>${q.toLocaleString()}</b> · about <b>${(q * 1.2).toFixed(0)} ms</b>` +
+        (S.fixed ? `<span class="ok"> · one query, one trip</span>`
+                 : `<span class="warn"> · each one is fast; there are just ${S.n} too many</span>`);
+    }
+    if(s === 4) return S.fan
+      ? (S.fan === 'pre'
+          ? `Rows <b>3</b> · SUM(credit_limit) <b>correct</b><span class="ok"> · aggregated before the join</span>`
+          : `Rows <b>3</b> · SUM(credit_limit) <b>double-counts Ana</b><span class="warn"> · she has two orders</span>`)
+      : `customers 3 · orders 4 · Ana has two`;
+    if(s === 5) return S.fk
+      ? `Nested Loop + Index Scan<span class="ok"> · 4 lookups</span>`
+      : `Hash Join · builds a hash of orders<span class="warn"> · fine here, painful at a million rows without the index</span>`;
+    const r = result(S);
+    return `${JOINS[S.type].name} · rows returned <b>${r.length}</b> · ${JOINS[S.type].keeps}`;
+  },
+
+  files,
+  note: S => NOTES[S.step],
+
+  onStage(S){
+    const id = document.getElementById.bind(document);
+    const s = S.step;
+    const rowY = i => 58 + i * 34;
+
+    const keptCustomer = c => {
+      if(s < 2) return '';
+      const has = ORDERS.some(o => o.customer === c.id);
+      if(has) return 'kept';
+      return (S.type === 'left' || S.type === 'full') ? 'nullrow' : 'dropped';
+    };
+    const keptOrder = o => {
+      if(s < 2) return '';
+      if(o.customer !== null) return 'kept';
+      return (S.type === 'right' || S.type === 'full') ? 'nullrow' : 'dropped';
+    };
+
+    id('left').innerHTML = `<rect class="tbl" x="16" y="34" width="150" height="${CUSTOMERS.length * 34 + 16}" rx="8"/>` +
+      `<text class="tbllbl" x="20" y="28">customers</text>` +
+      CUSTOMERS.map((c, i) =>
+        `<rect class="row ${keptCustomer(c)}" x="26" y="${rowY(i)}" width="130" height="26" rx="4"/>` +
+        `<text class="rowlbl" x="38" y="${rowY(i) + 17}">${c.id} · ${c.name}</text>`).join('');
+
+    id('right').innerHTML = `<rect class="tbl" x="206" y="34" width="170" height="${ORDERS.length * 34 + 16}" rx="8"/>` +
+      `<text class="tbllbl" x="210" y="28">orders</text>` +
+      ORDERS.map((o, i) =>
+        `<rect class="row ${keptOrder(o)}" x="216" y="${rowY(i)}" width="150" height="26" rx="4"/>` +
+        `<text class="rowlbl ${o.customer === null ? 'dim' : ''}" x="228" y="${rowY(i) + 17}">#${o.id} · cust ${o.customer ?? 'NULL'} · £${o.total}</text>`).join('');
+
+    id('links').innerHTML = ORDERS.map((o, i) => {
+      if(o.customer === null) return '';
+      const ci = CUSTOMERS.findIndex(c => c.id === o.customer);
+      return `<path class="link ${s >= 2 ? 'on' : ''}" d="M156 ${rowY(ci) + 13} C 186 ${rowY(ci) + 13}, 186 ${rowY(i) + 13}, 216 ${rowY(i) + 13}"/>`;
+    }).join('');
+
+    if(s === 3){
+      const q = S.fixed ? 1 : 1 + Math.min(S.n, 60);
+      id('result').innerHTML = `<text class="tbllbl" x="404" y="28">queries sent</text>` +
+        Array.from({length:q}, (_, i) =>
+          `<rect class="qbar ${S.fixed ? 'one' : ''}" x="${404 + (i % 12) * 15}" y="${44 + Math.floor(i / 12) * 14}" width="11" height="9" rx="2"/>`).join('') +
+        `<text class="resultlbl" x="404" y="${44 + Math.ceil(q / 12) * 14 + 14}">${S.fixed ? '1 query' : (1 + S.n).toLocaleString() + ' queries'}</text>`;
+    } else {
+      const rows = s >= 2 ? result(S) : [];
+      id('result').innerHTML = `<text class="tbllbl" x="404" y="28">result</text>` +
+        `<rect class="tbl" x="400" y="34" width="184" height="${Math.max(rows.length, 1) * 30 + 16}" rx="8"/>` +
+        rows.map((r, i) =>
+          `<rect class="row ${r.pad ? 'nullrow' : 'kept'}" x="410" y="${44 + i * 30}" width="164" height="24" rx="4"/>` +
+          `<text class="rowlbl ${r.pad ? 'dim' : ''}" x="420" y="${61 + i * 30}">${r.c} · ${r.o}${r.total != null ? ' · £' + r.total : ''}</text>`).join('');
+    }
+
+    const c = id('count');
+    if(s === 3){ c.textContent = (S.fixed ? '1 round trip' : (1 + S.n).toLocaleString() + ' round trips'); c.setAttribute('class', 'count ' + (S.fixed ? 'ok' : 'warn')); }
+    else if(s === 4 && S.fan){ c.textContent = S.fan === 'pre' ? 'SUM correct' : 'SUM double-counts Ana'; c.setAttribute('class', 'count ' + (S.fan === 'pre' ? 'ok' : 'warn')); }
+    else { c.textContent = s >= 2 ? result(S).length + ' rows' : ''; c.setAttribute('class', 'count'); }
+  },
+
+  onStep(S, n){
+    if(n <= 2) S.type = n === 1 ? 'inner' : S.type;
+    if(n === 3){ S.fixed = false; S.n = 100; }
+    if(n === 4) S.fan = false;
+    if(n === 5) S.fk = false;
+  },
+
+  onClick(S, b, api){
+    if(b.dataset.j){
+      S.type = b.dataset.j;
+      const r = result(S);
+      api.tell('good', {
+        inner:'<b>Cleo and the orphan order both vanish.</b> INNER keeps only rows with a partner. Most surprises with INNER are rows you did not realise were unmatched.',
+        left:'<b>Cleo is back, padded with NULLs.</b> LEFT keeps every row from the left table whether or not it matched — which is how you ask "customers with no orders".',
+        right:'<b>The guest order survives instead.</b> RIGHT is LEFT with the tables swapped, which is why most codebases only ever use LEFT.',
+        full:'<b>Everything, from both sides.</b> Useful for reconciliation: what is in one system and not the other, in both directions at once.'
+      }[S.type]);
+      api.out(`${JOINS[S.type].name} → ${r.length} rows`);
+      return;
+    }
+    if(b.dataset.n){ S.n = +b.dataset.n; S.fixed = false; api.out(S.n + ' customers in the list'); return; }
+    if(b.dataset.fk){ S.fk = b.dataset.fk === '1'; api.out(S.fk ? 'CREATE INDEX ix_orders_customer_id ON orders (customer_id)' : 'no index on orders.customer_id'); return; }
+    const a = b.dataset.a;
+    if(a === 'show'){
+      api.tell('good', '<b>Two rows do not match anything.</b> Cleo has no orders, and order #104 has no customer. Every join type is just a decision about those two.');
+      api.out('3 customers · 4 orders · 3 matched pairs');
+      return;
+    }
+    if(a === 'lazy'){
+      S.fixed = false;
+      const q = 1 + S.n;
+      api.tell('bad', `<b>${q.toLocaleString()} queries where one would do.</b> Each is fast on its own — that is why it passes review and dies in production. At ${S.n} customers this is roughly ${(q * 1.2).toFixed(0)} ms of round trips, and it grows with your data.`);
+      api.out(`SELECT * FROM customers;  then ${S.n} × SELECT * FROM orders WHERE customer_id = ?`);
+      return;
+    }
+    if(a === 'eager'){
+      S.fixed = true;
+      api.tell('good', '<b>One query, one round trip.</b> Ask the database for what you need in one go — <code>Include</code>, <code>join fetch</code>, <code>include</code> — or fetch the ids and run a second query with <code>IN</code>. Two queries is fine; 101 is not.');
+      api.out('SELECT … FROM customers LEFT JOIN orders ON … · 1 query');
+      return;
+    }
+    if(a === 'fan'){
+      S.fan = 'post';
+      api.tell('bad', '<b>Ana appears twice, so her credit limit is counted twice.</b> The join multiplied the left side by the number of matches on the right. Any <code>SUM</code>, <code>COUNT</code> or <code>AVG</code> over customer columns after a one-to-many join is wrong, and it looks perfectly reasonable.');
+      api.out('SUM(c.credit_limit) over joined rows → Ana counted twice');
+      return;
+    }
+    if(a === 'prefan'){
+      S.fan = 'pre';
+      api.tell('good', '<b>Aggregate on the many side first, then join.</b> A subquery or CTE that groups orders per customer gives one row per customer, so the totals are right. <code>COUNT(DISTINCT …)</code> patches the symptom; grouping first fixes the shape.');
+      api.out('LEFT JOIN (SELECT customer_id, sum(total) … GROUP BY customer_id) o ON …');
+      return;
+    }
+    if(a === 'explain'){
+      api.tell(S.fk ? 'good' : 'bad', S.fk
+        ? '<b>Nested loop with an index scan.</b> For each customer it seeks straight to that customer\'s orders. This is the plan you want for a small driving set.'
+        : '<b>Hash join, because there is no index to seek with.</b> Fine on four rows; on a million it means building a hash table of the whole orders table in memory, or spilling to disk. Indexing the foreign key is the single most common fix for a slow join.');
+      api.out(S.fk ? 'Nested Loop → Index Scan using ix_orders_customer_id' : 'Hash Join → Seq Scan on orders');
+      return;
+    }
+    return false;
+  },
+
+  reset(S){ Object.assign(S, {type:'inner', n:100, fixed:false, fk:false, fan:false}); },
+
+  quiz:[
+    {q:'What is the difference between an INNER JOIN and a LEFT JOIN?',
+     o:['Speed','INNER returns only matched rows; LEFT returns every row from the left table, with NULLs where there was no match'], a:1,
+     w:'Which is why "customers with no orders" is a LEFT JOIN with <code>WHERE o.id IS NULL</code>.'},
+    {q:'Your list page fires 1 query plus 1 per row. What is happening and how do you fix it?',
+     o:['The database is slow; add an index','An N+1 from lazy loading: fetch the relation up front with a join or eager load, or batch the ids into a single IN query'], a:1,
+     w:'Mentioning that each query is individually fast is a good detail — it is the round trips that kill you.'},
+    {q:'You join customers to orders and SUM a customer column. The total is too high. Why?',
+     o:['Duplicate customers','Join fan-out: a customer with several orders appears several times, so their value is counted once per matching row'], a:1,
+     w:'Aggregate the many side first in a subquery, then join the single result row.'},
+    {q:'What quietly turns a LEFT JOIN into an INNER JOIN?',
+     o:['Adding ORDER BY','Filtering the right-hand table in the WHERE clause, since NULL-padded rows fail that test — put the condition in the ON clause instead'], a:1,
+     w:'A classic review catch, and it explains a lot of "rows went missing" bugs.'}
+  ],
+  soundbite:'"A join matches rows on a condition, and the join type decides which unmatched rows survive: INNER drops them, LEFT keeps everything on the left with NULLs. Two things bite in practice. The N+1, where an ORM lazily loads a relation per row and turns one query into a hundred, fixed by eager loading or batching. And fan-out, where joining a one-to-many duplicates the left rows so any aggregate double-counts, fixed by aggregating before the join."'
+});
+</script>
+</body>
+</html>

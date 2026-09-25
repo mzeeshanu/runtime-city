@@ -1,0 +1,358 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Transactions Playroom · Runtime City</title>
+<meta name="description" content="Crash between two updates and lose money, wrap them in a transaction, then find out what a long transaction locks and why a database and a queue can never commit together. A playroom from Runtime City.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,600;12..96,800&family=IBM+Plex+Sans:wght@400;500&family=JetBrains+Mono:wght@400&display=swap">
+<link rel="stylesheet" href="../../assets/playroom.css">
+<style>
+.acct{fill:var(--surface);stroke:var(--ink);stroke-width:1.5}
+.acct.wrong{stroke:var(--bad)}
+.acctlbl{font:400 11px var(--mono);fill:var(--muted);text-anchor:middle}
+.amount{font:400 15px var(--mono);fill:var(--ink);text-anchor:middle}
+.amount.wrong{fill:var(--bad)} .amount.ok{fill:var(--good)}
+.totals{font:400 11px var(--mono);fill:var(--muted);text-anchor:middle}
+.totals.wrong{fill:var(--bad)} .totals.ok{fill:var(--good)}
+</style>
+</head>
+<body>
+<div id="playroom"></div>
+
+<script src="../../assets/city.js"></script>
+<script src="../../assets/nav.js"></script>
+<script src="../../assets/sequence.js"></script>
+<script src="../../assets/playroom.js"></script>
+<script>
+const LANES = [{name:'Your service'}, {name:'Database'}, {name:'Payments queue'}];
+
+const NOTES = {
+  1:'<b>Two statements, two moments.</b> Between them the money exists nowhere, and a crash makes that permanent.',
+  2:'<b>A transaction makes the pair one moment.</b> Either both updates are visible or neither ever was.',
+  3:'<b>Durability is the promise that survives the power cut.</b> It costs a flush to disk, which is why commits are the slow part of a write path.',
+  4:'<b>An open transaction holds its locks.</b> Anything waiting for those rows waits for you, so a network call inside a transaction is a queue nobody can see.',
+  5:'<b>Two systems cannot commit together.</b> Write the intent in the same transaction and publish it afterwards, and make the consumer safe to repeat.',
+  6:'<b>Interview tip:</b> define atomicity and durability crisply, then say "keep transactions short and never call another service inside one". That is the part that comes from experience.'
+};
+
+function files(S){
+  const L = S.lang, s = S.step, pick = o => o[L];
+
+  if(s === 4) return pick({
+    cs:[{n:'LongTransaction.cs', lines:[
+      ['using var tx = await db.Database.BeginTransactionAsync();'],
+      ['var order = await db.Orders.FindAsync(id);      // row now locked','hl'],
+      ['order.Status = "paid";'],
+      ['await db.SaveChangesAsync();'],[''],
+      ['await _payments.ChargeAsync(order);             // 2 s over the network', S.callInside ? 'bad' : ''],
+      ['await _email.SendReceiptAsync(order);           // and another', S.callInside ? 'bad' : ''],[''],
+      ['await tx.CommitAsync();   // locks held for the whole time above', S.callInside ? 'bad' : 'new'],[''],
+      ['// Do the slow work outside: charge first, then open a short transaction'],
+      ['// to record the result.']]}],
+    java:[{n:'LongTransaction.java', lines:[
+      ['@Transactional'],
+      ['public void pay(Long id) {'],
+      ['    Order order = repo.findById(id).orElseThrow();   // row locked','hl'],
+      ['    order.setStatus("paid");'],
+      ['    payments.charge(order);          // 2 s HTTP call inside the transaction', S.callInside ? 'bad' : ''],
+      ['    email.sendReceipt(order);        // and another', S.callInside ? 'bad' : ''],
+      ['}   // commit happens here, locks released here', S.callInside ? 'bad' : 'new'],[''],
+      ['// @Transactional around a method that calls the network is the most'],
+      ['// common cause of connection-pool exhaustion in Spring apps.']]}],
+    ts:[{n:'long-transaction.ts', lines:[
+      ['await db.transaction(async tx => {'],
+      ['  const order = await tx.order.update({ where: { id }, data: { status: "paid" } });','hl'],
+      ['  await payments.charge(order);      // 2 s, holding locks and a connection', S.callInside ? 'bad' : ''],
+      ['  await email.sendReceipt(order);', S.callInside ? 'bad' : ''],
+      ['});', S.callInside ? 'bad' : 'new'],[''],
+      ['// Keep transactions to database work only; do I/O before or after.']]}]
+  });
+
+  if(s === 5) return pick({
+    cs:[{n:'Outbox.cs', lines:[
+      ['// You cannot commit a database row and a queue message together.'],
+      ['using var tx = await db.Database.BeginTransactionAsync();'],
+      ['db.Orders.Add(order);'],
+      ['db.Outbox.Add(new OutboxMessage("order.paid", order.Id));   // same transaction','new'],
+      ['await db.SaveChangesAsync();'],
+      ['await tx.CommitAsync();        // atomic: both rows, or neither','hl'],[''],
+      ['// A separate worker publishes what is in the outbox, and retries:'],
+      ['foreach (var msg in await db.Outbox.Where(m => !m.Sent).ToListAsync())'],
+      ['{'],
+      ['    await queue.PublishAsync(msg);   // at least once — consumers must be idempotent','hl'],
+      ['    msg.Sent = true;'],
+      ['}']]}],
+    java:[{n:'Outbox.java', lines:[
+      ['@Transactional'],
+      ['public void placeOrder(Order order) {'],
+      ['    orders.save(order);'],
+      ['    outbox.save(new OutboxMessage("order.paid", order.getId()));   // same commit','new'],
+      ['}'],[''],
+      ['@Scheduled(fixedDelay = 500)'],
+      ['void publish() {'],
+      ['    outbox.findUnsent().forEach(m -> { queue.send(m); m.markSent(); });','hl'],
+      ['}   // at-least-once delivery: the consumer must tolerate duplicates']]}],
+    ts:[{n:'outbox.ts', lines:[
+      ['await db.transaction(async tx => {'],
+      ['  await tx.order.create({ data: order });'],
+      ['  await tx.outbox.create({ data: { type: "order.paid", orderId: order.id } });','new'],
+      ['});   // one commit, both rows','hl'],[''],
+      ['// Publisher, running separately:'],
+      ['for (const m of await db.outbox.findMany({ where: { sent: false } })) {'],
+      ['  await queue.publish(m);        // may publish twice after a crash','hl'],
+      ['  await db.outbox.update({ where: { id: m.id }, data: { sent: true } });'],
+      ['}']]}]
+  });
+
+  return pick({
+    cs:[{n:'Transfer.cs', lines:[
+      ...(S.wrapped ? [['using var tx = await db.Database.BeginTransactionAsync();','new']] : []),
+      ['await db.Execute("UPDATE accounts SET balance = balance - 100 WHERE id = 1");','hl'],
+      [S.crashed ? '//  ← the process dies here' : '', S.crashed ? 'bad' : ''],
+      ['await db.Execute("UPDATE accounts SET balance = balance + 100 WHERE id = 2");','hl'],
+      ...(S.wrapped ? [['await tx.CommitAsync();   // both, or neither','new']] : []),
+      ...(S.crashed && !S.wrapped ? [['',''],['// £100 has left account 1 and arrived nowhere. Permanently.','bad']] : []),
+      ...(S.crashed && S.wrapped ? [['',''],['// Nothing was committed, so the database rolls it back on restart.','new']] : [])]}],
+    java:[{n:'Transfer.java', lines:[
+      ...(S.wrapped ? [['@Transactional','new']] : []),
+      ['public void transfer() {'],
+      ['    jdbc.update("UPDATE accounts SET balance = balance - 100 WHERE id = 1");','hl'],
+      [S.crashed ? '    // ← the JVM dies here' : '', S.crashed ? 'bad' : ''],
+      ['    jdbc.update("UPDATE accounts SET balance = balance + 100 WHERE id = 2");','hl'],
+      ['}'],
+      ...(S.crashed && !S.wrapped ? [['',''],['// Money destroyed. No error anywhere.','bad']] : [])]}],
+    ts:[{n:'transfer.ts', lines:[
+      ...(S.wrapped ? [['await db.transaction(async tx => {','new']] : []),
+      ['  await tx.execute("UPDATE accounts SET balance = balance - 100 WHERE id = 1");','hl'],
+      [S.crashed ? '  // ← the node process dies here' : '', S.crashed ? 'bad' : ''],
+      ['  await tx.execute("UPDATE accounts SET balance = balance + 100 WHERE id = 2");','hl'],
+      ...(S.wrapped ? [['});   // commit: both or neither','new']] : []),
+      ...(S.crashed && !S.wrapped ? [['',''],['// £100 vanished.','bad']] : [])]}]
+  });
+}
+
+const P = Playroom({
+  district:'Database Vault',
+  title:'Transactions',
+  dek:'Both things happen, or neither did. Everything else is detail.',
+  steps:['Two updates','Wrap them','Durability','Keep it short','Two systems','Interview check'],
+  stage:Sequence.stage({lanes:LANES, height:300}),
+
+  state:{a:500, b:300, wrapped:false, crashed:false, flushed:false, callInside:true, outbox:false},
+
+  story(S, api){
+    const fb = api.fb();
+    return {
+      1:`<h2>Move £100 between accounts</h2><p>Two updates. Run them normally, then run them again with a crash in the middle.</p>${fb}`,
+      2:`<h2>Make it one moment</h2><p><code>BEGIN</code> … <code>COMMIT</code>. Now the crash cannot leave the money in between, because nothing is visible until the commit.</p>${fb}`,
+      3:`<h2>What "committed" promises</h2><p>That it survives the power being pulled the instant after. That promise costs a flush to durable storage, which is why commits dominate write latency.</p>${fb}`,
+      4:`<h2>How long are you holding those rows?</h2><p>An open transaction keeps its locks and its connection. Put a network call inside and everyone waiting on those rows waits for that call too.</p>${fb}`,
+      5:`<h2>The thing transactions cannot do</h2><p>Commit your database <b>and</b> publish a message atomically. Write the message as a row in the same transaction, then publish it separately.</p>${fb}`,
+      6:`<h2>Interview check</h2>${api.quizHTML()}`
+    }[S.step];
+  },
+
+  controls(S){
+    const s = S.step;
+    if(s === 1) return `<button class="btn primary" data-a="run">Run the transfer</button><button class="btn" data-a="crash">Run it and crash halfway</button>`;
+    if(s === 2) return (S.wrapped ? '' : `<button class="btn primary" data-a="wrap">Wrap it in a transaction</button>`) +
+      `<button class="btn" data-a="crash">Crash halfway</button><button class="btn" data-a="fail">Make the second update fail</button>`;
+    if(s === 3) return `<button class="btn primary" data-a="commit">COMMIT</button><button class="btn" data-a="power">Pull the power right after</button>`;
+    if(s === 4) return `<button class="chip" data-in="1" aria-pressed="${S.callInside}"><i style="background:var(--bad)"></i>API call inside</button>` +
+      `<button class="chip" data-in="0" aria-pressed="${!S.callInside}"><i style="background:var(--good)"></i>API call outside</button>` +
+      `<button class="btn" data-a="concurrent" style="margin-left:auto">Send 50 concurrent requests</button>`;
+    if(s === 5) return `<button class="btn" data-a="naive">Commit, then publish</button>` +
+      (S.outbox ? `<button class="btn primary" data-a="replay">Crash after the commit</button>` : `<button class="btn primary" data-a="outbox">Use an outbox row</button>`);
+    return '';
+  },
+
+  statusLine(S){
+    const s = S.step;
+    const total = S.a + S.b;
+    if(s === 4) return S.callInside
+      ? `Transaction open <b>2.4 s</b> · rows locked that whole time<span class="warn"> · 50 requests → pool exhausted, everything queues</span>`
+      : `Transaction open <b>4 ms</b><span class="ok"> · slow work done outside, locks held briefly</span>`;
+    if(s === 5) return S.outbox
+      ? `Order + outbox row: <b>one commit</b><span class="ok"> · publisher retries until sent · consumers must be idempotent</span>`
+      : `Commit, then publish<span class="warn"> · a crash in between loses the message with no trace</span>`;
+    if(s === 3) return S.flushed
+      ? `COMMIT returned<span class="ok"> · written to the log and flushed · survives the power cut</span>`
+      : `Uncommitted<span> · still only in memory and the write-ahead log buffer</span>`;
+    return `Account 1 <b>£${S.a}</b> · Account 2 <b>£${S.b}</b> · total <b>£${total}</b>` +
+      (total !== 800 ? `<span class="warn"> · £${800 - total} destroyed</span>` : `<span class="ok"> · nothing lost</span>`);
+  },
+
+  files,
+  note: S => NOTES[S.step],
+
+  onStage(S){
+    const s = S.step;
+    let messages = [], caption = '', lanes = LANES.map((l, i) => ({...l, dim: s < 5 && i === 2}));
+
+    if(s <= 2){
+      messages = [
+        ...(S.wrapped ? [{from:0, to:1, label:'BEGIN', kind:'ok'}] : []),
+        {from:0, to:1, label:'UPDATE accounts SET balance = balance - 100 WHERE id = 1'},
+        ...(S.crashed ? [{from:0, to:0, label:'process dies', kind:'bad'}] : [
+          {from:0, to:1, label:'UPDATE accounts SET balance = balance + 100 WHERE id = 2'},
+          ...(S.wrapped ? [{from:0, to:1, label:'COMMIT', kind:'cached'}] : [])
+        ]),
+        ...(S.crashed ? [{from:1, to:1, label: S.wrapped ? 'no commit seen → rolled back on recovery' : '£100 gone from account 1, never arrived',
+                          kind: S.wrapped ? 'cached' : 'bad'}] : [])
+      ];
+      caption = S.wrapped ? 'nothing is visible to anyone until COMMIT' : 'two independent writes, two independent moments';
+    } else if(s === 3){
+      messages = [
+        {from:0, to:1, label:'COMMIT'},
+        {from:1, to:1, label:'write to the write-ahead log', kind:'ok'},
+        {from:1, to:1, label: S.flushed ? 'fsync: on disk, survives power loss' : 'still in the OS buffer',
+         kind: S.flushed ? 'cached' : 'slow'},
+        {from:1, to:0, label: S.flushed ? 'COMMIT ok' : '…', ms: S.flushed ? '6 ms' : '', kind: S.flushed ? 'cached' : 'slow'},
+        ...(S.power ? [{from:1, to:1, label: S.flushed ? 'power cut → replayed from the log, data intact' : 'power cut → that write never existed',
+                        kind: S.flushed ? 'cached' : 'bad'}] : [])
+      ];
+      caption = 'durability is a flush · that flush is why commits cost milliseconds';
+    } else if(s === 4){
+      messages = S.callInside ? [
+        {from:0, to:1, label:'BEGIN + UPDATE order', kind:'ok'},
+        {from:0, to:0, label:'HTTP: charge the card', ms:'2 000 ms', kind:'bad'},
+        {from:0, to:0, label:'HTTP: send the receipt', ms:'400 ms', kind:'bad'},
+        {from:0, to:1, label:'COMMIT', ms:'2 400 ms', kind:'slow'},
+        {from:1, to:1, label:'that row was locked for 2.4 s', kind:'bad'}
+      ] : [
+        {from:0, to:0, label:'HTTP: charge the card', ms:'2 000 ms', kind:'slow'},
+        {from:0, to:1, label:'BEGIN + UPDATE + COMMIT', ms:'4 ms', kind:'cached'},
+        {from:1, to:1, label:'locks held for 4 ms', kind:'cached'}
+      ];
+      caption = S.callInside ? 'the transaction is as long as the slowest thing inside it' : 'slow work outside, database work inside';
+    } else {
+      messages = S.outbox ? [
+        {from:0, to:1, label:'BEGIN · INSERT order · INSERT outbox row', kind:'ok'},
+        {from:0, to:1, label:'COMMIT — both rows or neither', kind:'cached'},
+        ...(S.replayed ? [{from:0, to:0, label:'crash before publishing', kind:'bad'},
+                          {from:1, to:2, label:'publisher picks the row up and sends it', kind:'cached'},
+                          {from:2, to:2, label:'consumer may see it twice → must be idempotent', kind:'slow'}]
+                       : [{from:1, to:2, label:'publisher sends it, marks it sent', kind:'cached'}])
+      ] : [
+        {from:0, to:1, label:'INSERT order · COMMIT', kind:'ok'},
+        {from:0, to:0, label:'crash here', kind:'bad'},
+        {from:0, to:2, label:'publish order.paid — never happens', kind:'bad'},
+        {from:2, to:2, label:'order exists, nobody was told', kind:'bad'}
+      ];
+      caption = S.outbox ? 'one commit, then at-least-once delivery' : 'two systems, no shared commit';
+    }
+
+    Sequence.draw({lanes, messages, caption});
+  },
+
+  onStep(S, n){
+    S.a = 500; S.b = 300; S.crashed = false; S.power = false; S.replayed = false;
+    if(n === 1) S.wrapped = false;
+    if(n >= 2) S.wrapped = n === 2 ? S.wrapped : true;
+    if(n === 3) S.flushed = false;
+    if(n === 4) S.callInside = true;
+    if(n === 5) S.outbox = false;
+  },
+
+  onClick(S, b, api){
+    if(b.dataset.in){ S.callInside = b.dataset.in === '1'; api.out(S.callInside ? 'HTTP calls inside the transaction' : 'HTTP calls outside the transaction'); return; }
+    const a = b.dataset.a;
+    if(a === 'run'){
+      S.a = 400; S.b = 400; S.crashed = false;
+      api.tell('good', '<b>It works, when nothing goes wrong.</b> Which is most of the time, and is why this bug reaches production.');
+      api.out('account 1: £400 · account 2: £400 · total £800');
+      return;
+    }
+    if(a === 'crash'){
+      S.crashed = true;
+      if(S.wrapped){
+        S.a = 500; S.b = 300;
+        api.tell('good', '<b>Nothing happened at all.</b> The first update was only ever visible inside the transaction, and no commit arrived, so recovery rolls it back. Atomicity means there is no halfway state for anyone to observe.');
+        api.out('no COMMIT · rolled back on recovery · total still £800');
+      } else {
+        S.a = 400; S.b = 300;
+        api.tell('bad', '<b>£100 has been destroyed.</b> The first update committed on its own, the second never ran, and no error was raised anywhere. Nobody gets an alert for money that simply stopped existing.');
+        api.out('account 1: £400 · account 2: £300 · total £700');
+      }
+      return;
+    }
+    if(a === 'wrap'){
+      S.wrapped = true; S.a = 500; S.b = 300; S.crashed = false;
+      api.tell('good', '<b>Two statements, one moment.</b> Until <code>COMMIT</code> no other session can see either change, and any failure discards both.');
+      api.out('BEGIN … COMMIT');
+      return;
+    }
+    if(a === 'fail'){
+      S.crashed = false; S.a = 500; S.b = 300;
+      api.tell(S.wrapped ? 'good' : 'bad', S.wrapped
+        ? '<b>Rolled back automatically.</b> An error inside a transaction discards everything since BEGIN, which is the difference between a failed request and a corrupted balance.'
+        : '<b>The first update stands.</b> Without a transaction, an error on the second statement leaves the first one committed and the data inconsistent.');
+      api.out(S.wrapped ? 'ROLLBACK · balances unchanged' : 'error after the first UPDATE · £100 lost');
+      return;
+    }
+    if(a === 'commit'){
+      S.flushed = true; S.power = false;
+      api.tell('good', '<b>COMMIT returned, so it is on disk.</b> The change was appended to the write-ahead log and flushed. That fsync is why a commit costs milliseconds while the updates themselves cost microseconds — and why batching writes into fewer transactions is such an effective speed-up.');
+      api.out('COMMIT · WAL flushed · 6 ms');
+      return;
+    }
+    if(a === 'power'){
+      S.power = true;
+      api.tell(S.flushed ? 'good' : 'bad', S.flushed
+        ? '<b>The data is there after the restart.</b> Recovery replays the log. That is durability: once the database said yes, it meant it.'
+        : '<b>Gone, and correctly so.</b> The commit had not returned, so the database never promised anything. Anything you told the user before the commit returned was a lie you told on its behalf.');
+      api.out(S.flushed ? 'restart → log replayed → data intact' : 'restart → uncommitted work discarded');
+      return;
+    }
+    if(a === 'concurrent'){
+      api.tell(S.callInside ? 'bad' : 'good', S.callInside
+        ? '<b>50 requests, each holding a connection and a row lock for 2.4 seconds.</b> The pool is empty, unrelated queries start timing out, and the graph looks like the database is broken when the actual problem is a payments API being slow. This is one of the most common production incidents there is.'
+        : '<b>50 requests, each holding a connection for 4 ms.</b> The slow call happens outside the transaction, so a slow third party is just a slow response — it cannot take your database with it.');
+      api.out(S.callInside ? '50 × 2.4 s transactions · connection pool exhausted' : '50 × 4 ms transactions · pool fine');
+      return;
+    }
+    if(a === 'naive'){
+      S.outbox = false;
+      api.tell('bad', '<b>Commit and publish are two separate promises.</b> Crash between them and the order exists while nothing downstream ever hears about it. Publishing first is no better: then you can announce an order that was never saved.');
+      api.out('COMMIT ok · crash · message never published');
+      return;
+    }
+    if(a === 'outbox'){
+      S.outbox = true;
+      api.tell('good', '<b>Write the message as a row in the same transaction.</b> Now "the order exists" and "we owe the world a message" commit together. A separate publisher reads unsent rows and sends them.');
+      api.out('INSERT order + INSERT outbox → one COMMIT');
+      return;
+    }
+    if(a === 'replay'){
+      S.replayed = true;
+      api.tell('good', '<b>The message still goes out.</b> The publisher finds the unsent row after the restart. The price is at-least-once delivery: a crash between sending and marking it sent means it goes twice, so consumers must be idempotent — usually by remembering the message id.');
+      api.out('crash → outbox row still unsent → published on retry · possible duplicate');
+      return;
+    }
+    return false;
+  },
+
+  reset(S){ Object.assign(S, {a:500, b:300, wrapped:false, crashed:false, flushed:false, callInside:true, outbox:false, power:false, replayed:false}); },
+
+  quiz:[
+    {q:'What does atomicity guarantee?',
+     o:['One statement at a time','All the work in the transaction becomes visible together, or none of it does — there is no halfway state for anyone to see'], a:1,
+     w:'Which is what makes a crash between two updates harmless rather than a missing £100.'},
+    {q:'Why do commits cost milliseconds when the updates themselves are microseconds?',
+     o:['Network latency','Durability: the commit is not acknowledged until the write-ahead log is flushed to durable storage'], a:1,
+     w:'It is also why grouping many small writes into one transaction is often a big speed-up.'},
+    {q:'What is wrong with calling a payment API inside a transaction?',
+     o:['Nothing','The transaction holds its locks and its connection for the whole call, so one slow third party can exhaust the pool and block unrelated queries'], a:1,
+     w:'Do the slow work outside and keep the transaction to database statements. This is a genuinely common production incident.'},
+    {q:'You must save an order and publish an event. How do you make that reliable?',
+     o:['Commit, then publish, and hope','Write an outbox row in the same transaction as the order, then have a publisher send it and retry — accepting at-least-once delivery with idempotent consumers'], a:1,
+     w:'Two systems cannot share one commit. The outbox moves the atomicity to where it is possible and handles the rest with retries.'}
+  ],
+  soundbite:'"A transaction makes a group of writes one moment: atomic, so a crash leaves no halfway state, and durable, because the commit is not acknowledged until the log is flushed. Two things matter in practice. Keep transactions short and never do network I/O inside one, because you hold locks and a connection for as long as that call takes. And you cannot commit a database write and a queue publish together, so I write an outbox row in the same transaction and publish it separately, with idempotent consumers."'
+});
+</script>
+</body>
+</html>

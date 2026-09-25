@@ -64,8 +64,14 @@
         name: 'Database Vault',
         slug: 'database-vault',
         blurb: 'Indexes, joins and the promises a transaction makes.',
-        open: false, playrooms: [],
-        soon: ['Indexes', 'Joins', 'Transactions', 'Isolation levels']
+        open: true,
+        playrooms: [
+          {slug:'indexes',          title:'Indexes',          blurb:'read a million rows, then read four'},
+          {slug:'joins',            title:'Joins',            blurb:'which rows survive, and the accidental 101 queries'},
+          {slug:'transactions',     title:'Transactions',     blurb:'crash halfway and lose £100, then do not'},
+          {slug:'isolation-levels', title:'Isolation Levels', blurb:'two sessions, four anomalies, one lost sale'}
+        ],
+        soon: []
       },
       {
         name: 'Concurrency Crossing',
