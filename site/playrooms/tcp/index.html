@@ -1,0 +1,314 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>TCP Playroom · Runtime City</title>
+<meta name="description" content="Pay for a handshake before sending a byte, lose a packet and watch everything behind it wait, then see why keep-alive, UDP and QUIC exist. A playroom from Runtime City.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,600;12..96,800&family=IBM+Plex+Sans:wght@400;500&family=JetBrains+Mono:wght@400&display=swap">
+<link rel="stylesheet" href="../../assets/playroom.css">
+</head>
+<body>
+<div id="playroom"></div>
+
+<script src="../../assets/city.js"></script>
+<script src="../../assets/nav.js"></script>
+<script src="../../assets/sequence.js"></script>
+<script src="../../assets/playroom.js"></script>
+<script>
+const LANES = [{name:'Client', sub:'London'}, {name:'Server', sub:'Frankfurt · 20 ms away'}];
+
+const NOTES = {
+  1:'<b>One and a half round trips before any data moves.</b> On a 20 ms link that is 40 ms of nothing, every time you open a connection.',
+  2:'<b>Every byte is acknowledged, in order.</b> That is what "reliable, ordered stream" costs: the sender keeps data until the other side confirms it.',
+  3:'<b>One lost packet stalls everything behind it.</b> The data has arrived; TCP will not hand it over until the gap is filled. This is head-of-line blocking.',
+  4:'<b>Connections are expensive, so reuse them.</b> Keep-alive turns a per-request handshake into a per-connection one, and TIME_WAIT is why servers run out of ports rather than memory.',
+  5:'<b>UDP gives up the guarantees to remove the waiting.</b> QUIC keeps them but moves them above UDP, so a lost packet only blocks its own stream.',
+  6:'<b>Interview tip:</b> "three-way handshake, ordered reliable stream, head-of-line blocking" — then say where UDP or QUIC wins, which shows you know what the guarantees cost.'
+};
+
+function files(S){
+  const L = S.lang, s = S.step, pick = o => o[L];
+
+  if(s === 4) return pick({
+    cs:[{n:'Reuse.cs', lines:[
+      ['// One HttpClient for the process: it pools and reuses connections','new'],
+      ['static readonly HttpClient Http = new(new SocketsHttpHandler'],
+      ['{'],
+      ['    PooledConnectionLifetime = TimeSpan.FromMinutes(2),','hl'],
+      ['    MaxConnectionsPerServer  = 20'],
+      ['});'],[''],
+      ['// The bug this avoids: a new HttpClient per request leaves thousands'],
+      ['// of sockets in TIME_WAIT and eventually exhausts the port range.','bad']]}],
+    java:[{n:'Reuse.java', lines:[
+      ['// One client, pooled connections','new'],
+      ['HttpClient client = HttpClient.newBuilder()'],
+      ['    .connectTimeout(Duration.ofSeconds(5))','hl'],
+      ['    .build();                       // keep-alive by default'],[''],
+      ['// Or with a pool you control:'],
+      ['PoolingHttpClientConnectionManager cm = new PoolingHttpClientConnectionManager();','hl'],
+      ['cm.setMaxTotal(50);']]}],
+    ts:[{n:'reuse.ts', lines:[
+      ['import { Agent } from "undici";'],[''],
+      ['const agent = new Agent({ keepAliveTimeout: 60_000, connections: 20 });','new'],
+      ['await fetch(url, { dispatcher: agent });   // reuses the connection','hl'],[''],
+      ['// Without keep-alive every call pays the handshake again,'],
+      ['// and on TLS that is two round trips, not one.','bad']]}]
+  });
+
+  if(s === 5) return pick({
+    cs:[{n:'Choosing.cs', lines:[
+      ['// TCP — ordered, reliable, and it will wait to keep that promise'],
+      ['using var tcp = new TcpClient();          // APIs, payments, page loads','hl'],[''],
+      ['// UDP — no handshake, no ordering, no retransmit: lateness beats loss'],
+      ['using var udp = new UdpClient();          // voice, video, games, DNS','hl'],[''],
+      ['// QUIC — reliability per stream, over UDP, so one loss blocks one stream'],
+      ['var quic = await QuicConnection.ConnectAsync(options);   // HTTP/3','new']]}],
+    java:[{n:'Choosing.java', lines:[
+      ['Socket tcp = new Socket(host, 443);          // ordered and reliable','hl'],
+      ['DatagramSocket udp = new DatagramSocket();   // fast and lossy','hl'],[''],
+      ['// HTTP/3 rides on QUIC, which rides on UDP:'],
+      ['HttpClient.newBuilder().version(HttpClient.Version.HTTP_2).build();'],
+      ['// (JDK ships HTTP/2; HTTP/3 support comes from libraries for now.)']]}],
+    ts:[{n:'choosing.ts', lines:[
+      ['import net from "node:net";      // TCP: ordered, reliable','hl'],
+      ['import dgram from "node:dgram";  // UDP: send and hope','hl'],[''],
+      ['// In a browser: WebSocket rides TCP, WebRTC rides UDP,'],
+      ['// and HTTP/3 rides QUIC — reliable per stream, no shared blocking.','new']]}]
+  });
+
+  return pick({
+    cs:[{n:'Connect.cs', lines:[
+      ['using var client = new TcpClient();'],
+      ['await client.ConnectAsync("runtimecity.com", 443);   // SYN, SYN-ACK, ACK','hl'],
+      ['// ~' + (S.rtt * 2) + ' ms gone before a single byte of yours is sent',''],
+      [''],
+      ['var stream = client.GetStream();'],
+      ['await stream.WriteAsync(request);     // the OS may split this into segments'],
+      ['// and will not deliver segment 3 to the reader until segment 2 arrives.',
+       S.lost ? 'bad' : '']]}],
+    java:[{n:'Connect.java', lines:[
+      ['Socket socket = new Socket();'],
+      ['socket.connect(new InetSocketAddress("runtimecity.com", 443), 5000);   // handshake','hl'],
+      ['// ~' + (S.rtt * 2) + ' ms before any data moves'],[''],
+      ['OutputStream out = socket.getOutputStream();'],
+      ['out.write(request);        // one stream of bytes, delivered in order'],
+      ['// A lost segment stalls everything after it.', S.lost ? 'bad' : '']]}],
+    ts:[{n:'connect.ts', lines:[
+      ['const socket = net.connect(443, "runtimecity.com");   // SYN, SYN-ACK, ACK','hl'],
+      ['// ~' + (S.rtt * 2) + ' ms of handshake before your first byte'],[''],
+      ['socket.write(request);     // an ordered, reliable byte stream'],
+      ['socket.on("data", chunk => { /* arrives in order, or not at all yet */ });',
+       S.lost ? 'bad' : '']]}]
+  });
+}
+
+const P = Playroom({
+  district:'Network Highway',
+  title:'TCP',
+  dek:'A reliable ordered stream, and what that reliability costs you.',
+  steps:['The handshake','Sending data','Lose a packet','Reuse it','TCP, UDP, QUIC','Interview check'],
+  stage:Sequence.stage({lanes:LANES, height:330}),
+
+  state:{rtt:20, connected:false, sent:false, lost:false, keepalive:false, proto:'tcp', reqs:1},
+
+  story(S, api){
+    const fb = api.fb();
+    return {
+      1:`<h2>Before a single byte</h2><p>TCP opens with <b>SYN, SYN-ACK, ACK</b>. Frankfurt is 20 ms away, so that is 40 ms spent agreeing to talk. Add TLS on top and you are at 80 ms before your request leaves.</p>${fb}`,
+      2:`<h2>Send something</h2><p>The data goes as numbered segments and the receiver acknowledges them. Anything unacknowledged is kept and sent again — that is what "reliable" means in practice.</p>${fb}`,
+      3:`<h2>Drop one</h2><p>Segment 2 disappears. Segments 3 and 4 arrive safely, and the receiving application still gets nothing, because a stream has to be delivered in order.</p>${fb}`,
+      4:`<h2>Stop paying for the handshake</h2><p>Keep the connection open and every later request skips setup entirely. This one line is the most common performance fix in HTTP client code.</p>${fb}`,
+      5:`<h2>Or trade the guarantees away</h2><p>Voice, video and games would rather lose a packet than wait for it. <b>UDP</b> drops the promises; <b>QUIC</b> keeps them but per stream, so one loss no longer blocks everything else.</p>${fb}`,
+      6:`<h2>Interview check</h2>${api.quizHTML()}`
+    }[S.step];
+  },
+
+  controls(S){
+    const s = S.step;
+    if(s === 1) return `<button class="btn primary" data-a="connect">Open the connection</button>` +
+      `<button class="chip" data-rtt="20" aria-pressed="${S.rtt === 20}"><i style="background:var(--accent)"></i>20 ms away</button>` +
+      `<button class="chip" data-rtt="150" aria-pressed="${S.rtt === 150}"><i style="background:var(--bad)"></i>150 ms away</button>`;
+    if(s === 2) return `<button class="btn primary" data-a="send">Send 4 segments</button>`;
+    if(s === 3) return `<button class="btn primary" data-a="drop">Lose segment 2</button><button class="btn" data-a="recover">Retransmit</button>`;
+    if(s === 4) return `<button class="chip" data-ka="0" aria-pressed="${!S.keepalive}"><i style="background:var(--bad)"></i>New connection each time</button>` +
+      `<button class="chip" data-ka="1" aria-pressed="${S.keepalive}"><i style="background:var(--good)"></i>Keep-alive</button>` +
+      `<button class="btn" data-a="three" style="margin-left:auto">Make 3 requests</button>`;
+    if(s === 5) return ['tcp','udp','quic'].map(p =>
+      `<button class="chip" data-proto="${p}" aria-pressed="${S.proto === p}"><i style="background:${p === 'tcp' ? 'var(--accent)' : p === 'udp' ? 'var(--muted)' : 'var(--good)'}"></i>${p.toUpperCase()}</button>`).join('');
+    return '';
+  },
+
+  statusLine(S){
+    const s = S.step;
+    if(s === 1) return S.connected
+      ? `Handshake <b>${S.rtt * 2} ms</b> · with TLS <b>${S.rtt * 4} ms</b><span class="warn"> · spent before your request exists</span>`
+      : `Round trip to Frankfurt <b>${S.rtt} ms</b>`;
+    if(s === 3) return S.lost
+      ? `Delivered to the app: <b>segment 1</b><span class="warn"> · 3 and 4 arrived and are waiting for 2</span>`
+      : `All four segments delivered<span class="ok"> · in order</span>`;
+    if(s === 4) return S.keepalive
+      ? `3 requests · handshakes <b>1</b> · setup cost <b>${S.rtt * 2} ms</b><span class="ok"> · paid once</span>`
+      : `3 requests · handshakes <b>3</b> · setup cost <b>${S.rtt * 6} ms</b><span class="warn"> · plus sockets left in TIME_WAIT</span>`;
+    if(s === 5) return {
+      tcp:`TCP: ordered, reliable<span class="warn"> · one loss blocks everything behind it</span>`,
+      udp:`UDP: no handshake, no ordering, no retransmit<span class="ok"> · late data is worse than lost data</span>`,
+      quic:`QUIC: reliable per stream, over UDP<span class="ok"> · a loss blocks only its own stream</span>`}[S.proto];
+    return S.sent ? `4 segments sent · 4 acknowledged<span class="ok"> · the sender can now forget them</span>`
+                  : `Connection open · nothing sent yet`;
+  },
+
+  files,
+  note: S => NOTES[S.step],
+
+  onStage(S){
+    const s = S.step, r = S.rtt;
+    let messages = [], caption = '';
+
+    if(s === 1){
+      messages = S.connected ? [
+        {from:0, to:1, label:'SYN', ms:'0 ms'},
+        {from:1, to:0, label:'SYN-ACK', ms:r + ' ms'},
+        {from:0, to:1, label:'ACK  + first request', ms:(r * 2) + ' ms', kind:'slow'},
+        {from:1, to:0, label:'response', ms:(r * 3) + ' ms', kind:'cached'}
+      ] : [];
+      caption = 'one and a half round trips before data · TLS adds one or two more';
+    } else if(s === 2){
+      messages = S.sent ? [
+        {from:0, to:1, label:'seq 1 · 1460 bytes'},
+        {from:0, to:1, label:'seq 2 · 1460 bytes'},
+        {from:1, to:0, label:'ACK 2', kind:'cached'},
+        {from:0, to:1, label:'seq 3 · seq 4'},
+        {from:1, to:0, label:'ACK 4', kind:'cached'}
+      ] : [];
+      caption = 'unacknowledged data is kept and resent · that is the reliability';
+    } else if(s === 3){
+      messages = S.lost ? [
+        {from:0, to:1, label:'seq 1 → delivered', kind:'cached'},
+        {from:0, to:1, label:'seq 2 → lost in transit', kind:'bad'},
+        {from:0, to:1, label:'seq 3 → arrived, held', kind:'slow'},
+        {from:0, to:1, label:'seq 4 → arrived, held', kind:'slow'},
+        {from:1, to:0, label:'ACK 1 (again) · "still missing 2"', kind:'bad'},
+        ...(S.recovered ? [{from:0, to:1, label:'seq 2 retransmitted', ms:'+' + (r * 2) + ' ms', kind:'cached'},
+                           {from:1, to:0, label:'ACK 4 · all four delivered', kind:'cached'}] : [])
+      ] : [{from:0, to:1, label:'seq 1 · 2 · 3 · 4'}, {from:1, to:0, label:'ACK 4', kind:'cached'}];
+      caption = S.lost && !S.recovered ? 'head-of-line blocking: arrived, but not deliverable yet'
+                                       : 'the gap is filled, then everything is handed over at once';
+    } else if(s === 4){
+      messages = S.keepalive ? [
+        {from:0, to:1, label:'SYN / SYN-ACK / ACK', ms:(r * 2) + ' ms', kind:'slow'},
+        {from:0, to:1, label:'request 1'}, {from:1, to:0, label:'response 1', kind:'cached'},
+        {from:0, to:1, label:'request 2  (same connection)'}, {from:1, to:0, label:'response 2', kind:'cached'},
+        {from:0, to:1, label:'request 3  (same connection)'}, {from:1, to:0, label:'response 3', kind:'cached'}
+      ] : [
+        {from:0, to:1, label:'handshake + request 1', ms:(r * 2) + ' ms', kind:'slow'},
+        {from:0, to:1, label:'handshake + request 2', ms:(r * 2) + ' ms', kind:'slow'},
+        {from:0, to:1, label:'handshake + request 3', ms:(r * 2) + ' ms', kind:'slow'},
+        {from:0, to:0, label:'3 sockets now sitting in TIME_WAIT', kind:'bad'}
+      ];
+      caption = S.keepalive ? 'setup paid once, then amortised' : 'every request pays the full setup again';
+    } else if(s === 5){
+      messages = {
+        tcp:[{from:0, to:1, label:'stream A · packet lost', kind:'bad'},
+             {from:0, to:1, label:'stream B waits too', kind:'bad'},
+             {from:0, to:0, label:'one connection, one ordering rule', kind:'slow'}],
+        udp:[{from:0, to:1, label:'datagram 1'}, {from:0, to:1, label:'datagram 2 · lost', kind:'bad'},
+             {from:0, to:1, label:'datagram 3 · played anyway', kind:'cached'},
+             {from:0, to:0, label:'no handshake, no retransmit, no waiting', kind:'cached'}],
+        quic:[{from:0, to:1, label:'stream A · packet lost', kind:'bad'},
+              {from:0, to:1, label:'stream B · unaffected', kind:'cached'},
+              {from:0, to:0, label:'reliability per stream, TLS built in, 1-RTT setup', kind:'cached'}]
+      }[S.proto];
+      caption = 'the guarantees are the cost · pick the ones your data actually needs';
+    }
+
+    Sequence.draw({lanes:LANES, messages, caption});
+  },
+
+  onStep(S, n){
+    if(n === 1){ S.connected = false; }
+    if(n === 2){ S.connected = true; S.sent = false; }
+    if(n === 3){ S.lost = false; S.recovered = false; }
+    if(n === 4) S.keepalive = false;
+    if(n === 5) S.proto = 'tcp';
+  },
+
+  onClick(S, b, api){
+    if(b.dataset.rtt){
+      S.rtt = +b.dataset.rtt; S.connected = false;
+      api.out('round trip time: ' + S.rtt + ' ms');
+      return;
+    }
+    if(b.dataset.ka){ S.keepalive = b.dataset.ka === '1'; api.out(S.keepalive ? 'keep-alive on' : 'connection closed after each request'); return; }
+    if(b.dataset.proto){
+      S.proto = b.dataset.proto;
+      api.tell('good', {
+        tcp:'<b>TCP is the safe default.</b> Ordered and reliable, which is exactly what an API call or a page load wants. The price is that one lost packet holds up everything behind it.',
+        udp:'<b>UDP drops the promises on purpose.</b> No handshake, no ordering, no retransmission. For a voice call, a packet that arrives late is worse than one that never arrives.',
+        quic:'<b>QUIC is the modern answer.</b> Reliability per stream over UDP, with TLS built into the handshake, so setup is one round trip and a loss on one stream does not stall the others. HTTP/3 is HTTP over QUIC.'
+      }[S.proto]);
+      api.out(S.proto.toUpperCase());
+      return;
+    }
+    const a = b.dataset.a;
+    if(a === 'connect'){
+      S.connected = true;
+      api.tell(S.rtt > 100 ? 'bad' : 'good', S.rtt > 100
+        ? `<b>${S.rtt * 2} ms to say hello.</b> On a long link the handshake dominates. This is why a far-away API feels slow even when the server answers instantly, and why people move servers closer to users.`
+        : `<b>${S.rtt * 2} ms before your request goes out.</b> SYN, SYN-ACK, ACK. With TLS on top it is roughly double that, which is why connection reuse matters so much.`);
+      api.out(`connect() → SYN / SYN-ACK / ACK · ${S.rtt * 2} ms`);
+      return;
+    }
+    if(a === 'send'){
+      S.sent = true;
+      api.tell('good', '<b>Sent and acknowledged.</b> The sender holds on to every segment until an ACK comes back, and only then frees it. Bytes, not messages: TCP has no idea where your request ends.');
+      api.out('4 segments · ACK 2 · ACK 4');
+      return;
+    }
+    if(a === 'drop'){
+      S.lost = true; S.recovered = false;
+      api.tell('bad', '<b>Segments 3 and 4 are sitting in the receiver\'s buffer, undeliverable.</b> The application asked for a stream, so it cannot be given byte 3000 before byte 1500. One lost packet delays data that already arrived: head-of-line blocking.');
+      api.out('seq 2 lost · duplicate ACK 1 · 3 and 4 buffered');
+      return;
+    }
+    if(a === 'recover'){
+      if(!S.lost){ api.out('nothing to retransmit'); return; }
+      S.recovered = true;
+      api.tell('good', `<b>Retransmitted, and now all four are delivered together.</b> It cost a round trip, and TCP also slows down after a loss, assuming the network is congested. That is why loss hurts throughput more than the single packet suggests.`);
+      api.out(`seq 2 retransmitted · +${S.rtt * 2} ms · window reduced`);
+      return;
+    }
+    if(a === 'three'){
+      api.tell(S.keepalive ? 'good' : 'bad', S.keepalive
+        ? `<b>One handshake, three requests.</b> Setup cost ${S.rtt * 2} ms in total instead of ${S.rtt * 6} ms, and no sockets are left behind.`
+        : `<b>Three handshakes for three requests: ${S.rtt * 6} ms of pure setup.</b> Worse, each closed socket sits in TIME_WAIT for a minute or two, which is how busy services run out of ports.`);
+      api.out(S.keepalive ? `3 requests · 1 handshake · ${S.rtt * 2} ms setup`
+                          : `3 requests · 3 handshakes · ${S.rtt * 6} ms setup · 3 sockets in TIME_WAIT`);
+      return;
+    }
+    return false;
+  },
+
+  reset(S){ Object.assign(S, {rtt:20, connected:false, sent:false, lost:false, recovered:false, keepalive:false, proto:'tcp'}); },
+
+  quiz:[
+    {q:'What does the three-way handshake cost you?',
+     o:['Nothing measurable','One and a half round trips before any data moves — and TLS adds more on top','CPU on the server only','Extra memory per packet'], a:1,
+     w:'On a 20 ms link that is 40 ms, before your request has left. It is the reason connection reuse is such an effective fix.'},
+    {q:'A packet is lost. Segments after it have already arrived. What does the application receive?',
+     o:['The later segments immediately','Nothing until the gap is filled: a stream must be delivered in order, which is head-of-line blocking'], a:1,
+     w:'It also triggers congestion control, so throughput drops for a while after the loss.'},
+    {q:'Why does creating a new HTTP client per request hurt a busy service?',
+     o:['Memory leaks','Each connection repeats the handshake and leaves a socket in TIME_WAIT, so you exhaust ports and add latency to every call'], a:1,
+     w:'Reuse one pooled client. This is one of the most common real-world performance bugs in .NET and Node alike.'},
+    {q:'When is UDP the right choice?',
+     o:['When you need reliability','When late data is worse than missing data: voice, video, games — and where you build your own reliability, as QUIC does'], a:1,
+     w:'QUIC is the interesting half of the answer: reliability per stream over UDP, which removes the shared blocking while keeping the guarantees.'}
+  ],
+  soundbite:'"TCP gives you an ordered, reliable byte stream, and everything about it follows from that promise. You pay one and a half round trips to open a connection, so I reuse pooled connections instead of opening one per request. And because delivery is ordered, a single lost packet blocks data that already arrived — head-of-line blocking — which is exactly what QUIC fixes by making reliability per stream over UDP."'
+});
+</script>
+</body>
+</html>

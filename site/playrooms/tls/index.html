@@ -1,0 +1,352 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>TLS Playroom · Runtime City</title>
+<meta name="description" content="Send a password in the clear and read it off the wire, then watch the handshake, the certificate chain, and exactly what HTTPS does and does not hide. A playroom from Runtime City.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,600;12..96,800&family=IBM+Plex+Sans:wght@400;500&family=JetBrains+Mono:wght@400&display=swap">
+<link rel="stylesheet" href="../../assets/playroom.css">
+<style>
+.wire{font:400 10.5px var(--mono);fill:var(--bad)}
+.wire.safe{fill:var(--good)}
+.wirebox{fill:none;stroke:var(--hair);stroke-width:1;stroke-dasharray:4 3}
+</style>
+</head>
+<body>
+<div id="playroom"></div>
+
+<script src="../../assets/city.js"></script>
+<script src="../../assets/nav.js"></script>
+<script src="../../assets/sequence.js"></script>
+<script src="../../assets/playroom.js"></script>
+<script>
+const LANES = [{name:'Browser'}, {name:'Café wifi', sub:'anyone listening'}, {name:'runtimecity.com'}];
+
+const NOTES = {
+  1:'<b>Plain HTTP is readable by every machine on the path.</b> Not just the wifi: routers, proxies, and whoever runs them.',
+  2:'<b>The handshake agrees a key nobody else can derive.</b> The certificate proves who you are talking to; the key exchange happens in the open and is still safe.',
+  3:'<b>A certificate is only worth the chain behind it.</b> The browser checks the signature chain, the name, the dates and revocation before it trusts anything.',
+  4:'<b>TLS hides the content, not the conversation.</b> The destination IP and usually the hostname are visible, and everything is in the clear again once it reaches the server.',
+  5:'<b>1.3 removed a round trip and most of the footguns.</b> Modern TLS is mostly operational work: renewals, HSTS, and not terminating it somewhere careless.',
+  6:'<b>Interview tip:</b> "certificate proves identity, key exchange produces a shared secret, then symmetric encryption does the work" — then say what is still visible.'
+};
+
+function files(S){
+  const L = S.lang, s = S.step, pick = o => o[L];
+
+  if(s === 3) return pick({
+    cs:[{n:'chain.txt', lines:[
+      ['Subject:  CN = runtimecity.com                    ← the leaf','hl'],
+      ['  Issuer: CN = E6, O = Let\x27s Encrypt'],
+      ['  Valid:  25 Sep 2026 → 24 Dec 2026'],
+      ['  SAN:    runtimecity.com, www.runtimecity.com','hl'],[''],
+      ['Subject:  CN = E6, O = Let\x27s Encrypt               ← intermediate'],
+      ['  Issuer: CN = ISRG Root X1'],[''],
+      ['Subject:  CN = ISRG Root X1                       ← root, in your OS store','new'],[''],
+      ['# The browser checks: signatures up the chain, the name against SAN,'],
+      ['# the dates, and revocation. Any one failing is a full stop.','hl']]}],
+    java:[{n:'chain.txt', lines:[
+      ['leaf          CN=runtimecity.com   SAN: runtimecity.com, www.…','hl'],
+      ['intermediate  CN=E6, O=Let\x27s Encrypt'],
+      ['root          CN=ISRG Root X1      (in the JVM/OS trust store)','new'],[''],
+      ['// keytool -printcert -sslserver runtimecity.com:443'],
+      ['// A missing intermediate is the classic "works in my browser,'],
+      ['// fails from the server" bug: browsers patch around it, Java does not.','bad']]}],
+    ts:[{n:'chain.ts', lines:[
+      ['const socket = tls.connect({ host: "runtimecity.com", port: 443 }, () => {'],
+      ['  console.log(socket.authorized);          // false if the chain fails','hl'],
+      ['  console.log(socket.getPeerCertificate(true).issuer);'],
+      ['});'],[''],
+      ['// Never do this to "fix" a certificate error:'],
+      ['process.env.NODE_TLS_REJECT_UNAUTHORIZED = "0";   // turns off the entire point','bad']]}]
+  });
+
+  if(s === 4) return pick({
+    cs:[{n:'visible.txt', lines:[
+      ['Encrypted:      URL path, query string, headers, cookies, body','new'],
+      ['Still visible:  your IP, the server IP, the port, packet sizes and timing','bad'],
+      ['                the hostname, via SNI in the ClientHello and via DNS','bad'],[''],
+      ['# And at the other end TLS stops at whatever terminates it:'],
+      ['#   browser → CDN   (encrypted)'],
+      ['#   CDN → origin    (encrypted only if you configured it)','hl'],
+      ['#   inside the data centre, logs and traces are plain text','hl'],[''],
+      ['# HTTPS means "nobody on the path can read or change this",'],
+      ['# not "this site is safe" and not "this app is secure".']]}],
+    java:[{n:'visible.txt', lines:[
+      ['Encrypted:      path, headers, cookies, body','new'],
+      ['Visible:        IPs, ports, sizes, timing, and the hostname via SNI','bad'],[''],
+      ['// Termination matters as much as the cipher:'],
+      ['// load balancer → app must be TLS too, or it is plaintext inside your network.','hl']]}],
+    ts:[{n:'visible.txt', lines:[
+      ['Encrypted:      path, query, headers, cookies, body','new'],
+      ['Visible:        source and destination IP, port, timing, sizes, SNI hostname','bad'],[''],
+      ['// Encrypted Client Hello (ECH) is starting to hide SNI as well,'],
+      ['// but assume the hostname is observable today.','hl']]}]
+  });
+
+  if(s === 5) return pick({
+    cs:[{n:'modern.cs', lines:[
+      ['// TLS 1.3: one round trip, weak ciphers removed from the protocol'],
+      ['builder.WebHost.ConfigureKestrel(o => o.ConfigureHttpsDefaults(h =>','hl'],
+      ['    h.SslProtocols = SslProtocols.Tls13 | SslProtocols.Tls12));'],[''],
+      ['// Tell browsers never to try plain HTTP again:'],
+      ['app.UseHsts();     // Strict-Transport-Security: max-age=31536000','hl'],
+      ['app.UseHttpsRedirection();'],[''],
+      ['// The real work is operational: automatic renewal, and alerting'],
+      ['// well before expiry. Expired certificates cause more outages than attacks.','new']]}],
+    java:[{n:'modern.txt', lines:[
+      ['server.ssl.enabled-protocols=TLSv1.3,TLSv1.2','hl'],
+      ['server.ssl.certificate=/etc/letsencrypt/live/…/fullchain.pem'],[''],
+      ['# HSTS in Spring Security is on by default over HTTPS','hl'],[''],
+      ['# Automate renewal (certbot, cert-manager) and alert 21 days out.','new']]}],
+    ts:[{n:'modern.ts', lines:[
+      ['// Most platforms terminate TLS for you — the job is configuration:'],
+      ['app.use(helmet.hsts({ maxAge: 31536000, includeSubDomains: true }));','hl'],[''],
+      ['// TLS 1.3 gives a 1-RTT handshake, and 0-RTT resumption which'],
+      ['// replays are possible against, so never use 0-RTT for writes.','bad'],[''],
+      ['// Renew automatically. Expiry is the outage you will actually have.','new']]}]
+  });
+
+  /* steps 1 and 2: what the network sees */
+  const wire = S.https
+    ? [["# https://runtimecity.com/login  — what the cafe sees"],
+       ["16 03 03 00 5a  …  encrypted application data","new"],
+       ["ca 7f 91 2b e4  …  no readable headers","new"],
+       ["3d 08 aa 55 1c  …  no readable body","new"],[""],
+       ["# Visible: your IP, the server IP, port 443, sizes, timing,"],
+       ["# and the hostname, sent as SNI in the ClientHello."]]
+    : [["# http://runtimecity.com/login  — what the cafe sees"],
+       ["POST /login HTTP/1.1","bad"],
+       ["Content-Type: application/x-www-form-urlencoded","bad"],
+       ["","" ],
+       ["email=ana@example.com&password=hunter2","bad"],[""],
+       ["# Readable by the cafe, the ISP, and every router on the path."]];
+  return [{n:"onthewire.txt", lines:wire}];
+}
+
+const P = Playroom({
+  district:'Network Highway',
+  title:'TLS',
+  dek:'Who you are talking to, and whether anyone else can read it.',
+  steps:['In the clear','The handshake','The certificate','What it hides','Modern TLS','Interview check'],
+  stage:Sequence.stage({lanes:LANES, height:320}),
+
+  state:{https:false, shook:false, certState:'valid', tls13:false},
+
+  story(S, api){
+    const fb = api.fb();
+    return {
+      1:`<h2>Log in over café wifi</h2><p>Plain HTTP puts your password on the wire as text. Send it, then read what the network saw.</p>${fb}`,
+      2:`<h2>Turn on TLS</h2><p>Hello, certificate, key exchange, then everything after that is encrypted with a key only the two ends can compute — even though the exchange happened in public.</p>${fb}`,
+      3:`<h2>Why you trust that certificate</h2><p>Because of the chain behind it, the name inside it and the dates on it. Break each one and see the error your users would get.</p>${fb}`,
+      4:`<h2>What is still visible</h2><p>TLS hides the content of the conversation, not the fact of it. And it stops wherever it is terminated, which is often not your application.</p>${fb}`,
+      5:`<h2>What changed, and what actually bites</h2><p>TLS 1.3 made the handshake one round trip and removed the bad options. The failures you will meet are expired certificates and TLS that stops at the load balancer.</p>${fb}`,
+      6:`<h2>Interview check</h2>${api.quizHTML()}`
+    }[S.step];
+  },
+
+  controls(S){
+    const s = S.step;
+    if(s === 1) return `<button class="btn primary" data-a="post">Send the login form</button>` +
+      `<button class="chip" data-p="http" aria-pressed="${!S.https}"><i style="background:var(--bad)"></i>http://</button>` +
+      `<button class="chip" data-p="https" aria-pressed="${S.https}"><i style="background:var(--good)"></i>https://</button>`;
+    if(s === 2) return `<button class="btn primary" data-a="shake">Run the handshake</button>`;
+    if(s === 3) return ['valid','expired','wrongname','selfsigned'].map(c =>
+      `<button class="chip" data-cert="${c}" aria-pressed="${S.certState === c}"><i style="background:${c === 'valid' ? 'var(--good)' : 'var(--bad)'}"></i>${
+        {valid:'Valid', expired:'Expired', wrongname:'Wrong name', selfsigned:'Self-signed'}[c]}</button>`).join('');
+    if(s === 4) return `<button class="btn primary" data-a="sniff">Watch the wire again</button><button class="btn" data-a="terminate">Follow it past the CDN</button>`;
+    if(s === 5) return `<button class="chip" data-v="12" aria-pressed="${!S.tls13}"><i style="background:var(--accent)"></i>TLS 1.2</button>` +
+      `<button class="chip" data-v="13" aria-pressed="${S.tls13}"><i style="background:var(--good)"></i>TLS 1.3</button>` +
+      `<button class="btn" data-a="expire" style="margin-left:auto">Let the certificate expire</button>`;
+    return '';
+  },
+
+  statusLine(S){
+    const s = S.step;
+    if(s === 3) return {
+      valid:`Chain <b>ok</b> · name <b>matches</b> · dates <b>ok</b><span class="ok"> · padlock shown</span>`,
+      expired:`Dates <b>failed</b><span class="warn"> · NET::ERR_CERT_DATE_INVALID · the most common real outage</span>`,
+      wrongname:`Name <b>mismatch</b><span class="warn"> · ERR_CERT_COMMON_NAME_INVALID · certificate is for another host</span>`,
+      selfsigned:`Chain <b>untrusted</b><span class="warn"> · ERR_CERT_AUTHORITY_INVALID · no CA vouches for it</span>`}[S.certState];
+    if(s === 4) return `Encrypted: <b>path, headers, cookies, body</b><span class="warn"> · visible: IPs, port, sizes, timing, hostname (SNI)</span>`;
+    if(s === 5) return S.tls13
+      ? `TLS 1.3 · handshake <b>1 round trip</b><span class="ok"> · old ciphers removed from the protocol</span>`
+      : `TLS 1.2 · handshake <b>2 round trips</b><span class="warn"> · plus decades of configuration mistakes to avoid</span>`;
+    return S.https
+      ? `https · the café sees <b>encrypted bytes</b><span class="ok"> · and your IP, and the hostname</span>`
+      : `http · the café sees <b>your password</b><span class="warn"> · and so does every router on the path</span>`;
+  },
+
+  files,
+  note: S => NOTES[S.step],
+
+  onStage(S){
+    const s = S.step;
+    let messages = [], caption = '';
+
+    if(s === 1){
+      messages = S.https ? [
+        {from:0, to:2, label:'encrypted application data', kind:'secret'},
+        {from:1, to:1, label:'sees: 16 03 03 … nothing readable', kind:'cached'},
+        {from:2, to:0, label:'encrypted response', kind:'secret'}
+      ] : [
+        {from:0, to:2, label:'POST /login  email=ana@example.com&password=hunter2', kind:'bad'},
+        {from:1, to:1, label:'reads the password, in full', kind:'bad'},
+        {from:2, to:0, label:'302 · Set-Cookie: session=…  (also readable)', kind:'bad'}
+      ];
+      caption = S.https ? 'the network carries bytes it cannot interpret' : 'plain HTTP is a postcard';
+    } else if(s === 2){
+      messages = S.shook ? [
+        {from:0, to:2, label:'ClientHello · versions, ciphers, SNI', ms:'0 ms'},
+        {from:2, to:0, label:'ServerHello · certificate · key share', ms:'20 ms', kind:'slow'},
+        {from:0, to:0, label:'check the chain, name and dates', kind:'ok'},
+        {from:0, to:2, label:'key share · Finished', ms:'40 ms'},
+        {from:0, to:2, label:'GET /login  (encrypted from here on)', ms:'40 ms', kind:'secret'},
+        {from:1, to:1, label:'saw the hostname, never the key', kind:'cached'}
+      ] : [];
+      caption = 'both sides derive the same secret · the eavesdropper cannot';
+    } else if(s === 3){
+      const bad = S.certState !== 'valid';
+      messages = [
+        {from:0, to:2, label:'ClientHello'},
+        {from:2, to:0, label:'certificate for ' + (S.certState === 'wrongname' ? 'anothersite.com' : 'runtimecity.com'), kind: bad ? 'bad' : 'ok'},
+        {from:0, to:0, label: {
+          valid:'chain → Let\'s Encrypt → ISRG Root X1 ✓',
+          expired:'valid until 12 Aug 2026 ✗ expired',
+          wrongname:'SAN does not include runtimecity.com ✗',
+          selfsigned:'issuer is not in the trust store ✗'}[S.certState], kind: bad ? 'bad' : 'cached'},
+        bad ? {from:0, to:0, label:'connection refused by the browser', kind:'bad'}
+            : {from:0, to:2, label:'encrypted application data', kind:'secret'}
+      ];
+      caption = bad ? 'one failed check is a full stop, not a warning to click through'
+                    : 'signature chain · hostname · validity dates · revocation';
+    } else if(s === 4){
+      messages = S.terminated ? [
+        {from:0, to:1, label:'TLS to the CDN', kind:'secret'},
+        {from:1, to:2, label: S.originTls ? 'TLS again to your origin' : 'plain HTTP inside the network', kind: S.originTls ? 'secret' : 'bad'},
+        {from:2, to:2, label:'logs, traces and metrics: plain text', kind:'slow'}
+      ] : [
+        {from:0, to:2, label:'encrypted: path, headers, cookies, body', kind:'secret'},
+        {from:1, to:1, label:'visible: your IP · server IP · port 443', kind:'bad'},
+        {from:1, to:1, label:'visible: hostname via SNI, and via the DNS lookup', kind:'bad'},
+        {from:1, to:1, label:'visible: sizes and timing — often enough to guess the page', kind:'bad'}
+      ];
+      caption = S.terminated ? 'TLS ends where it is terminated · configure the next hop too'
+                             : 'content is hidden · the conversation is not';
+    } else if(s === 5){
+      messages = S.expired ? [
+        {from:0, to:2, label:'ClientHello'},
+        {from:2, to:0, label:'certificate expired 3 hours ago', kind:'bad'},
+        {from:0, to:0, label:'every user sees a full-page security warning', kind:'bad'},
+        {from:0, to:0, label:'fix: automated renewal + alerting at 21 days', kind:'cached'}
+      ] : S.tls13 ? [
+        {from:0, to:2, label:'ClientHello + key share', ms:'0 ms'},
+        {from:2, to:0, label:'ServerHello + certificate + Finished', ms:'20 ms', kind:'cached'},
+        {from:0, to:2, label:'application data', ms:'20 ms', kind:'secret'}
+      ] : [
+        {from:0, to:2, label:'ClientHello', ms:'0 ms'},
+        {from:2, to:0, label:'ServerHello + certificate', ms:'20 ms'},
+        {from:0, to:2, label:'key exchange', ms:'40 ms', kind:'slow'},
+        {from:2, to:0, label:'Finished', ms:'60 ms', kind:'slow'},
+        {from:0, to:2, label:'application data', ms:'60 ms', kind:'secret'}
+      ];
+      caption = S.expired ? 'the outage you will actually have' : (S.tls13 ? 'one round trip, then data' : 'two round trips before any data');
+    }
+
+    Sequence.draw({lanes:LANES, messages, caption});
+  },
+
+  onStep(S, n){
+    if(n === 1) S.https = false;
+    if(n === 2) S.shook = false;
+    if(n === 3) S.certState = 'valid';
+    if(n === 4){ S.terminated = false; S.originTls = false; }
+    if(n === 5){ S.tls13 = false; S.expired = false; }
+  },
+
+  onClick(S, b, api){
+    if(b.dataset.p){ S.https = b.dataset.p === 'https'; api.out(S.https ? 'https://runtimecity.com/login' : 'http://runtimecity.com/login'); return; }
+    if(b.dataset.cert){
+      S.certState = b.dataset.cert;
+      api.tell(S.certState === 'valid' ? 'good' : 'bad', {
+        valid:'<b>Every check passed.</b> Signature chain up to a root your machine already trusts, the hostname present in the certificate\'s SAN list, and today inside the validity window.',
+        expired:'<b>The failure you will actually meet.</b> Nothing was attacked; a renewal did not run. Every visitor gets a full-page warning, and it usually happens at a weekend.',
+        wrongname:'<b>Valid certificate, wrong site.</b> The name has to appear in the Subject Alternative Name list. This is what stops someone presenting a genuine certificate for a domain they do own.',
+        selfsigned:'<b>Encrypted, but unauthenticated.</b> Nobody vouches for it, so you cannot tell the real server from an impostor. That is why browsers refuse rather than warn quietly.'
+      }[S.certState]);
+      api.out({valid:'padlock · chain verified', expired:'NET::ERR_CERT_DATE_INVALID',
+               wrongname:'NET::ERR_CERT_COMMON_NAME_INVALID', selfsigned:'NET::ERR_CERT_AUTHORITY_INVALID'}[S.certState]);
+      return;
+    }
+    if(b.dataset.v){
+      S.tls13 = b.dataset.v === '13'; S.expired = false;
+      api.tell('good', S.tls13
+        ? '<b>TLS 1.3 handshakes in one round trip</b> and deleted the weak options rather than leaving them configurable, which removed most of the ways people got TLS wrong. It also has 0-RTT resumption, which you should not use for anything that writes, because those requests can be replayed.'
+        : '<b>TLS 1.2 needs two round trips</b> and still permits a lot of old configuration. It is fine when configured well, but "configured well" is the hard part.');
+      api.out(S.tls13 ? 'TLS 1.3 · 1-RTT' : 'TLS 1.2 · 2-RTT');
+      return;
+    }
+    const a = b.dataset.a;
+    if(a === 'post'){
+      if(S.https){
+        api.tell('good', '<b>The café sees length and timing, nothing else.</b> Your password, the path and the session cookie are all inside the encrypted stream.');
+        api.out('POST /login → encrypted · the network sees 16 03 03 …');
+      } else {
+        api.tell('bad', '<b>There is the password, in plain text.</b> Not just the café: every router between you and the server carries this, and any of them could read or change it. It is also why a page that is HTTPS but posts to HTTP is not protected at all.');
+        api.out('POST /login → email=ana@example.com&password=hunter2');
+      }
+      return;
+    }
+    if(a === 'shake'){
+      S.shook = true; S.https = true;
+      api.tell('good', '<b>The clever part is that the key exchange is public.</b> Both sides send key shares in the open and each computes the same secret, which an observer cannot derive. The certificate is what stops that being negotiated with an impostor — encryption without identity is useless.');
+      api.out('ClientHello → certificate + key share → Finished → encrypted data');
+      return;
+    }
+    if(a === 'sniff'){
+      S.terminated = false;
+      api.tell('good', '<b>Hidden: the path, headers, cookies and body.</b> Visible: both IP addresses, the port, the packet sizes and timing, and the hostname — sent as SNI in the ClientHello and asked for in DNS moments earlier. So HTTPS means nobody can read or alter the content; it does not mean your browsing is private.');
+      api.out('visible: IPs · port 443 · SNI runtimecity.com · sizes · timing');
+      return;
+    }
+    if(a === 'terminate'){
+      S.terminated = true; S.originTls = !S.originTls;
+      api.tell(S.originTls ? 'good' : 'bad', S.originTls
+        ? '<b>Encrypted on both legs.</b> The CDN decrypts, inspects and re-encrypts to your origin. That is the setup you want, and it is a configuration choice, not a default.'
+        : '<b>Plaintext inside your own network.</b> TLS ended at the CDN, so the last leg is readable by anything on that path. Also worth remembering: once decrypted, the data flows into your logs and traces, where the password you were protecting can end up in plain text.');
+      api.out(S.originTls ? 'browser → CDN (TLS) → origin (TLS)' : 'browser → CDN (TLS) → origin (plain HTTP)');
+      return;
+    }
+    if(a === 'expire'){
+      S.expired = true;
+      api.tell('bad', '<b>The whole site goes down, for everyone, at once.</b> No attack, no code change: a certificate reached its end date. This causes more real outages than any cryptographic weakness, which is why renewal is automated and alerted on weeks in advance.');
+      api.out('certificate expired · every request blocked by the browser');
+      return;
+    }
+    return false;
+  },
+
+  reset(S){ Object.assign(S, {https:false, shook:false, certState:'valid', tls13:false, expired:false, terminated:false, originTls:false}); },
+
+  quiz:[
+    {q:'What does the certificate actually do?',
+     o:['Encrypts the traffic','Proves you are talking to the host you asked for, by being signed by a chain your machine already trusts'], a:1,
+     w:'Encryption comes from the key exchange. Without the certificate you could be encrypting perfectly, with an impostor.'},
+    {q:'Which of these is still visible to someone on the network?',
+     o:['The URL path','The cookies','The hostname, via SNI and DNS, plus both IPs, packet sizes and timing'], a:2,
+     w:'HTTPS hides the content, not the fact of the conversation. Encrypted Client Hello is starting to close the SNI gap.'},
+    {q:'Your API returns a certificate error only from your server, while browsers are fine. What is the usual cause?',
+     o:['The cipher is too old','A missing intermediate certificate: browsers often fetch or cache it, other clients do not, so serve the full chain'], a:1,
+     w:'Serve fullchain.pem, not just the leaf. And never "fix" it by disabling verification.'},
+    {q:'What causes most real TLS incidents?',
+     o:['Broken cryptography','Expired certificates, and TLS terminating at a proxy with the last hop left in plaintext'], a:1,
+     w:'Operational, not mathematical. Automate renewal, alert early, and encrypt the internal leg too.'}
+  ],
+  soundbite:'"TLS does two things: the certificate proves I am talking to the host I asked for, and the key exchange produces a shared secret neither an eavesdropper nor an impostor can derive, after which symmetric encryption carries the traffic. It hides the path, headers, cookies and body, but not the IPs, the sizes, the timing or the hostname in SNI. In practice the failures are operational: expired certificates, and TLS that terminates at the load balancer with the last hop left in plaintext."'
+});
+</script>
+</body>
+</html>

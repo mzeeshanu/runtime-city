@@ -51,8 +51,14 @@
         name: 'Network Highway',
         slug: 'network-highway',
         blurb: 'What happens when you type a URL.',
-        open: false, playrooms: [],
-        soon: ['DNS', 'TCP', 'HTTP', 'TLS']
+        open: true,
+        playrooms: [
+          {slug:'dns',  title:'DNS',  blurb:'a name becomes an address, and a TTL decides your outage'},
+          {slug:'tcp',  title:'TCP',  blurb:'pay for a handshake, then lose one packet'},
+          {slug:'http', title:'HTTP', blurb:'verbs that promise things and codes that mean things'},
+          {slug:'tls',  title:'TLS',  blurb:'your password on the wire, then the padlock'}
+        ],
+        soon: []
       },
       {
         name: 'Database Vault',

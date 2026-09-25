@@ -83,10 +83,13 @@ li.soon{color:var(--muted);padding:14px 2px;font-size:14px}
   </section>
 
   <section id="network-highway">
-    <h2>Network Highway <span class="state">planned</span></h2>
+    <h2>Network Highway <span class="state">4 playrooms</span></h2>
     <p class="blurb">What happens when you type a URL.</p>
     <ul>
-    <li class="soon">DNS · TCP · HTTP · TLS — coming soon</li>
+    <li data-room="dns"><a href="playrooms/dns/"><span class="t">DNS</span> <span class="d">a name becomes an address, and a TTL decides your outage</span><span class="state" hidden></span></a></li>
+    <li data-room="tcp"><a href="playrooms/tcp/"><span class="t">TCP</span> <span class="d">pay for a handshake, then lose one packet</span><span class="state" hidden></span></a></li>
+    <li data-room="http"><a href="playrooms/http/"><span class="t">HTTP</span> <span class="d">verbs that promise things and codes that mean things</span><span class="state" hidden></span></a></li>
+    <li data-room="tls"><a href="playrooms/tls/"><span class="t">TLS</span> <span class="d">your password on the wire, then the padlock</span><span class="state" hidden></span></a></li>
     </ul>
   </section>
 

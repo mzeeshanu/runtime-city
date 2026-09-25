@@ -165,7 +165,7 @@
         const n = i + 1;
         const state = n === S.step ? 'now' : (n < S.step || S.seen.has(n) ? 'done' : 'todo');
         return '<li class="' + state + '">' +
-          '<button data-s="' + n + '"' + (n === S.step ? ' aria-current="step"' : '') +
+          '<button data-step="' + n + '"' + (n === S.step ? ' aria-current="step"' : '') +
           ' title="Step ' + n + ': ' + esc(t) + '">' +
           '<span class="n">' + (state === 'done' ? '✓' : n) + '</span>' +
           '<span class="t">' + esc(t) + '</span></button></li>';
@@ -331,7 +331,7 @@
       const b = ev.target.closest('button');
       if(!b || b.id === 'menubtn') return;
       if(b.dataset.room){ location.href = b.dataset.room; return; }
-      if(b.dataset.s) return go(+b.dataset.s);
+      if(b.dataset.step) return go(+b.dataset.step);
       if(b.dataset.l){
         S.lang = b.dataset.l;
         try{ localStorage.setItem('rc-lang', S.lang); }catch(e){}

@@ -190,6 +190,28 @@ pre{margin:0;padding:0 0 6px;overflow-x:auto;font-family:var(--mono);font-size:1
 .city .soon{opacity:.6}
 .cityfoot{margin:10px 0 0}
 
+/* sequence diagrams (assets/sequence.js) */
+.lanehead{fill:var(--surface);stroke:var(--ink);stroke-width:1.5}
+.lanelbl{font:400 11px var(--mono);fill:var(--ink);text-anchor:middle}
+.lanesub{font:400 9px var(--mono);fill:var(--muted);text-anchor:middle}
+.lifeline{stroke:var(--hair);stroke-width:1;stroke-dasharray:4 4}
+.lane.dim{opacity:.4}
+.seqline{stroke:var(--ink);stroke-width:1.5;marker-end:url(#sq)}
+.seqself{fill:none;stroke:var(--ink);stroke-width:1.5}
+.seqlbl{font:400 10.5px var(--mono);fill:var(--ink);text-anchor:middle}
+.seqlbl.left{text-anchor:start}
+.seqms{font:400 10px var(--mono);fill:var(--muted);text-anchor:end}
+.seqcap{font:400 10px var(--mono);fill:var(--muted)}
+.msg.slow .seqline,.msg.slow .seqself{stroke:var(--accent);marker-end:url(#sqAcc)}
+.msg.slow .seqlbl{fill:var(--accent)}
+.msg.slow .seqms{fill:var(--accent)}
+.msg.bad .seqline,.msg.bad .seqself{stroke:var(--bad);stroke-dasharray:5 3;marker-end:url(#sqBad)}
+.msg.bad .seqlbl,.msg.bad .seqms{fill:var(--bad)}
+.msg.cached .seqline,.msg.cached .seqself{stroke:var(--good);marker-end:url(#sqOk)}
+.msg.cached .seqlbl,.msg.cached .seqms{fill:var(--good)}
+.msg.secret .seqline{stroke:var(--good);stroke-width:3;marker-end:url(#sqOk)}
+.msg.secret .seqlbl{fill:var(--good)}
+
 /* stage pieces every playroom draws */
 .gridline{stroke:var(--grid);stroke-width:1}
 .tiny{font:400 10px var(--mono);fill:var(--muted);text-anchor:middle}

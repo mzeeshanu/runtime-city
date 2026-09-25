@@ -25,6 +25,10 @@ Audience: students preparing for interviews first, then early-career developers.
 | SOLID Quarter | [Liskov Substitution](site/playrooms/liskov-substitution/index.html) | Prototype |
 | SOLID Quarter | [Interface Segregation](site/playrooms/interface-segregation/index.html) | Prototype |
 | SOLID Quarter | [Dependency Inversion](site/playrooms/dependency-inversion/index.html) | Prototype |
+| Network Highway | [DNS](site/playrooms/dns/index.html) | Prototype |
+| Network Highway | [TCP](site/playrooms/tcp/index.html) | Prototype |
+| Network Highway | [HTTP](site/playrooms/http/index.html) | Prototype |
+| Network Highway | [TLS](site/playrooms/tls/index.html) | Prototype |
 
 Every playroom follows the same loop: **see it → break it → fix it → code it (C#, Java, TypeScript) → interview check**.
 
@@ -55,7 +59,8 @@ npx serve site
 
 `site/assets/playroom.js` is the lesson engine. It builds the page chrome (steps, story,
 controls, status line, code column, interview check, navigation) and runs the loop.
-`site/assets/playroom.css` holds the shared look.
+`site/assets/playroom.css` holds the shared look, and `site/assets/sequence.js`
+draws the lane-and-arrow diagrams used where time matters.
 
 A playroom page supplies only its own content: the stage artwork as inline SVG, the text
 for each step, the code samples per language, and what each control does.

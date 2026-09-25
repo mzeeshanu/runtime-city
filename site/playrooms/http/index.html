@@ -1,0 +1,355 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>HTTP Playroom · Runtime City</title>
+<meta name="description" content="Read a real request and response, pick status codes that mean what you think, save a round trip with ETags, and see what HTTP/2 changed. A playroom from Runtime City.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,600;12..96,800&family=IBM+Plex+Sans:wght@400;500&family=JetBrains+Mono:wght@400&display=swap">
+<link rel="stylesheet" href="../../assets/playroom.css">
+</head>
+<body>
+<div id="playroom"></div>
+
+<script src="../../assets/city.js"></script>
+<script src="../../assets/nav.js"></script>
+<script src="../../assets/sequence.js"></script>
+<script src="../../assets/playroom.js"></script>
+<script>
+const LANES = [{name:'Browser'}, {name:'CDN / cache'}, {name:'Your server'}];
+
+const METHODS = {
+  GET:    {safe:'safe · idempotent',      note:'reads only · cacheable · never change state in a GET'},
+  POST:   {safe:'neither',                note:'creates or triggers · a repeat creates a second thing'},
+  PUT:    {safe:'idempotent, not safe',   note:'replaces the whole resource · sending it twice is harmless'},
+  PATCH:  {safe:'neither, usually',       note:'partial update · idempotent only if you design it that way'},
+  DELETE: {safe:'idempotent, not safe',   note:'the second call finds nothing to delete, which is still fine'}
+};
+
+const NOTES = {
+  1:'<b>It is text with a shape.</b> A verb, a path, headers, a blank line, then a body — and the same shape comes back with a status code on top.',
+  2:'<b>The verb is a promise about repetition.</b> Safe means "changes nothing"; idempotent means "twice is the same as once", which is what lets clients and proxies retry.',
+  3:'<b>The right status code answers "whose fault, and what now".</b> 4xx means fix your request, 5xx means the server failed, and the difference decides whether a retry is sensible.',
+  4:'<b>A validator turns a download into a question.</b> ETag plus If-None-Match lets the server answer "unchanged" in a few bytes.',
+  5:'<b>HTTP/2 removed the queue, not the round trips.</b> One connection, many interleaved streams, compressed headers; HTTP/3 moves it onto QUIC so a lost packet no longer stalls every stream.',
+  6:'<b>Interview tip:</b> be precise about idempotency and about 401 versus 403. Both are quick ways to tell whether someone has really worked with HTTP.'
+};
+
+function files(S){
+  const L = S.lang, s = S.step, pick = o => o[L];
+
+  if(s === 1 || s === 2) return {
+    cs:[{n:'request.http', lines:[
+      [`${S.method} /api/orders/42 HTTP/1.1`,'hl'],
+      ['Host: runtimecity.com'],
+      ['Accept: application/json'],
+      ['Authorization: Bearer eyJhbGciOi…'],
+      ...(S.method === 'GET' || S.method === 'DELETE' ? [] : [['Content-Type: application/json'],[''],['{ "quantity": 2 }']])]},
+      {n:'response.http', lines:[
+      ['HTTP/1.1 200 OK','hl'],
+      ['Content-Type: application/json'],
+      ['Cache-Control: no-store'],
+      ['ETag: "9f2a1c"'],[''],
+      ['{ "id": 42, "quantity": 2 }']]}],
+    java:null, ts:null
+  }.cs;
+
+  if(s === 3) return pick({
+    cs:[{n:'Statuses.cs', lines:[
+      ['return TypedResults.Ok(order);            // 200 · here it is'],
+      ['return TypedResults.Created($"/orders/{id}", order);   // 201 · made it, here is where','hl'],
+      ['return TypedResults.NoContent();          // 204 · done, nothing to send back'],[''],
+      ['return TypedResults.BadRequest(errors);   // 400 · your request is malformed'],
+      ['return TypedResults.Unauthorized();       // 401 · I do not know who you are','hl'],
+      ['return TypedResults.Forbid();             // 403 · I know, and you still may not','hl'],
+      ['return TypedResults.NotFound();           // 404 · no such thing'],
+      ['return TypedResults.Conflict();           // 409 · it changed under you'],
+      ['return TypedResults.UnprocessableEntity();// 422 · well formed, still invalid'],[''],
+      ['// 5xx means the server broke. Only 5xx and 429 are worth retrying,'],
+      ['// and only for idempotent methods.','hl']]}],
+    java:[{n:'Statuses.java', lines:[
+      ['return ResponseEntity.ok(order);                       // 200'],
+      ['return ResponseEntity.created(location).body(order);   // 201','hl'],
+      ['return ResponseEntity.noContent().build();             // 204'],[''],
+      ['return ResponseEntity.badRequest().body(errors);       // 400'],
+      ['return ResponseEntity.status(UNAUTHORIZED).build();    // 401 · who are you?','hl'],
+      ['return ResponseEntity.status(FORBIDDEN).build();       // 403 · not allowed','hl'],
+      ['return ResponseEntity.notFound().build();              // 404'],
+      ['return ResponseEntity.status(CONFLICT).build();        // 409']]}],
+    ts:[{n:'statuses.ts', lines:[
+      ['res.status(200).json(order);     // here it is'],
+      ['res.status(201).location(`/orders/${id}`).json(order);   // created','hl'],
+      ['res.status(204).end();           // done, no body'],[''],
+      ['res.status(400).json(errors);    // malformed'],
+      ['res.status(401).end();           // not authenticated — who are you?','hl'],
+      ['res.status(403).end();           // authenticated, not permitted','hl'],
+      ['res.status(404).end();           // no such resource'],
+      ['res.status(429).set("Retry-After", "30").end();   // slow down','hl']]}]
+  });
+
+  if(s === 4) return pick({
+    cs:[{n:'caching.http', lines:[
+      ['# First response: here is the content and a label for this version'],
+      ['HTTP/1.1 200 OK'],
+      ['Cache-Control: public, max-age=60, stale-while-revalidate=300','hl'],
+      ['ETag: "9f2a1c"','hl'],[''],
+      ['# Next request after it expires: ask instead of download'],
+      ['GET /api/orders/42 HTTP/1.1'],
+      ['If-None-Match: "9f2a1c"','hl'],[''],
+      ['HTTP/1.1 304 Not Modified        # a few bytes instead of the whole body','new'],[''],
+      ['# no-store for anything personal · immutable for hashed asset filenames']]}],
+    java:[{n:'caching.http', lines:[
+      ['HTTP/1.1 200 OK'],
+      ['Cache-Control: public, max-age=60','hl'],
+      ['ETag: "9f2a1c"','hl'],[''],
+      ['GET /api/orders/42'],
+      ['If-None-Match: "9f2a1c"','hl'],
+      ['HTTP/1.1 304 Not Modified','new'],[''],
+      ['// Spring: ResponseEntity.ok().eTag("9f2a1c").cacheControl(maxAge(60, SECONDS))']]}],
+    ts:[{n:'caching.ts', lines:[
+      ['res.set("Cache-Control", "public, max-age=60, stale-while-revalidate=300");','hl'],
+      ['res.set("ETag", \x27"9f2a1c"\x27);','hl'],[''],
+      ['// Express answers 304 automatically when If-None-Match matches:'],
+      ['if (req.headers["if-none-match"] === etag) return res.status(304).end();','new'],[''],
+      ['// Hashed filenames can be cached forever:'],
+      ['// Cache-Control: public, max-age=31536000, immutable']]}]
+  });
+
+  return pick({
+    cs:[{n:'versions.txt', lines:[
+      ['HTTP/1.1  one request at a time per connection, text headers','bad'],
+      ['          → browsers opened 6 connections per host to compensate'],[''],
+      ['HTTP/2    one connection, many interleaved streams, compressed headers','hl'],
+      ['          → bundling and sprite sheets stopped being necessary'],
+      ['          → still one TCP stream underneath: a lost packet blocks all of it','bad'],[''],
+      ['HTTP/3    the same, over QUIC/UDP: loss blocks only its own stream','new'],
+      ['          → connection setup in a single round trip, TLS included']]}],
+    java:[{n:'versions.txt', lines:[
+      ['HTTP/1.1  one in flight per connection · 6 connections per host','bad'],
+      ['HTTP/2    multiplexed streams · header compression · server push (now unloved)','hl'],
+      ['HTTP/3    QUIC over UDP · no shared head-of-line blocking · 1-RTT setup','new'],[''],
+      ['HttpClient.newBuilder().version(HttpClient.Version.HTTP_2).build();']]}],
+    ts:[{n:'versions.txt', lines:[
+      ['HTTP/1.1  one request in flight per connection','bad'],
+      ['HTTP/2    multiplexing over one connection · HPACK header compression','hl'],
+      ['HTTP/3    over QUIC · independent streams · faster handshake','new'],[''],
+      ['// Browsers negotiate this for you over TLS ALPN: nothing to do in code.']]}]
+  });
+}
+
+const P = Playroom({
+  district:'Network Highway',
+  title:'HTTP',
+  dek:'Text with a shape, a verb that makes a promise, and a number that says what to do next.',
+  steps:['One exchange','Verbs','Status codes','Caching','Versions','Interview check'],
+  stage:Sequence.stage({lanes:LANES, height:320}),
+
+  state:{method:'GET', status:200, cached:false, version:'h1', sent:false},
+
+  story(S, api){
+    const fb = api.fb();
+    return {
+      1:`<h2>One request, one response</h2><p>A verb, a path, headers, a blank line and a body. The reply has the same shape with a status code on the front. Send it and read the code panel.</p>${fb}`,
+      2:`<h2>The verb is a promise</h2><p><b>Safe</b> means it changes nothing. <b>Idempotent</b> means doing it twice equals doing it once. That is what decides whether a proxy may cache it, or a client may retry it.</p>${fb}`,
+      3:`<h2>Pick the number carefully</h2><p>The status code tells the caller whose problem it is and whether to try again. Two pairs cause most arguments: 401 vs 403, and 400 vs 422.</p>${fb}`,
+      4:`<h2>Ask instead of download</h2><p>With an <b>ETag</b>, a repeat request can be answered "nothing changed" in a few bytes, instead of resending the whole body.</p>${fb}`,
+      5:`<h2>What the versions changed</h2><p>HTTP/1.1 could only have one request in flight per connection. HTTP/2 interleaves many; HTTP/3 puts that on QUIC so one lost packet does not stall all of them.</p>${fb}`,
+      6:`<h2>Interview check</h2>${api.quizHTML()}`
+    }[S.step];
+  },
+
+  controls(S){
+    const s = S.step;
+    if(s === 1) return `<button class="btn primary" data-a="send">Send the request</button>`;
+    if(s === 2) return Object.keys(METHODS).map(m =>
+      `<button class="chip" data-m="${m}" aria-pressed="${S.method === m}"><i style="background:${m === 'GET' ? 'var(--good)' : m === 'POST' ? 'var(--bad)' : 'var(--accent)'}"></i>${m}</button>`).join('');
+    if(s === 3) return [200,201,400,401,403,404,409,429,500].map(c =>
+      `<button class="chip" data-s="${c}" aria-pressed="${S.status === c}"><i style="background:${c < 300 ? 'var(--good)' : c < 500 ? 'var(--accent)' : 'var(--bad)'}"></i>${c}</button>`).join('');
+    if(s === 4) return `<button class="btn primary" data-a="first">Fetch it</button><button class="btn" data-a="again">Fetch it again</button>`;
+    if(s === 5) return ['h1','h2','h3'].map(v =>
+      `<button class="chip" data-v2="${v}" aria-pressed="${S.version === v}"><i style="background:${v === 'h1' ? 'var(--bad)' : v === 'h2' ? 'var(--accent)' : 'var(--good)'}"></i>${v === 'h1' ? 'HTTP/1.1' : v === 'h2' ? 'HTTP/2' : 'HTTP/3'}</button>`).join('');
+    return '';
+  },
+
+  statusLine(S){
+    const s = S.step;
+    if(s === 2){
+      const m = METHODS[S.method];
+      return `<b>${S.method}</b> · ${m.safe}<span class="${S.method === 'GET' ? 'ok' : ''}"> · ${m.note}</span>`;
+    }
+    if(s === 3){
+      const meaning = {200:'here it is', 201:'created · send a Location header', 400:'malformed request · do not retry unchanged',
+        401:'not authenticated · who are you?', 403:'authenticated but not permitted', 404:'no such resource',
+        409:'it changed under you · refetch and retry', 429:'slow down · honour Retry-After', 500:'the server broke · retry if idempotent'}[S.status];
+      const cls = S.status < 300 ? 'ok' : S.status >= 500 ? 'warn' : '';
+      return `<b>${S.status}</b> <span class="${cls}">${meaning}</span>`;
+    }
+    if(s === 4) return S.cached
+      ? `Second fetch: <b>304 Not Modified</b> · ~<b>150 bytes</b><span class="ok"> · one round trip, no body</span>`
+      : `First fetch: <b>200 OK</b> · <b>48 KB</b><span> · plus an ETag to use next time</span>`;
+    if(s === 5) return {
+      h1:`HTTP/1.1 · <b>1</b> request in flight per connection<span class="warn"> · browsers opened six connections to compensate</span>`,
+      h2:`HTTP/2 · <b>many</b> streams on one connection<span class="ok"> · but one TCP stream underneath</span>`,
+      h3:`HTTP/3 · many streams over QUIC<span class="ok"> · loss affects one stream only · 1-RTT setup</span>`}[S.version];
+    return S.sent ? `<b>200 OK</b> · application/json · 312 bytes` : `Nothing sent yet`;
+  },
+
+  files,
+  note: S => NOTES[S.step],
+
+  onStage(S){
+    const s = S.step;
+    let lanes = LANES.map((l, i) => ({...l, dim: s < 4 && i === 1}));
+    let messages = [], caption = '';
+
+    if(s === 1){
+      messages = S.sent ? [
+        {from:0, to:2, label:'GET /api/orders/42', ms:'0 ms'},
+        {from:2, to:2, label:'find the order', ms:'', kind:'ok'},
+        {from:2, to:0, label:'200 OK · application/json', ms:'38 ms', kind:'cached'}
+      ] : [];
+      caption = 'verb · path · headers · blank line · body';
+    } else if(s === 2){
+      const m = S.method;
+      messages = [
+        {from:0, to:2, label:`${m} /api/orders/42`},
+        {from:2, to:0, label: m === 'POST' ? '201 Created · order 43' : m === 'DELETE' ? '204 No Content' : '200 OK', kind:'cached'},
+        {from:0, to:2, label:`${m} again (a retry)`, kind: m === 'POST' ? 'bad' : 'slow'},
+        {from:2, to:0, label: m === 'POST' ? '201 Created · order 44 — a duplicate order' : 'same result as before',
+         kind: m === 'POST' ? 'bad' : 'cached'}
+      ];
+      caption = m === 'POST' ? 'not idempotent: a retry creates a second thing' : 'idempotent: safe for clients and proxies to retry';
+    } else if(s === 3){
+      const c = S.status;
+      messages = [
+        {from:0, to:2, label:'POST /api/orders'},
+        {from:2, to:0, label:c + ' ' + {200:'OK',201:'Created',400:'Bad Request',401:'Unauthorized',403:'Forbidden',
+          404:'Not Found',409:'Conflict',429:'Too Many Requests',500:'Internal Server Error'}[c],
+          kind: c < 300 ? 'cached' : c >= 500 ? 'bad' : 'slow'},
+        {from:0, to:0, label: c >= 500 || c === 429 ? 'retry with backoff' : c >= 400 ? 'do not retry unchanged — fix the request' : 'done',
+          kind: c >= 500 || c === 429 ? 'slow' : c >= 400 ? 'bad' : 'cached'}
+      ];
+      caption = '4xx: the caller must change something · 5xx: the server failed';
+    } else if(s === 4){
+      messages = S.cached ? [
+        {from:0, to:1, label:'GET /app.js · If-None-Match: "9f2a1c"'},
+        {from:1, to:0, label:'304 Not Modified · 150 bytes', ms:'18 ms', kind:'cached'}
+      ] : [
+        {from:0, to:1, label:'GET /app.js'},
+        {from:1, to:2, label:'miss · fetch from origin', kind:'slow'},
+        {from:2, to:1, label:'200 OK · 48 KB · ETag "9f2a1c"', kind:'slow'},
+        {from:1, to:0, label:'200 OK · 48 KB', ms:'240 ms', kind:'slow'}
+      ];
+      lanes = LANES;
+      caption = S.cached ? 'a validator makes the second visit almost free' : 'first visit pays for everything';
+    } else if(s === 5){
+      messages = {
+        h1:[{from:0, to:2, label:'GET /index.html'}, {from:2, to:0, label:'200 OK', kind:'cached'},
+            {from:0, to:2, label:'GET /app.js — waits its turn', kind:'bad'},
+            {from:0, to:0, label:'so browsers open 6 connections per host', kind:'slow'}],
+        h2:[{from:0, to:2, label:'GET /index.html · /app.js · /logo.svg (interleaved)', kind:'cached'},
+            {from:2, to:0, label:'all three, multiplexed on one connection', kind:'cached'},
+            {from:0, to:0, label:'one lost TCP packet still stalls every stream', kind:'bad'}],
+        h3:[{from:0, to:2, label:'3 QUIC streams, one connection', kind:'cached'},
+            {from:2, to:0, label:'stream 2 loses a packet — 1 and 3 keep going', kind:'cached'},
+            {from:0, to:0, label:'handshake and TLS in one round trip', kind:'cached'}]
+      }[S.version];
+      caption = 'the shape of HTTP did not change · the plumbing under it did';
+    }
+
+    Sequence.draw({lanes, messages, caption});
+  },
+
+  onStep(S, n){
+    if(n === 1) S.sent = false;
+    if(n === 2) S.method = 'GET';
+    if(n === 3) S.status = 200;
+    if(n === 4) S.cached = false;
+    if(n === 5) S.version = 'h1';
+  },
+
+  onClick(S, b, api){
+    if(b.dataset.m){
+      S.method = b.dataset.m;
+      const m = METHODS[S.method];
+      api.tell(S.method === 'POST' ? 'bad' : 'good',
+        S.method === 'POST'
+          ? '<b>POST is not idempotent, and that is the whole problem with retries.</b> A timeout does not tell the client whether the order was created, so a blind retry can create two. Fix it with an idempotency key the server remembers.'
+          : S.method === 'GET'
+          ? '<b>GET is safe and idempotent.</b> It may be cached, prefetched, retried and logged. Anything that changes state behind a GET will eventually be triggered by a crawler.'
+          : `<b>${S.method} is idempotent.</b> ${m.note}. Idempotent is not the same as safe: it still changes things, it just does not change them differently the second time.`);
+      api.out(`${S.method} · ${m.safe}`);
+      return;
+    }
+    if(b.dataset.s){
+      S.status = +b.dataset.s;
+      const tell = {
+        401:'<b>401 means "I do not know who you are".</b> Send credentials. It should come with a <code>WWW-Authenticate</code> header.',
+        403:'<b>403 means "I know exactly who you are, and no".</b> Re-authenticating will not help. Mixing these two up is the most common status-code mistake in interviews.',
+        400:'<b>400 is malformed.</b> The server could not parse or accept the shape at all.',
+        409:'<b>409 says someone else changed it first.</b> The usual pairing is an ETag plus If-Match for optimistic concurrency.',
+        429:'<b>429 is a rate limit.</b> Send <code>Retry-After</code>, and make the client honour it with backoff and jitter.',
+        500:'<b>5xx is the only class that is your fault.</b> Retries make sense here, with backoff, and only for idempotent requests.',
+        201:'<b>201 should carry a Location header</b> pointing at the thing you just created.',
+        200:'<b>200 is the boring correct answer</b> for a successful read or update.',
+        404:'<b>404 means the resource does not exist</b> — and is often the right answer for "you may not know it exists", instead of 403.'
+      }[S.status];
+      api.tell(S.status >= 500 ? 'bad' : 'good', tell);
+      api.out(S.status + '');
+      return;
+    }
+    if(b.dataset.v2){
+      S.version = b.dataset.v2;
+      api.tell('good', {
+        h1:'<b>HTTP/1.1 allowed one request in flight per connection.</b> Browsers worked around it by opening about six connections per host, which is why bundling and image sprites used to matter so much.',
+        h2:'<b>HTTP/2 multiplexes.</b> Many streams share one connection and headers are compressed, so lots of small files stopped being expensive. The catch: it still rides one TCP stream, so a single lost packet stalls every stream at once.',
+        h3:'<b>HTTP/3 moves that onto QUIC.</b> Streams are independent, so loss affects only the stream it hit, and the handshake including TLS completes in one round trip.'
+      }[S.version]);
+      api.out(S.version === 'h1' ? 'HTTP/1.1' : S.version === 'h2' ? 'HTTP/2' : 'HTTP/3 over QUIC');
+      return;
+    }
+    const a = b.dataset.a;
+    if(a === 'send'){
+      S.sent = true;
+      api.tell('good', '<b>That is all HTTP is.</b> A line, some headers, a blank line, a body — and a response in the same shape. Everything else (REST, GraphQL, your API) is a convention on top of these four parts.');
+      api.out('GET /api/orders/42 → 200 OK · 312 bytes · 38 ms');
+      return;
+    }
+    if(a === 'first'){
+      S.cached = false;
+      api.out('GET /app.js → 200 OK · 48 KB · ETag "9f2a1c" · 240 ms');
+      api.tell('good', '<b>Full download, plus two useful headers.</b> <code>Cache-Control</code> says how long it may be reused without asking, and <code>ETag</code> labels this exact version.');
+      return;
+    }
+    if(a === 'again'){
+      S.cached = true;
+      api.tell('good', '<b>150 bytes instead of 48 KB.</b> The browser sent the ETag back with <code>If-None-Match</code> and the server said "not modified". You still pay one round trip, which is why <code>max-age</code> matters too: within it, there is no request at all.');
+      api.out('GET /app.js (If-None-Match) → 304 Not Modified · 150 bytes · 18 ms');
+      return;
+    }
+    return false;
+  },
+
+  reset(S){ Object.assign(S, {method:'GET', status:200, cached:false, version:'h1', sent:false}); },
+
+  quiz:[
+    {q:'What is the difference between safe and idempotent?',
+     o:['They mean the same thing','Safe means it changes nothing (GET, HEAD); idempotent means repeating it has the same effect as doing it once (PUT, DELETE)'], a:1,
+     w:'This is why a proxy may cache a GET, and why a client may retry a PUT but not a bare POST.'},
+    {q:'401 or 403?',
+     o:['They are interchangeable','401 = not authenticated, send credentials. 403 = authenticated, but not allowed, so retrying with the same identity is pointless'], a:1,
+     w:'A quick way to tell whether someone has really worked with HTTP. Some APIs return 404 instead of 403 to avoid revealing that a resource exists.'},
+    {q:'A POST times out. Can the client safely retry?',
+     o:['Yes, always','No: POST is not idempotent, so a retry may create a second record. Use an idempotency key the server recognises'], a:1,
+     w:'Payment APIs all work this way for exactly this reason — the client generates a key and the server returns the original result for a repeat.'},
+    {q:'What did HTTP/2 fix, and what did it not?',
+     o:['It made requests smaller','It multiplexed many streams onto one connection, but they still share one TCP stream, so a lost packet blocks all of them — which HTTP/3 over QUIC fixes'], a:1,
+     w:'Saying the second half shows you understand why HTTP/3 exists at all.'}
+  ],
+  soundbite:'"An HTTP message is a verb, a path, headers and a body, and the response adds a status code. The verb is a promise: safe means it changes nothing, idempotent means a retry is harmless, which is why I never retry a bare POST without an idempotency key. The status code says whose problem it is — 4xx the caller, 5xx the server — and caching headers like ETag turn a repeat download into a 304. HTTP/2 multiplexed streams onto one connection, and HTTP/3 moved that to QUIC so one lost packet stops blocking everything."'
+});
+</script>
+</body>
+</html>

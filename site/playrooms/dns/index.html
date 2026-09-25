@@ -1,0 +1,306 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>DNS Playroom · Runtime City</title>
+<meta name="description" content="Follow a name being turned into an address: the walk down from the root, the caches that make the second visit instant, and why a TTL decides how long a mistake lasts. A playroom from Runtime City.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,600;12..96,800&family=IBM+Plex+Sans:wght@400;500&family=JetBrains+Mono:wght@400&display=swap">
+<link rel="stylesheet" href="../../assets/playroom.css">
+</head>
+<body>
+<div id="playroom"></div>
+
+<script src="../../assets/city.js"></script>
+<script src="../../assets/nav.js"></script>
+<script src="../../assets/sequence.js"></script>
+<script src="../../assets/playroom.js"></script>
+<script>
+const LANES = ['Browser', 'Resolver', 'Root', '.com', 'runtimecity.com'];
+
+const NOTES = {
+  1:'<b>A name is not an address.</b> Nothing can be connected to until the name has been turned into an IP, and that is a separate round trip before your request even starts.',
+  2:'<b>The resolver walks down the tree.</b> Root knows who runs .com, .com knows who runs your domain, and only the last server knows the address.',
+  3:'<b>Almost every real lookup is answered from a cache.</b> Browser, operating system, then the resolver: the full walk happens once per TTL, not once per visit.',
+  4:'<b>The TTL is how long your mistake lasts.</b> Caches are allowed to keep the old answer for exactly that long, whatever you do at the registrar.',
+  5:'<b>DNS answers more than addresses.</b> And several answers to one name is the oldest load balancing there is — with no health checking of its own.',
+  6:'<b>Interview tip:</b> "recursive resolver, root, TLD, authoritative, then cached by TTL". Then mention lowering the TTL before a migration: it shows you have actually done one.'
+};
+
+function files(S){
+  const L = S.lang, s = S.step, pick = o => o[L];
+
+  if(s === 5) return pick({
+    cs:[{n:'records.txt', lines:[
+      ['runtimecity.com.      300  IN  A      104.18.32.7        ; IPv4','hl'],
+      ['runtimecity.com.      300  IN  AAAA   2606:4700::6812:2007  ; IPv6'],
+      ['www.runtimecity.com.  300  IN  CNAME  runtimecity.com.   ; an alias'],
+      ['runtimecity.com.      300  IN  MX     10 mail.zoho.com.  ; email'],
+      ['runtimecity.com.      300  IN  TXT    "v=spf1 include:…" ; ownership, SPF'],[''],
+      ['; Three A records = round robin. Clients pick one, and DNS'],
+      ['; has no idea whether that server is actually healthy.','hl']]}],
+    java:[{n:'lookup.java', lines:[
+      ['InetAddress[] all = InetAddress.getAllByName("runtimecity.com");','hl'],
+      ['// several addresses for one name: the client picks, often the first'],[''],
+      ['// Java caches DNS results in the JVM as well as the OS:'],
+      ['// networkaddress.cache.ttl — infinite in some old configurations,','bad'],
+      ['// which is a classic "why is it still hitting the dead server" bug.','bad']]}],
+    ts:[{n:'lookup.ts', lines:[
+      ['import { promises as dns } from "node:dns";'],[''],
+      ['await dns.resolve4("runtimecity.com");   // A records','hl'],
+      ['await dns.resolveMx("runtimecity.com");  // mail servers'],
+      ['await dns.resolveTxt("runtimecity.com"); // SPF, verification'],[''],
+      ['// Round robin spreads load but never notices a server is down:'],
+      ['// that is what health checks and load balancers are for.','hl']]}]
+  });
+
+  if(s === 4) return pick({
+    cs:[{n:'migration.txt', lines:[
+      ['; A week before moving, drop the TTL so caches let go quickly','new'],
+      ['runtimecity.com.   60   IN  A  104.18.32.7','hl'],[''],
+      ['; Move the site, change the record, and the world follows within a minute'],
+      ['runtimecity.com.   60   IN  A  203.0.113.9','hl'],[''],
+      ['; Then put the TTL back up so you are not paying for lookups'],
+      ['runtimecity.com.  3600  IN  A  203.0.113.9'],[''],
+      ['; "DNS propagation" is not a thing: nothing is pushed anywhere.','hl'],
+      ['; Caches simply expire at their own pace.']]}],
+    java:[{n:'migration.txt', lines:[
+      ['# Lower the TTL before the change, not after','new'],
+      ['runtimecity.com.   60   IN  A  104.18.32.7','hl'],
+      ['# Switch the record, wait one TTL, raise it again'],
+      ['runtimecity.com.   60   IN  A  203.0.113.9','hl'],[''],
+      ['# Watch out for JVM-level caching on top of the OS:'],
+      ['# -Dsun.net.inetaddr.ttl=60','bad']]}],
+    ts:[{n:'migration.txt', lines:[
+      ['# Lower the TTL a day before the migration','new'],
+      ['runtimecity.com.   60   IN  A  104.18.32.7','hl'],
+      ['# Change it, wait, then raise the TTL again'],
+      ['runtimecity.com.   60   IN  A  203.0.113.9','hl'],[''],
+      ['# Node caches nothing by default, but your CDN and the user\'s'],
+      ['# resolver both will, for exactly one TTL.','hl']]}]
+  });
+
+  return pick({
+    cs:[{n:'Program.cs', lines:[
+      ['var http = new HttpClient();'],
+      ['await http.GetAsync("https://runtimecity.com/");   // a name, not an address','hl'],[''],
+      ['// Before a single byte of your request is sent, something has to answer'],
+      ['// "what IP is that?" — and that answer is usually cached.'],
+      [S.cached ? '// this lookup: served from cache, ~0 ms' : '// this lookup: full walk, ~' + S.total + ' ms',
+       S.cached ? 'new' : 'hl']]}],
+    java:[{n:'Main.java', lines:[
+      ['HttpClient client = HttpClient.newHttpClient();'],
+      ['client.send(HttpRequest.newBuilder(URI.create("https://runtimecity.com/")).build(), ofString());','hl'],[''],
+      ['// The name is resolved first, by the OS resolver, usually from cache.'],
+      [S.cached ? '// this lookup: cached, ~0 ms' : '// this lookup: full walk, ~' + S.total + ' ms',
+       S.cached ? 'new' : 'hl']]}],
+    ts:[{n:'main.ts', lines:[
+      ['await fetch("https://runtimecity.com/");   // a name, not an address','hl'],[''],
+      ['// dig +trace runtimecity.com   shows the same walk from your terminal'],
+      [S.cached ? '// this lookup: cached, ~0 ms' : '// this lookup: full walk, ~' + S.total + ' ms',
+       S.cached ? 'new' : 'hl']]}]
+  });
+}
+
+const P = Playroom({
+  district:'Network Highway',
+  title:'DNS',
+  dek:'Turning a name into an address, before anything else can happen.',
+  steps:['A name','The walk','Caches','The TTL','More than addresses','Interview check'],
+  stage:Sequence.stage({lanes:LANES, height:320}),
+
+  state:{asked:false, cached:false, total:0, ttl:3600, changed:false, records:'a'},
+
+  story(S, api){
+    const fb = api.fb();
+    return {
+      1:`<h2>You typed a name</h2><p><code>runtimecity.com</code> is not something you can connect to. Before any request goes anywhere, something has to turn it into an address.</p>${fb}`,
+      2:`<h2>Nobody knows the whole answer</h2><p>Your resolver asks the <b>root</b> who runs <code>.com</code>, asks <code>.com</code> who runs your domain, then asks that server for the address. Three round trips, then the real request can start.</p>${fb}`,
+      3:`<h2>Which is why everything is cached</h2><p>Browser, operating system, resolver. Ask a second time and the whole walk disappears.</p>${fb}`,
+      4:`<h2>The number that decides your outage</h2><p>Change the address and the old one keeps being served, legitimately, for one <b>TTL</b>. That is the thing to get right <i>before</i> a migration, not during it.</p>${fb}`,
+      5:`<h2>Not just addresses</h2><p>The same system carries mail routing, ownership proofs and aliases, and hands out several addresses for one name — the oldest load balancing there is.</p>${fb}`,
+      6:`<h2>Interview check</h2>${api.quizHTML()}`
+    }[S.step];
+  },
+
+  controls(S){
+    const s = S.step;
+    const ask = `<button class="btn primary" data-a="ask">Look up runtimecity.com</button>`;
+    if(s <= 2) return ask;
+    if(s === 3) return ask + `<button class="btn" data-a="clear">Clear the caches</button>`;
+    if(s === 4) return `<button class="chip" data-ttl="3600" aria-pressed="${S.ttl === 3600}"><i style="background:var(--bad)"></i>TTL 1 hour</button>` +
+      `<button class="chip" data-ttl="60" aria-pressed="${S.ttl === 60}"><i style="background:var(--good)"></i>TTL 60 seconds</button>` +
+      `<button class="btn" data-a="move" style="margin-left:auto">Move the site to a new server</button>`;
+    if(s === 5) return `<button class="chip" data-rec="a" aria-pressed="${S.records === 'a'}"><i style="background:var(--accent)"></i>A / AAAA</button>` +
+      `<button class="chip" data-rec="cname" aria-pressed="${S.records === 'cname'}"><i style="background:var(--muted)"></i>CNAME</button>` +
+      `<button class="chip" data-rec="mx" aria-pressed="${S.records === 'mx'}"><i style="background:var(--muted)"></i>MX / TXT</button>` +
+      `<button class="chip" data-rec="rr" aria-pressed="${S.records === 'rr'}"><i style="background:var(--muted)"></i>Round robin</button>`;
+    return ask;
+  },
+
+  statusLine(S){
+    const s = S.step;
+    if(s === 4) return S.changed
+      ? (S.ttl === 60
+          ? `Record changed · stale answers for up to <b>60 s</b><span class="ok"> · users follow within a minute</span>`
+          : `Record changed · stale answers for up to <b>1 hour</b><span class="warn"> · half your users still reach the old server</span>`)
+      : `TTL <b>${S.ttl === 60 ? '60 s' : '1 hour'}</b><span> · how long caches may keep the current answer</span>`;
+    if(s === 5) return {
+      a:`A → IPv4 · AAAA → IPv6<span> · the addresses a browser actually connects to</span>`,
+      cname:`CNAME → another name<span> · an alias, resolved again, so it costs a second lookup</span>`,
+      mx:`MX → mail servers · TXT → ownership, SPF, DKIM<span> · same system, different jobs</span>`,
+      rr:`3 A records for one name<span class="warn"> · load spreading with no health checks</span>`}[S.records];
+    if(!S.asked) return `Nothing resolved yet`;
+    return S.cached
+      ? `Answer from cache · <b>~0 ms</b><span class="ok"> · no packets left your machine</span>`
+      : `Full walk · <b>${S.total} ms</b><span class="warn"> · before the first byte of the real request</span>`;
+  },
+
+  files,
+  note: S => NOTES[S.step],
+
+  onStage(S){
+    const s = S.step;
+    let lanes = LANES.map((n, i) => ({name:n, dim: s === 1 && i > 1}));
+    let messages = [], caption = '';
+
+    if(s === 1){
+      messages = S.asked
+        ? [{from:0, to:1, label:'A? runtimecity.com', ms:'0 ms'},
+           {from:1, to:0, label:'104.18.32.7', ms:'42 ms', kind:'slow'},
+           {from:0, to:0, label:'now open a TCP connection to 104.18.32.7', ms:'', kind:'ok'}]
+        : [];
+      caption = 'the address has to arrive before the request can start';
+    } else if(s === 2 || (s === 3 && !S.cached)){
+      messages = S.asked ? [
+        {from:0, to:1, label:'A? runtimecity.com', ms:'0 ms'},
+        {from:1, to:2, label:'A? runtimecity.com', ms:'8 ms'},
+        {from:2, to:1, label:'ask the .com servers', ms:'14 ms', kind:'slow'},
+        {from:1, to:3, label:'A? runtimecity.com', ms:'16 ms'},
+        {from:3, to:1, label:'ask ns1.runtimecity.com', ms:'28 ms', kind:'slow'},
+        {from:1, to:4, label:'A? runtimecity.com', ms:'30 ms'},
+        {from:4, to:1, label:'104.18.32.7, TTL ' + S.ttl, ms:'40 ms', kind:'slow'},
+        {from:1, to:0, label:'104.18.32.7', ms:'42 ms', kind:'cached'}
+      ] : [];
+      caption = 'root → TLD → authoritative · each hop knows only who to ask next';
+    } else if(s === 3){
+      messages = [
+        {from:0, to:0, label:'browser cache: hit', ms:'0 ms', kind:'cached'},
+        {from:0, to:0, label:'no packets sent at all', ms:'', kind:'cached'}
+      ];
+      lanes = lanes.map((l, i) => ({...l, dim: i > 1}));
+      caption = 'the walk happens once per TTL, not once per visit';
+    } else if(s === 4){
+      messages = S.changed ? [
+        {from:0, to:1, label:'A? runtimecity.com', ms:'0 ms'},
+        {from:1, to:0, label: S.ttl === 60 ? '203.0.113.9 (new)' : '104.18.32.7 (cached, old)',
+         ms: S.ttl === 60 ? 'fresh' : 'stale', kind: S.ttl === 60 ? 'cached' : 'bad'},
+        {from:0, to:0, label: S.ttl === 60 ? 'reaches the new server' : 'still reaching the old server', ms:'',
+         kind: S.ttl === 60 ? 'cached' : 'bad'}
+      ] : [{from:4, to:1, label:'104.18.32.7, TTL ' + S.ttl, ms:'cached for ' + (S.ttl === 60 ? '60 s' : '1 hour')}];
+      caption = S.changed && S.ttl !== 60 ? 'nothing is broken: caches are doing exactly what you told them'
+                                          : 'lower the TTL before the change, raise it after';
+    } else if(s === 5){
+      const sets = {
+        a:[{from:0, to:1, label:'A? runtimecity.com'}, {from:1, to:0, label:'104.18.32.7', kind:'cached'},
+           {from:0, to:1, label:'AAAA? runtimecity.com'}, {from:1, to:0, label:'2606:4700::6812:2007', kind:'cached'}],
+        cname:[{from:0, to:1, label:'A? www.runtimecity.com'}, {from:1, to:0, label:'CNAME runtimecity.com', kind:'slow'},
+               {from:0, to:1, label:'A? runtimecity.com', ms:'second lookup'}, {from:1, to:0, label:'104.18.32.7', kind:'cached'}],
+        mx:[{from:0, to:1, label:'MX? runtimecity.com'}, {from:1, to:0, label:'10 mail.zoho.com', kind:'cached'},
+            {from:0, to:1, label:'TXT? runtimecity.com'}, {from:1, to:0, label:'"v=spf1 include:…"', kind:'cached'}],
+        rr:[{from:0, to:1, label:'A? runtimecity.com'},
+            {from:1, to:0, label:'104.18.32.7 · 104.18.32.8 · 104.18.32.9', kind:'cached'},
+            {from:0, to:0, label:'client picks one — even if it is down', kind:'bad'}]
+      };
+      messages = sets[S.records];
+      lanes = lanes.map((l, i) => ({...l, dim: i > 1}));
+      caption = 'one name, many kinds of answer';
+    }
+
+    Sequence.draw({lanes, messages, caption});
+  },
+
+  onStep(S, n){
+    S.asked = n >= 2; S.changed = false;
+    if(n === 1) S.asked = false;
+    if(n === 3) S.cached = false;
+    if(n === 4) S.ttl = 3600;
+    if(n === 5) S.records = 'a';
+  },
+
+  onClick(S, b, api){
+    if(b.dataset.ttl){
+      S.ttl = +b.dataset.ttl; S.changed = false;
+      api.out('TTL set to ' + (S.ttl === 60 ? '60 seconds' : '1 hour'));
+      return;
+    }
+    if(b.dataset.rec){
+      S.records = b.dataset.rec;
+      api.tell('good', {
+        a:'<b>A and AAAA are the addresses.</b> A is IPv4, AAAA is IPv6. Everything else in DNS eventually leads to one of these.',
+        cname:'<b>A CNAME is an alias, and it costs a lookup.</b> The resolver has to start again with the new name, which is why you cannot put a CNAME at the root of a domain in plain DNS.',
+        mx:'<b>Same system, different questions.</b> MX says where mail goes; TXT carries SPF, DKIM and the "prove you own this domain" tokens every SaaS asks for.',
+        rr:'<b>Round robin is load spreading, not load balancing.</b> DNS hands out several addresses and the client picks. It has no idea if one is on fire, and clients cache their choice, so removal is slow.'
+      }[S.records]);
+      api.out({a:'A / AAAA', cname:'CNAME → second lookup', mx:'MX / TXT', rr:'3 A records · client chooses'}[S.records]);
+      return;
+    }
+    const a = b.dataset.a;
+    if(a === 'ask'){
+      S.asked = true;
+      if(S.step === 3 && !S.cached){
+        S.cached = true; S.total = 42;
+        api.tell('good', '<b>Second time: nothing left your machine.</b> The browser had it, and beneath that the OS and the resolver each keep their own copy until the TTL runs out. Most lookups in the world are answered this way.');
+        api.out('runtimecity.com → 104.18.32.7 (browser cache) · ~0 ms');
+        return;
+      }
+      S.cached = false; S.total = 42;
+      api.tell(S.step === 1 ? 'bad' : 'good', S.step === 1
+        ? '<b>42 ms before your request even begins.</b> A name has to become an address first, and that is a separate conversation with a separate server.'
+        : '<b>Four questions to answer one.</b> The root does not know your address; it knows who runs <code>.com</code>. Each hop hands the resolver the next server to ask, and only the authoritative one has the answer.');
+      api.out('dig +trace runtimecity.com → 104.18.32.7 · 42 ms · TTL ' + S.ttl);
+      return;
+    }
+    if(a === 'clear'){
+      S.cached = false;
+      api.tell('good', '<b>Caches cleared, so the full walk is back.</b> This is what you are doing when you flush DNS after a change that "has not propagated".');
+      api.out('ipconfig /flushdns · sudo dscacheutil -flushcache');
+      return;
+    }
+    if(a === 'move'){
+      S.changed = true;
+      if(S.ttl === 60){
+        api.tell('good', '<b>Everyone follows within a minute.</b> Because you lowered the TTL beforehand, caches were only ever allowed to hold the old answer for 60 seconds.');
+        api.out('record → 203.0.113.9 · stale window 60 s');
+      } else {
+        api.tell('bad', '<b>Half your users are still on the old server.</b> Nothing is broken and nothing is "propagating": every cache is entitled to keep that answer for the full hour you asked for. The mistake was made when the TTL was set, not today.');
+        api.out('record → 203.0.113.9 · stale window up to 3600 s');
+      }
+      return;
+    }
+    return false;
+  },
+
+  reset(S){ Object.assign(S, {asked:false, cached:false, total:0, ttl:3600, changed:false, records:'a'}); },
+
+  quiz:[
+    {q:'What does a recursive resolver do?',
+     o:['Stores every domain in the world','Asks the root, then the TLD, then the authoritative server on your behalf, and caches the answer','Routes your packets','Signs certificates'], a:1,
+     w:'Your machine asks one question; the resolver does the walking. That is the difference between a recursive resolver and an authoritative server.'},
+    {q:'You change an A record and some users still hit the old server. Why?',
+     o:['The change failed','Caches are allowed to keep the previous answer until its TTL expires, and nothing is pushed to them','Their ISP is broken','DNS is eventually consistent by magic'], a:1,
+     w:'"Propagation" is a misnomer: there is no push. The TTL you set earlier decides how long the old answer survives.'},
+    {q:'What should you do before migrating a domain to a new host?',
+     o:['Nothing','Lower the TTL well in advance, so caches release the old address quickly on the day, then raise it again afterwards'], a:1,
+     w:'Mentioning this is a strong signal: it is the part you only learn from doing a migration.'},
+    {q:'Is DNS round robin a load balancer?',
+     o:['Yes','No: it spreads requests across addresses but does no health checking, and clients cache their choice, so a dead server keeps receiving traffic'], a:1,
+     w:'Real balancing needs health checks and connection-level awareness, which is what a load balancer or anycast network provides.'}
+  ],
+  soundbite:'"DNS turns a name into an address before any connection happens. My resolver asks the root, then the .com servers, then the authoritative server, and caches the answer for its TTL, so almost every real lookup is served from cache. The TTL is the important number: when I change a record, old answers stay valid until it expires, which is why I lower the TTL before a migration rather than during it."'
+});
+</script>
+</body>
+</html>
