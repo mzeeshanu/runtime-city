@@ -1,0 +1,433 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Observer Playroom · Runtime City</title>
+<meta name="description" content="Learn the Observer pattern by breaking a traffic tower that calls every listener by name, then handing out subscriptions. An interactive playroom from Runtime City.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,600;12..96,800&family=IBM+Plex+Sans:wght@400;500&family=JetBrains+Mono:wght@400&display=swap">
+<link rel="stylesheet" href="../../assets/playroom.css">
+<style>
+/* the traffic tower and its listeners */
+:root{--o-sign:#C97A34; --o-phone:#2F7FD0; --o-log:#4E9A5B; --o-spy:#8A83A3}
+.mast{fill:none;stroke:var(--ink);stroke-width:2}
+.mastlbl{font:400 10px var(--mono);fill:var(--muted);text-anchor:middle}
+.cable{stroke:var(--ink);stroke-width:1.5;fill:none}
+.cable.dead{stroke:var(--bad);stroke-dasharray:4 3}
+.cablelbl{font:400 9px var(--mono);fill:var(--muted)}
+.box{fill:var(--surface);stroke:var(--ink);stroke-width:1.5}
+.box.off{stroke:var(--hair)}
+.box.leak{stroke:var(--bad);stroke-dasharray:5 4}
+.boxlbl{font:400 11px var(--mono);fill:var(--ink)}
+.boxlbl.off{fill:var(--muted)}
+.boxnote{font:400 9px var(--mono);fill:var(--muted)}
+.boxnote.warn{fill:var(--bad)}
+.dot{r:4}
+.wave{fill:none;stroke:var(--accent);stroke-width:2;opacity:0}
+.sending .wave{animation:ping 1.1s ease-out}
+.sending .wave:nth-child(2){animation-delay:.16s}
+.sending .wave:nth-child(3){animation-delay:.32s}
+@keyframes ping{0%{opacity:.9;transform:scale(.35)}100%{opacity:0;transform:scale(1)}}
+.wave{transform-box:fill-box;transform-origin:left center}
+.hit{animation:flash .8s ease-out}
+@keyframes flash{0%{fill:var(--accent);opacity:.35}100%{fill:var(--surface);opacity:1}}
+</style>
+</head>
+<body>
+<div id="playroom"></div>
+
+<script src="../../assets/playroom.js"></script>
+<script>
+const EAR = {
+  sign: {cls:'BigSign',     call:'_sign.Show(t)',     label:'Motorway sign', color:'var(--o-sign)',  y:44,  got:'BigSign: "M4 · 12 min delay"'},
+  phone:{cls:'PhoneApp',    call:'_phone.Push(t)',    label:'Phone app',     color:'var(--o-phone)', y:108, got:'PhoneApp: push notification sent'},
+  log:  {cls:'TrafficLog',  call:'_log.Write(t)',     label:'Traffic log',   color:'var(--o-log)',   y:172, got:'TrafficLog: row appended'},
+  spy:  {cls:'SpyObserver', call:'_spy.Record(t)',    label:'Test spy',      color:'var(--o-spy)',   y:236, got:'SpyObserver: 1 call recorded'}
+};
+const ORDER = ['sign','phone','log','spy'];
+
+const STAGE = `
+<svg viewBox="0 0 600 300" role="img" aria-label="A traffic tower broadcasting to listeners">
+  <defs><pattern id="grid" width="24" height="24" patternUnits="userSpaceOnUse"><path d="M24 0H0V24" class="gridline" fill="none"/></pattern></defs>
+  <rect width="600" height="300" fill="url(#grid)" opacity=".6"/>
+
+  <g id="tower">
+    <path class="mast" d="M60 250 L96 90 L132 250 M72 200 H120 M80 160 H112"/>
+    <circle class="mast" cx="96" cy="80" r="8"/>
+    <text class="mastlbl" x="96" y="272">TrafficTower</text>
+    <g id="waves">
+      <path class="wave" d="M112 80 A40 40 0 0 1 112 80 m-24 -22 a30 30 0 0 1 0 44"/>
+      <path class="wave" d="M118 80 m-24 -34 a44 44 0 0 1 0 68"/>
+      <path class="wave" d="M124 80 m-24 -46 a58 58 0 0 1 0 92"/>
+    </g>
+  </g>
+
+  <g id="cables"></g>
+  <g id="ears"></g>
+</svg>`;
+
+const NOTES = {
+  1:'<b>The tower holds the listener itself.</b> One update, one hard-coded call.',
+  2:'<b>Every listener is a line inside the tower.</b> Adding one edits the tower; switching one off breaks it, because the tower calls a thing that is no longer there.',
+  3:'<b>The tower now publishes to a list it does not own.</b> It knows the interface and nothing else: not the count, not the types, not the order.',
+  4:'<b>Listeners come and go while it runs.</b> Subscribe and unsubscribe are the whole API, and a spy makes the broadcast itself testable.',
+  5:'<b>This is the Observer bug interviewers ask about.</b> A subscriber that is finished but never unsubscribed keeps receiving, and the publisher keeps it alive: a real memory leak.',
+  6:'<b>Interview tip:</b> mention the leak before they do, and name your language\'s version: C# <code>event</code> plus <code>-=</code>, Java listener lists or weak references, React effect cleanup.'
+};
+
+function files(S){
+  const L = S.lang, s = S.step;
+  const E = EAR[S.pickReal];
+  const wired = S.wired;
+
+  if(s <= 2){
+    const dead = k => S.off.includes(k);
+    if(L === 'cs') return [{n:'TrafficTower.cs', lines:[
+      ['public class TrafficTower'],['{'],
+      ...wired.map(k => [`    private readonly ${EAR[k].cls} _${k} = new ${EAR[k].cls}();`, k !== 'sign' ? 'bad' : '']),
+      [''],
+      ['    public void Update(Traffic t)'],['    {'],
+      ...wired.map(k => [`        ${EAR[k].call};` + (dead(k) ? '   // switched off, still called' : ''), dead(k) ? 'bad' : (k !== 'sign' ? 'bad' : 'hl')]),
+      ['    }'],['}']]}];
+    if(L === 'java') return [{n:'TrafficTower.java', lines:[
+      ['public class TrafficTower {'],
+      ...wired.map(k => [`    private final ${EAR[k].cls} ${k} = new ${EAR[k].cls}();`, k !== 'sign' ? 'bad' : '']),
+      [''],
+      ['    public void update(Traffic t) {'],
+      ...wired.map(k => [`        ${k}.${EAR[k].call.split('.')[1].replace(/^(\w)/, c => c.toLowerCase())};` + (dead(k) ? '   // switched off, still called' : ''), dead(k) ? 'bad' : (k !== 'sign' ? 'bad' : 'hl')]),
+      ['    }'],['}']]}];
+    return [{n:'traffic-tower.ts', lines:[
+      ['export class TrafficTower {'],
+      ...wired.map(k => [`  private ${k} = new ${EAR[k].cls}();`, k !== 'sign' ? 'bad' : '']),
+      [''],
+      ['  update(t: Traffic) {'],
+      ...wired.map(k => [`    this.${k}.${EAR[k].call.split('.')[1].replace(/^(\w)/, c => c.toLowerCase())};` + (dead(k) ? '   // switched off, still called' : ''), dead(k) ? 'bad' : (k !== 'sign' ? 'bad' : 'hl')]),
+      ['  }'],['}']]}];
+  }
+
+  if(s === 5){
+    const leaky = S.leaked.length > 0;
+    if(L === 'cs') return [{n:'PhoneApp.cs', lines:[
+      ['public class PhoneApp : ITrafficObserver'],['{'],
+      ['    public void OnTraffic(Traffic t) => Notify(t);'],[''],
+      ['    public void Close()'],['    {'],
+      ['        _window.Dispose();'],
+      leaky ? ['        // _tower.Unsubscribe(this);   ← forgotten: the tower still holds this object','bad']
+            : ['        _tower.Unsubscribe(this);   // now the tower can let it go','new'],
+      ['    }'],['}']]},
+      {n:'TrafficTower.cs', lines:[
+      ['// C# shortcut: an event does the same job'],
+      ['public event Action<Traffic> Traffic;        // tower.Traffic += phone.OnTraffic;'],
+      ['protected void Update(Traffic t) => Traffic?.Invoke(t);   // and -= to unsubscribe','hl']]}];
+    if(L === 'java') return [{n:'PhoneApp.java', lines:[
+      ['public class PhoneApp implements TrafficObserver {'],
+      ['    public void onTraffic(Traffic t) { notify(t); }'],[''],
+      ['    public void close() {'],
+      ['        window.dispose();'],
+      leaky ? ['        // tower.unsubscribe(this);   ← forgotten: the tower still holds this object','bad']
+            : ['        tower.unsubscribe(this);   // now the tower can let it go','new'],
+      ['    }'],['}']]},
+      {n:'TrafficTower.java', lines:[
+      ['// If subscribers forget, hold them weakly so the GC can still collect them'],
+      ['private final List<WeakReference<TrafficObserver>> observers = new ArrayList<>();','hl']]}];
+    return [{n:'phone-app.ts', lines:[
+      ['export class PhoneApp implements TrafficObserver {'],
+      ['  onTraffic(t: Traffic) { this.notify(t); }'],[''],
+      ['  close() {'],
+      ['    this.window.destroy();'],
+      leaky ? ['    // this.tower.unsubscribe(this);   ← forgotten: the tower still holds this object','bad']
+            : ['    this.tower.unsubscribe(this);   // now the tower can let it go','new'],
+      ['  }'],['}']]},
+      {n:'use-traffic.ts', lines:[
+      ['// The React version of the same bug and the same fix'],
+      ['useEffect(() => {'],
+      ['  tower.subscribe(onTraffic);'],
+      ['  return () => tower.unsubscribe(onTraffic);   // the cleanup IS the unsubscribe','hl'],
+      ['}, []);']]}];
+  }
+
+  /* steps 3, 4, 6: the pattern */
+  const fresh = s === 3, isNew = s >= 4 ? 'new' : '';
+  if(L === 'cs'){
+    const F = [
+      {n:'ITrafficObserver.cs', lines:[['public interface ITrafficObserver { void OnTraffic(Traffic t); }', fresh ? 'new' : '']]},
+      {n:'TrafficTower.cs', lines:[
+        ['public class TrafficTower'],['{'],
+        ['    private readonly List<ITrafficObserver> _observers = new();', fresh ? 'new' : ''],
+        ['    public void Subscribe(ITrafficObserver o) => _observers.Add(o);','hl'],
+        ['    public void Unsubscribe(ITrafficObserver o) => _observers.Remove(o);','hl'],[''],
+        ['    public void Update(Traffic t)'],['    {'],
+        ['        foreach (var o in _observers) o.OnTraffic(t);   // no names, no types, no count'],
+        ['    }'],['}']]},
+      {n:`${E.cls}.cs`, lines:[
+        [`public class ${E.cls} : ITrafficObserver`, isNew],['{'],
+        [`    public void OnTraffic(Traffic t) => ${E.cls === 'BigSign' ? 'Show(t)' : E.cls === 'PhoneApp' ? 'Notify(t)' : E.cls === 'TrafficLog' ? 'Write(t)' : 'Calls++'};`,'hl'],['}']]},
+      {n:'Program.cs', lines:[
+        ['var tower = new TrafficTower();'],
+        ...S.subs.map(k => [`tower.Subscribe(new ${EAR[k].cls}());`, k === S.pick ? 'hl' : '']),
+        ['tower.Update(traffic);   // everyone subscribed hears it']]}
+    ];
+    if(S.pick === 'spy') F.push({n:'TowerTests.cs', lines:[
+      ['[Fact]'],['public void Update_notifies_every_subscriber()'],['{'],
+      ['    var spy = new SpyObserver();','hl'],
+      ['    tower.Subscribe(spy);'],['    tower.Update(traffic);'],
+      ['    Assert.Equal(1, spy.Calls);   // the broadcast itself is under test'],['}']]});
+    return F;
+  }
+  if(L === 'java'){
+    const F = [
+      {n:'TrafficObserver.java', lines:[['public interface TrafficObserver { void onTraffic(Traffic t); }', fresh ? 'new' : '']]},
+      {n:'TrafficTower.java', lines:[
+        ['public class TrafficTower {'],
+        ['    private final List<TrafficObserver> observers = new ArrayList<>();', fresh ? 'new' : ''],
+        ['    public void subscribe(TrafficObserver o) { observers.add(o); }','hl'],
+        ['    public void unsubscribe(TrafficObserver o) { observers.remove(o); }','hl'],[''],
+        ['    public void update(Traffic t) {'],
+        ['        for (TrafficObserver o : observers) o.onTraffic(t);   // no names, no types'],
+        ['    }'],['}']]},
+      {n:`${E.cls}.java`, lines:[
+        [`public class ${E.cls} implements TrafficObserver {`, isNew],
+        ['    public void onTraffic(Traffic t) { /* … */ }','hl'],['}']]},
+      {n:'Main.java', lines:[
+        ['TrafficTower tower = new TrafficTower();'],
+        ...S.subs.map(k => [`tower.subscribe(new ${EAR[k].cls}());`, k === S.pick ? 'hl' : '']),
+        ['tower.update(traffic);   // everyone subscribed hears it']]}
+    ];
+    if(S.pick === 'spy') F.push({n:'TowerTest.java', lines:[
+      ['@Test'],['void updateNotifiesEverySubscriber() {'],
+      ['    SpyObserver spy = new SpyObserver();','hl'],
+      ['    tower.subscribe(spy);'],['    tower.update(traffic);'],
+      ['    assertEquals(1, spy.calls);   // the broadcast itself is under test'],['}']]});
+    return F;
+  }
+  const F = [
+    {n:'traffic-observer.ts', lines:[['export interface TrafficObserver { onTraffic(t: Traffic): void; }', fresh ? 'new' : '']]},
+    {n:'traffic-tower.ts', lines:[
+      ['export class TrafficTower {'],
+      ['  private observers: TrafficObserver[] = [];', fresh ? 'new' : ''],
+      ['  subscribe(o: TrafficObserver) { this.observers.push(o); }','hl'],
+      ['  unsubscribe(o: TrafficObserver) { this.observers = this.observers.filter(x => x !== o); }','hl'],[''],
+      ['  update(t: Traffic) {'],
+      ['    for (const o of this.observers) o.onTraffic(t);   // no names, no types'],
+      ['  }'],['}']]},
+    {n:`${E.cls.replace(/([a-z])([A-Z])/g,'$1-$2').toLowerCase()}.ts`, lines:[
+      [`export class ${E.cls} implements TrafficObserver {`, isNew],
+      ['  onTraffic(t: Traffic) { /* … */ }','hl'],['}']]},
+    {n:'main.ts', lines:[
+      ['const tower = new TrafficTower();'],
+      ...S.subs.map(k => [`tower.subscribe(new ${EAR[k].cls}());`, k === S.pick ? 'hl' : '']),
+      ['tower.update(traffic);   // everyone subscribed hears it']]}
+  ];
+  if(S.pick === 'spy') F.push({n:'tower.test.ts', lines:[
+    ['test("update notifies every subscriber", () => {'],
+    ['  const spy = new SpyObserver();','hl'],
+    ['  tower.subscribe(spy);'],['  tower.update(traffic);'],
+    ['  expect(spy.calls).toBe(1);   // the broadcast itself is under test'],['});']]});
+  return F;
+}
+
+const P = Playroom({
+  district:'Pattern Park',
+  title:'Observer',
+  dek:'Say it once. Whoever is listening hears it.',
+  steps:['One listener','Break it','Cut the cables','Subscribe live','The leak','Interview check'],
+  stage:STAGE,
+  park:{current:'Observer', items:[
+    {label:'Dependency Injection', href:'../dependency-injection/'},
+    {label:'Factory Method', href:'../factory-method/'},
+    {label:'Strategy', href:'../strategy/'},
+    {label:'Observer'}, {label:'Singleton'}]},
+
+  state:{wired:['sign'], off:[], edits:0, cracked:false,
+         subs:['sign'], pick:'sign', pickReal:'sign', leaked:[], listed:false},
+
+  story(S, api){
+    const fb = api.fb();
+    return {
+      1:`<h2>A tower with one cable</h2><p>The traffic tower holds a <code>BigSign</code> and calls it whenever traffic changes. Broadcast an update and watch the sign light up.</p>`,
+      2:`<h2>Now everyone wants the feed</h2><p>Add the phone app and the traffic log, then switch the sign off. The tower is holding each of them by name, so every change is a change to the tower.</p>${fb}`,
+      3:`<h2>Cut the cables</h2><p>The tower stops holding listeners and starts holding a <b>list of anything that implements <code>ITrafficObserver</code></b>. Listeners ask to join; the tower just loops.</p>${fb || '<p>Nobody has subscribed yet. Let the sign subscribe.</p>'}`,
+      4:`<h2>Subscribe and unsubscribe while it runs</h2><p>Toggle listeners on and off, then broadcast. The tower is never edited and never knows who is out there, which is exactly why a test spy can join too.</p>${fb}`,
+      5:`<h2>The leak</h2><p>Close the phone app <b>without unsubscribing</b>, then broadcast. It still receives, and the tower's list keeps the closed object alive: the memory leak that Observer is famous for.</p>${fb}`,
+      6:`<h2>Interview check</h2>${api.quizHTML()}`
+    }[S.step];
+  },
+
+  controls(S){
+    const s = S.step;
+    const send = `<button class="btn primary" data-a="send" style="margin-left:auto">Broadcast an update</button>`;
+    if(s === 1) return `<button class="btn primary" data-a="send">Broadcast an update</button>`;
+    if(s === 2){
+      const add = k => S.wired.includes(k) ? '' : `<button class="btn" data-a="wire" data-k="${k}">Add the ${EAR[k].label.toLowerCase()}</button>`;
+      return add('phone') + add('log') +
+        (S.off.includes('sign') ? '' : `<button class="btn" data-a="off">Switch the sign off</button>`) + send;
+    }
+    if(s === 3) return S.subs.length
+      ? `<button class="btn primary" data-a="send">Broadcast an update</button>`
+      : `<button class="btn primary" data-a="join">Let the sign subscribe</button>`;
+    if(s === 5) return (S.leaked.includes('phone')
+        ? `<button class="btn" data-a="fixleak">Unsubscribe it properly</button>`
+        : `<button class="btn" data-a="leak">Close the phone app</button>`) + send;
+    return ORDER.map(k =>
+      `<button class="chip" data-k2="${k}" aria-pressed="${S.subs.includes(k)}"><i style="background:${EAR[k].color}"></i>${EAR[k].cls}</button>`).join('') + send;
+  },
+
+  statusLine(S){
+    const s = S.step;
+    if(s <= 2){
+      const n = S.wired.length;
+      return `Tower calls <b>${n}</b> listener${n === 1 ? '' : 's'} by name · edited <b>${S.edits}</b> time${S.edits === 1 ? '' : 's'}` +
+        (S.cracked ? `<span class="warn"> · it called something that is gone</span>`
+                   : `<span class="warn"> · every listener is a field in the tower</span>`);
+    }
+    if(s === 5){
+      const l = S.leaked.length;
+      return l
+        ? `Closed but still subscribed: <b>${l}</b><span class="warn"> · still receiving · the tower's list keeps it in memory</span>`
+        : `Subscribers <b>${S.subs.length}</b><span class="ok"> · every closed listener unsubscribed · nothing leaked</span>`;
+    }
+    const n = S.subs.length;
+    return `Tower edits since the list <b>0</b><span class="ok"> · ${n} subscriber${n === 1 ? '' : 's'} · joining and leaving at run time</span>`;
+  },
+
+  files,
+  note: S => NOTES[S.step],
+
+  onStage(S){
+    const s = S.step, id = document.getElementById.bind(document);
+    const direct = s <= 2;
+    const shown = direct ? S.wired : ORDER;
+
+    id('cables').innerHTML = direct ? S.wired.map(k => {
+      const dead = S.off.includes(k);
+      return `<path class="cable ${dead ? 'dead' : ''}" d="M132 ${150} C 240 150, 260 ${EAR[k].y + 22}, 372 ${EAR[k].y + 22}"/>` +
+             `<text class="cablelbl" x="250" y="${EAR[k].y + 16}">${EAR[k].call}</text>`;
+    }).join('') : '';
+
+    id('ears').innerHTML = shown.map(k => {
+      const e = EAR[k];
+      const leaked = S.leaked.includes(k);
+      const on = direct ? !S.off.includes(k) : S.subs.includes(k) || leaked;
+      return `<g>` +
+        `<rect id="box-${k}" class="box ${on ? '' : 'off'} ${leaked ? 'leak' : ''}" x="372" y="${e.y}" width="176" height="44" rx="6"/>` +
+        `<text class="boxlbl ${on ? '' : 'off'}" x="386" y="${e.y + 20}">${e.cls}</text>` +
+        `<text class="boxnote ${leaked ? 'warn' : ''}" x="386" y="${e.y + 35}">` +
+          (leaked ? 'closed · still subscribed' : on ? (direct ? 'wired in by name' : 'subscribed') : (direct ? 'switched off' : 'not subscribed')) +
+        `</text>` +
+        (on ? `<circle class="dot" cx="536" cy="${e.y + 12}" r="4" fill="${e.color}"/>` : '') +
+        `</g>`;
+    }).join('');
+
+    id('waves').style.display = direct ? 'none' : '';
+  },
+
+  onStep(S, n){
+    if(n === 3){ S.subs = []; S.leaked = []; S.pick = 'sign'; }
+    if(n >= 4 && !S.subs.length && !S.leaked.length){ S.subs = ['sign', S.pickReal].filter((v, i, a) => a.indexOf(v) === i); }
+    if(n === 5 && !S.subs.includes('phone') && !S.leaked.includes('phone')) S.subs.push('phone');
+  },
+
+  onClick(S, b, api){
+    if(b.dataset.k2){
+      const k = b.dataset.k2;
+      S.pick = k;
+      if(S.subs.includes(k)){
+        S.subs = S.subs.filter(x => x !== k);
+        api.tell('good', `<b>${EAR[k].cls} left.</b> One call to <code>Unsubscribe</code> and the tower stops talking to it. Nothing else in the system changed.`);
+        api.out(`tower.Unsubscribe(${k})`);
+      } else {
+        S.subs.push(k);
+        if(k !== 'spy') S.pickReal = k;
+        api.tell('good', k === 'spy'
+          ? '<b>A test can join the broadcast.</b> The spy subscribes like anything else and counts what it receives, so you can assert that an update really reaches every subscriber.'
+          : `<b>${EAR[k].cls} joined.</b> It implements the observer interface, calls <code>Subscribe</code>, and the tower never learned its name.`);
+        api.out(`tower.Subscribe(new ${EAR[k].cls}())`);
+      }
+      return;
+    }
+    const a = b.dataset.a;
+    if(a === 'send'){ send(S, api); return; }
+    if(a === 'wire'){
+      const k = b.dataset.k;
+      S.wired.push(k); S.edits += 2; S.pickReal = k;
+      api.tell('bad', `<b>Two more lines inside the tower.</b> A field to hold the ${EAR[k].label.toLowerCase()} and a call in <code>Update</code>. The tower now depends on ${S.wired.length} concrete classes it has no business knowing.`);
+      api.out(`edited TrafficTower: +2 lines for ${EAR[k].cls}`);
+      return;
+    }
+    if(a === 'off'){
+      S.off.push('sign'); S.cracked = true;
+      api.tell('bad', '<b>The tower still calls the sign.</b> It was switched off, but the tower holds it by name and has no way to be told. The next update throws.');
+      api.out('Update(t) → NullReferenceException at _sign.Show(t)');
+      return;
+    }
+    if(a === 'join'){
+      S.subs = ['sign']; S.pick = 'sign'; S.pickReal = 'sign';
+      api.tell('good', '<b>The sign asked to join.</b> The tower added it to a list of <code>ITrafficObserver</code> and knows nothing else about it.');
+      api.out('tower.Subscribe(new BigSign())');
+      return;
+    }
+    if(a === 'leak'){
+      S.subs = S.subs.filter(x => x !== 'phone'); S.leaked.push('phone');
+      api.tell('bad', '<b>The window is gone; the subscription is not.</b> The tower still holds a reference, so the phone app keeps receiving updates and can never be garbage collected. In a long-lived publisher this is how apps quietly grow in memory.');
+      api.out('phone.Close() → window disposed · tower.Unsubscribe never called');
+      return;
+    }
+    if(a === 'fixleak'){
+      S.leaked = S.leaked.filter(x => x !== 'phone');
+      api.tell('good', '<b>Fixed by one line in Close().</b> Whoever subscribes is responsible for unsubscribing, which is why C# pairs <code>+=</code> with <code>-=</code>, and React pairs a subscribe with its cleanup function.');
+      api.out('phone.Close() → tower.Unsubscribe(this)');
+      return;
+    }
+    return false;
+  },
+
+  reset(S){
+    Object.assign(S, {wired:['sign'], off:[], edits:0, cracked:false,
+                      subs:['sign'], pick:'sign', pickReal:'sign', leaked:[], listed:false});
+  },
+
+  quiz:[
+    {q:'What does Observer decouple?',
+     o:['Creation from use','The thing that changes from the things that want to know about it','Interfaces from implementations','Threads from each other'], a:1,
+     w:'The publisher holds a list of subscribers behind one interface. It does not know their types, their number, or what they do with the news.'},
+    {q:'What is the classic Observer bug?',
+     o:['Subscribers receive updates twice','A subscriber that is finished never unsubscribes, so it keeps receiving and the publisher keeps it alive in memory','Events are delivered out of order','It cannot be used with interfaces'], a:1,
+     w:'Say this before the interviewer does. In C# an event held by a long-lived publisher keeps handlers alive; in React it is the effect that subscribes without returning a cleanup.'},
+    {q:'A colleague says "we use events, so we are not using Observer". Are they right?',
+     o:['Yes, events are a different pattern','No. C# events, Java listener lists and JavaScript event emitters are all Observer, with the plumbing supplied by the language'], a:1,
+     w:'Knowing your language already ships the pattern is the useful part; writing the interface by hand is only for when you need control of the list.'},
+    {q:'What should you consider when one update triggers many subscribers?',
+     o:['Nothing, it is always safe','Order is not guaranteed, one slow or throwing subscriber can block or break the broadcast, and a subscriber changing the publisher can cause loops'], a:1,
+     w:'Real answers: copy the list before iterating, isolate failures, and consider an async queue when handlers are slow.'}
+  ],
+  soundbite:'"Observer lets one object announce changes without knowing who cares. Subscribers implement one interface and add themselves to the publisher\'s list, so adding a listener never edits the publisher. The thing to watch is unsubscribing: if a finished subscriber stays in the list it keeps receiving and stays in memory, which is the leak people hit with C# events or a React effect that forgets its cleanup."'
+});
+
+function send(S, api){
+  const s = S.step;
+  if(s <= 2 && S.cracked){
+    api.out('Update(t) → NullReferenceException at _sign.Show(t)');
+    return;
+  }
+  if(s >= 3 && !S.subs.length && !S.leaked.length){
+    api.out('Update(t) → 0 subscribers, nothing happened.');
+    return;
+  }
+  const tower = api.el('tower');
+  tower.classList.remove('sending'); void tower.getBBox(); tower.classList.add('sending');
+  setTimeout(() => tower.classList.remove('sending'), 1400);
+
+  const heard = (s <= 2 ? S.wired.filter(k => !S.off.includes(k)) : S.subs.concat(S.leaked));
+  heard.forEach((k, i) => setTimeout(() => {
+    const box = api.el('box-' + k);
+    if(box){ box.classList.remove('hit'); void box.getBBox(); box.classList.add('hit'); }
+  }, 260 + i * 140));
+
+  const leakNote = S.leaked.length ? ` · including ${S.leaked.length} closed listener` : '';
+  api.out(heard.map(k => EAR[k].got).join('  ·  ') + leakNote);
+}
+</script>
+</body>
+</html>

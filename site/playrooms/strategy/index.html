@@ -1,0 +1,446 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Strategy Playroom · Runtime City</title>
+<meta name="description" content="Learn the Strategy pattern by breaking a route planner: grow a method full of boolean flags, then hand the algorithm in from outside. An interactive playroom from Runtime City.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,600;12..96,800&family=IBM+Plex+Sans:wght@400;500&family=JetBrains+Mono:wght@400&display=swap">
+<link rel="stylesheet" href="../../assets/playroom.css">
+<style>
+/* the city map */
+:root{--s-short:#C97A34; --s-fast:#2F7FD0; --s-free:#4E9A5B; --s-scenic:#7A6BB5; --s-fake:#8A83A3}
+.street{stroke:var(--hair);stroke-width:6;stroke-linecap:round}
+.park{fill:var(--s-free);opacity:.16}
+.parklbl{font:400 9px var(--mono);fill:var(--s-free)}
+.toll{fill:none;stroke:var(--bad);stroke-width:1.5}
+.tolllbl{font:400 8px var(--mono);fill:var(--bad);text-anchor:middle}
+.pin{fill:var(--ink)}
+.pinlbl{font:400 10px var(--mono);fill:var(--muted)}
+#route{fill:none;stroke-width:3.5;stroke-linejoin:round;stroke-linecap:round;
+       stroke-dasharray:1400;stroke-dashoffset:1400;transition:stroke-dashoffset 1.4s ease-in-out}
+#route.go{stroke-dashoffset:0}
+.branch{font:400 11px var(--mono);fill:var(--muted)}
+.branch.on{fill:var(--accent)}
+.branch.miss{fill:var(--bad)}
+.unitbox{fill:var(--surface);stroke:var(--ink);stroke-width:2}
+.cracked .unitbox{stroke:var(--bad)}
+#algo{transition:transform .5s cubic-bezier(.2,.9,.3,1.25),opacity .3s}
+#algo.out{transform:translateX(-120px);opacity:0}
+.carDot{fill:var(--ink)}
+</style>
+</head>
+<body>
+<div id="playroom"></div>
+
+<script src="../../assets/playroom.js"></script>
+<script>
+const WAY = {
+  shortest:{cls:'ShortestRoute', label:'Shortest', color:'var(--s-short)',
+    d:'M60 230 H220 V130 H380 V40 H540', km:'4.1 km', mins:'18 min', tolls:'1 toll',
+    out:'ShortestRoute: 4.1 km · 18 min · 1 toll'},
+  fastest:{cls:'FastestRoute', label:'Fastest', color:'var(--s-fast)',
+    d:'M60 230 V180 H300 V40 H540', km:'5.3 km', mins:'11 min', tolls:'2 tolls',
+    out:'FastestRoute: 5.3 km · 11 min · 2 tolls'},
+  tollfree:{cls:'TollFreeRoute', label:'No tolls', color:'var(--s-free)',
+    d:'M60 230 H460 V90 H500 V40 H540', km:'5.9 km', mins:'21 min', tolls:'no tolls',
+    out:'TollFreeRoute: 5.9 km · 21 min · no tolls'},
+  scenic:{cls:'ScenicRoute', label:'Scenic', color:'var(--s-scenic)',
+    d:'M60 230 H140 V130 H220 V90 H380 V130 H460 V40 H540', km:'7.2 km', mins:'26 min', tolls:'past the park',
+    out:'ScenicRoute: 7.2 km · 26 min · runs along the park'},
+  fake:{cls:'FakeRoute', label:'Fake', color:'var(--s-fake)',
+    d:'M60 230 H300 V40 H540', km:'—', mins:'0 ms', tolls:'nothing computed',
+    out:'FakeRoute: Build() was called once with (Home, Office). Nothing computed.'}
+};
+const FLAGS = {fastest:'fastest', tollfree:'avoidTolls', scenic:'scenic'};
+
+const STAGE = `
+<svg viewBox="0 0 600 330" role="img" aria-label="A city map with a planned route">
+  <defs><pattern id="grid" width="24" height="24" patternUnits="userSpaceOnUse"><path d="M24 0H0V24" class="gridline" fill="none"/></pattern></defs>
+  <rect width="600" height="330" fill="url(#grid)" opacity=".6"/>
+
+  <g class="street">
+    <line x1="60" y1="30" x2="60" y2="240"/><line x1="140" y1="30" x2="140" y2="240"/>
+    <line x1="220" y1="30" x2="220" y2="240"/><line x1="300" y1="30" x2="300" y2="240"/>
+    <line x1="380" y1="30" x2="380" y2="240"/><line x1="460" y1="30" x2="460" y2="240"/>
+    <line x1="500" y1="30" x2="500" y2="240"/><line x1="540" y1="30" x2="540" y2="240"/>
+    <line x1="50" y1="40" x2="550" y2="40"/><line x1="50" y1="90" x2="550" y2="90"/>
+    <line x1="50" y1="130" x2="550" y2="130"/><line x1="50" y1="180" x2="550" y2="180"/>
+    <line x1="50" y1="230" x2="550" y2="230"/>
+  </g>
+
+  <rect class="park" x="228" y="96" width="144" height="28" rx="4"/>
+  <text class="parklbl" x="232" y="115">riverside park</text>
+
+  <g><circle class="toll" cx="300" cy="130" r="7"/><text class="tolllbl" x="300" y="133">T</text></g>
+  <g><circle class="toll" cx="380" cy="90" r="7"/><text class="tolllbl" x="380" y="93">T</text></g>
+
+  <path id="route" d="M60 230 H220 V130 H380 V40 H540"/>
+
+  <circle class="pin" cx="60" cy="230" r="6"/><text class="pinlbl" x="42" y="252">home</text>
+  <circle class="pin" cx="540" cy="40" r="6"/><text class="pinlbl" x="516" y="26">office</text>
+
+  <g id="unit">
+    <text class="tiny" x="145" y="276" style="text-anchor:start">Navigator</text>
+    <g id="switchBox">
+      <rect class="unitbox" x="40" y="282" width="250" height="44" rx="6"/>
+      <g id="branches"></g>
+    </g>
+    <g id="slotBox">
+      <rect class="slot" x="40" y="282" width="250" height="44" rx="6"/>
+      <text class="slotlbl" x="165" y="309">IRouteStrategy</text>
+      <g id="algo" class="out">
+        <rect id="algoBlock" x="40" y="282" width="250" height="44" rx="6"/>
+        <text id="algoLabel" class="fitlbl" x="165" y="309">ShortestRoute</text>
+      </g>
+    </g>
+    <text class="crash" x="165" y="320">flags fight each other</text>
+  </g>
+</svg>`;
+
+const NOTES = {
+  1:'<b>One algorithm, written straight into the method.</b> Fine until the second one arrives.',
+  2:'<b>Each flag doubles the combinations.</b> Three booleans is eight paths through one method, and most of them are never tested.',
+  3:'<b>The algorithm moved out.</b> Navigator now holds something that can build a route and no longer knows how any route is built.',
+  4:'<b>Same object, different behaviour.</b> <code>Use()</code> swaps the algorithm while the app is running, and a new route type is a new class.',
+  5:'<b>A one-method interface is a function.</b> Modern C#, Java and TypeScript let you pass the function itself; keep a class when the strategy carries state, a name or its own dependencies.',
+  6:'<b>Interview tip:</b> if you are asked to remove a flag argument or a long if/else over "mode", Strategy is usually the expected answer.'
+};
+
+function files(S){
+  const L = S.lang, s = S.step, W = WAY[S.pickReal];
+  const flags = S.flags;
+
+  if(s === 1) return {
+    cs:[{n:'Navigator.cs', lines:[
+      ['public class Navigator'],['{'],
+      ['    public Route BuildRoute(Point from, Point to)'],['    {'],
+      ['        return Graph.ShortestPath(from, to);   // the one algorithm, hard-coded','hl'],
+      ['    }'],['}']]}],
+    java:[{n:'Navigator.java', lines:[
+      ['public class Navigator {'],
+      ['    public Route buildRoute(Point from, Point to) {'],
+      ['        return Graph.shortestPath(from, to);   // the one algorithm, hard-coded','hl'],
+      ['    }'],['}']]}],
+    ts:[{n:'navigator.ts', lines:[
+      ['export class Navigator {'],
+      ['  buildRoute(from: Point, to: Point): Route {'],
+      ['    return graph.shortestPath(from, to);   // the one algorithm, hard-coded','hl'],
+      ['  }'],['}']]}]
+  }[L];
+
+  if(s === 2){
+    const has = f => flags.includes(f);
+    const combos = Math.pow(2, flags.length);
+    if(L === 'cs') return [{n:'Navigator.cs', lines:[
+      ['public class Navigator'],['{'],
+      [`    public Route BuildRoute(Point from, Point to${flags.map(f => `, bool ${FLAGS[f]}`).join('')})`, flags.length ? 'bad' : ''],
+      ['    {'],
+      ...(has('fastest') ? [['        if (fastest) return Graph.FastestPath(from, to);','bad']] : []),
+      ...(has('tollfree') ? [['        if (avoidTolls) return Graph.TollFreePath(from, to);','bad']] : []),
+      ...(has('fastest') && has('tollfree') ? [['        if (fastest && avoidTolls) return Graph.FastestTollFree(from, to);','bad']] : []),
+      ...(has('scenic') ? [['        if (scenic) return Graph.Prettiest(from, to);   // and scenic + fastest? scenic + avoidTolls?','bad']] : []),
+      ['        return Graph.ShortestPath(from, to);'],
+      [`    }   // ${combos} combinations of flags, ${combos - flags.length - 1} of them untested`, flags.length > 1 ? 'bad' : ''],
+      ['}']]}];
+    if(L === 'java') return [{n:'Navigator.java', lines:[
+      ['public class Navigator {'],
+      [`    public Route buildRoute(Point from, Point to${flags.map(f => `, boolean ${FLAGS[f]}`).join('')}) {`, flags.length ? 'bad' : ''],
+      ...(has('fastest') ? [['        if (fastest) return Graph.fastestPath(from, to);','bad']] : []),
+      ...(has('tollfree') ? [['        if (avoidTolls) return Graph.tollFreePath(from, to);','bad']] : []),
+      ...(has('fastest') && has('tollfree') ? [['        if (fastest && avoidTolls) return Graph.fastestTollFree(from, to);','bad']] : []),
+      ...(has('scenic') ? [['        if (scenic) return Graph.prettiest(from, to);   // and scenic + fastest?','bad']] : []),
+      ['        return Graph.shortestPath(from, to);'],
+      [`    }   // ${combos} combinations of flags`, flags.length > 1 ? 'bad' : ''],
+      ['}']]}];
+    return [{n:'navigator.ts', lines:[
+      ['export class Navigator {'],
+      [`  buildRoute(from: Point, to: Point${flags.map(f => `, ${FLAGS[f]}: boolean`).join('')}): Route {`, flags.length ? 'bad' : ''],
+      ...(has('fastest') ? [['    if (fastest) return graph.fastestPath(from, to);','bad']] : []),
+      ...(has('tollfree') ? [['    if (avoidTolls) return graph.tollFreePath(from, to);','bad']] : []),
+      ...(has('fastest') && has('tollfree') ? [['    if (fastest && avoidTolls) return graph.fastestTollFree(from, to);','bad']] : []),
+      ...(has('scenic') ? [['    if (scenic) return graph.prettiest(from, to);   // and scenic + fastest?','bad']] : []),
+      ['    return graph.shortestPath(from, to);'],
+      [`  }   // ${combos} combinations of flags`, flags.length > 1 ? 'bad' : ''],
+      ['}']]}];
+  }
+
+  if(s === 5 && S.shape === 'function') return {
+    cs:[{n:'Program.cs', lines:[
+      ['// A one-method interface is a delegate in disguise'],
+      ['Func<Point, Point, Route> fastest = Graph.FastestPath;','hl'],
+      ['var nav = new Navigator(fastest);'],
+      ['nav.Use(Graph.TollFreePath);        // swap: no new class needed','hl'],
+      ['nav.Use((f, t) => Graph.Prettiest(f, t));   // or write it inline'],['']]},
+      {n:'Navigator.cs', lines:[
+      ['public class Navigator'],['{'],
+      ['    private Func<Point, Point, Route> _build;'],
+      ['    public Navigator(Func<Point, Point, Route> build) => _build = build;'],
+      ['    public void Use(Func<Point, Point, Route> build) => _build = build;'],
+      ['    public Route BuildRoute(Point from, Point to) => _build(from, to);'],['}']]}],
+    java:[{n:'Main.java', lines:[
+      ['// RouteStrategy has one method, so a lambda or method reference fits it'],
+      ['Navigator nav = new Navigator(Graph::fastestPath);','hl'],
+      ['nav.use(Graph::tollFreePath);       // swap: no new class needed','hl'],
+      ['nav.use((f, t) -> Graph.prettiest(f, t));   // or write it inline']]},
+      {n:'RouteStrategy.java', lines:[
+      ['@FunctionalInterface'],
+      ['public interface RouteStrategy { Route build(Point from, Point to); }']]}],
+    ts:[{n:'navigator.ts', lines:[
+      ['// In TypeScript the strategy is just a function type'],
+      ['export type RouteStrategy = (from: Point, to: Point) => Route;','hl'],[''],
+      ['export class Navigator {'],
+      ['  constructor(private build: RouteStrategy) {}'],
+      ['  use(build: RouteStrategy) { this.build = build; }'],
+      ['  buildRoute(from: Point, to: Point) { return this.build(from, to); }'],['}']]},
+      {n:'main.ts', lines:[
+      ['const nav = new Navigator(graph.fastestPath);'],
+      ['nav.use(graph.tollFreePath);        // swap: no new class needed','hl']]}]
+  }[L];
+
+  /* steps 3, 4, 6 and step 5 "class": the pattern itself */
+  const fresh = s === 3, isNew = s >= 4 ? 'new' : '';
+  if(L === 'cs'){
+    const F = [
+      {n:'IRouteStrategy.cs', lines:[['public interface IRouteStrategy { Route Build(Point from, Point to); }', fresh ? 'new' : '']]},
+      {n:'Navigator.cs', lines:[
+        ['public class Navigator'],['{'],
+        ['    private IRouteStrategy _strategy;'],
+        ['    public Navigator(IRouteStrategy strategy) => _strategy = strategy;', fresh ? 'new' : ''],
+        ['    public void Use(IRouteStrategy strategy) => _strategy = strategy;   // swap at run time','hl'],[''],
+        ['    public Route BuildRoute(Point from, Point to) => _strategy.Build(from, to);'],['}']]},
+      {n:`${W.cls}.cs`, lines:[
+        [`public class ${W.cls} : IRouteStrategy`, isNew],['{'],
+        [`    public Route Build(Point from, Point to) => ${W.call};`,'hl'],['}']]}
+    ];
+    if(S.pick === 'fake') F.push({n:'NavigatorTests.cs', lines:[
+      ['[Fact]'],['public void BuildRoute_asks_its_strategy()'],['{'],
+      ['    var fake = new FakeRoute();','hl'],
+      ['    new Navigator(fake).BuildRoute(home, office);','hl'],
+      ['    Assert.Equal(1, fake.Calls);   // no graph, no map data, 0 ms'],['}']]});
+    return F;
+  }
+  if(L === 'java'){
+    const F = [
+      {n:'RouteStrategy.java', lines:[['public interface RouteStrategy { Route build(Point from, Point to); }', fresh ? 'new' : '']]},
+      {n:'Navigator.java', lines:[
+        ['public class Navigator {'],
+        ['    private RouteStrategy strategy;'],
+        ['    public Navigator(RouteStrategy strategy) { this.strategy = strategy; }', fresh ? 'new' : ''],
+        ['    public void use(RouteStrategy strategy) { this.strategy = strategy; }   // swap at run time','hl'],[''],
+        ['    public Route buildRoute(Point from, Point to) { return strategy.build(from, to); }'],['}']]},
+      {n:`${W.cls}.java`, lines:[
+        [`public class ${W.cls} implements RouteStrategy {`, isNew],
+        [`    public Route build(Point from, Point to) { return ${W.callJava}; }`,'hl'],['}']]}
+    ];
+    if(S.pick === 'fake') F.push({n:'NavigatorTest.java', lines:[
+      ['@Test'],['void buildRouteAsksItsStrategy() {'],
+      ['    FakeRoute fake = new FakeRoute();','hl'],
+      ['    new Navigator(fake).buildRoute(home, office);','hl'],
+      ['    assertEquals(1, fake.calls);   // no graph, no map data, 0 ms'],['}']]});
+    return F;
+  }
+  const F = [
+    {n:'route-strategy.ts', lines:[['export interface RouteStrategy { build(from: Point, to: Point): Route; }', fresh ? 'new' : '']]},
+    {n:'navigator.ts', lines:[
+      ['export class Navigator {'],
+      ['  constructor(private strategy: RouteStrategy) {}', fresh ? 'new' : ''],
+      ['  use(strategy: RouteStrategy) { this.strategy = strategy; }   // swap at run time','hl'],[''],
+      ['  buildRoute(from: Point, to: Point) { return this.strategy.build(from, to); }'],['}']]},
+    {n:`${W.cls.replace(/([a-z])([A-Z])/g,'$1-$2').toLowerCase()}.ts`, lines:[
+      [`export class ${W.cls} implements RouteStrategy {`, isNew],
+      [`  build(from: Point, to: Point) { return ${W.callTs}; }`,'hl'],['}']]}
+  ];
+  if(S.pick === 'fake') F.push({n:'navigator.test.ts', lines:[
+    ['test("buildRoute asks its strategy", () => {'],
+    ['  const fake = new FakeRoute();','hl'],
+    ['  new Navigator(fake).buildRoute(home, office);','hl'],
+    ['  expect(fake.calls).toBe(1);   // no graph, no map data, 0 ms'],['});']]});
+  return F;
+}
+
+/* what each strategy calls inside Build() */
+WAY.shortest.call = 'Graph.ShortestPath(from, to)';   WAY.shortest.callJava = 'Graph.shortestPath(from, to)';   WAY.shortest.callTs = 'graph.shortestPath(from, to)';
+WAY.fastest.call  = 'Graph.FastestPath(from, to)';    WAY.fastest.callJava  = 'Graph.fastestPath(from, to)';    WAY.fastest.callTs  = 'graph.fastestPath(from, to)';
+WAY.tollfree.call = 'Graph.TollFreePath(from, to)';   WAY.tollfree.callJava = 'Graph.tollFreePath(from, to)';   WAY.tollfree.callTs = 'graph.tollFreePath(from, to)';
+WAY.scenic.call   = 'Graph.Prettiest(from, to)';      WAY.scenic.callJava   = 'Graph.prettiest(from, to)';      WAY.scenic.callTs   = 'graph.prettiest(from, to)';
+WAY.fake.call     = 'Route.Empty';                    WAY.fake.callJava     = 'Route.EMPTY';                    WAY.fake.callTs     = 'emptyRoute';
+
+const P = Playroom({
+  district:'Pattern Park',
+  title:'Strategy',
+  dek:'One job, many ways to do it. Choose while the app is running.',
+  steps:['One route','Break it','Hand it in','Swap live','Class or function?','Interview check'],
+  stage:STAGE,
+  park:{current:'Strategy', items:[
+    {label:'Dependency Injection', href:'../dependency-injection/'},
+    {label:'Factory Method', href:'../factory-method/'},
+    {label:'Strategy'}, {label:'Observer'}, {label:'Singleton'}]},
+
+  state:{flags:[], edits:0, cracked:false, given:false,
+         pick:'shortest', pickReal:'shortest', tried:new Set(), shape:'class'},
+
+  story(S, api){
+    const fb = api.fb();
+    return {
+      1:`<h2>A navigator that knows one road</h2><p>Ask it for a route and it always computes the <b>shortest</b> one. The algorithm is written straight into the method. Plan the route and watch it draw.</p>`,
+      2:`<h2>Now add "fastest" and "avoid tolls"</h2><p>The obvious fix is a boolean argument per option. Add them one at a time and watch the method fill up with combinations nobody will ever test.</p>${fb}`,
+      3:`<h2>Hand the algorithm in</h2><p>Every option does the same job: turn two points into a route. Give that job a name, <code>IRouteStrategy</code>, and let Navigator hold one instead of knowing them all.</p>${fb || '<p>The navigator has no strategy yet. Give it one.</p>'}`,
+      4:`<h2>Swap it while driving</h2><p>This is what separates Strategy from a factory: <code>Use()</code> changes behaviour on the <b>same Navigator object</b>, mid-journey. Adding Scenic touched no existing file.</p>${fb}`,
+      5:`<h2>Does it need to be a class?</h2><p><code>IRouteStrategy</code> has one method, so in C#, Java and TypeScript a plain function fits the same hole. Compare the two shapes.</p>${fb || '<p>Currently showing: <b>' + (S.shape === 'class' ? 'a class per strategy' : 'a function as the strategy') + '</b>.</p>'}`,
+      6:`<h2>Interview check</h2>${api.quizHTML()}`
+    }[S.step];
+  },
+
+  controls(S){
+    const s = S.step;
+    const plan = `<button class="btn primary" data-a="plan" style="margin-left:auto">Plan the route</button>`;
+    if(s === 1) return `<button class="btn primary" data-a="plan">Plan the route</button>`;
+    if(s === 2){
+      const add = f => S.flags.includes(f) ? '' : `<button class="btn" data-a="flag" data-f="${f}">Add "${WAY[f].label}"</button>`;
+      return add('fastest') + add('tollfree') + add('scenic') +
+        (S.flags.length > 1 ? `<button class="btn" data-a="clash">Ask for fastest + scenic</button>` : '') +
+        plan;
+    }
+    if(s === 3) return S.given
+      ? `<button class="btn primary" data-a="plan">Plan the route</button>`
+      : `<button class="btn primary" data-a="give">Give it ShortestRoute</button>`;
+    if(s === 5) return `<button class="chip" data-shape="class" aria-pressed="${S.shape === 'class'}"><i style="background:var(--accent)"></i>A class per strategy</button>` +
+      `<button class="chip" data-shape="function" aria-pressed="${S.shape === 'function'}"><i style="background:var(--muted)"></i>A function as the strategy</button>` + plan;
+    return Object.entries(WAY).map(([k, w]) =>
+      `<button class="chip" data-w="${k}" aria-pressed="${S.pick === k}"><i style="background:${w.color}"></i>${w.cls}</button>`).join('') + plan;
+  },
+
+  statusLine(S){
+    const s = S.step;
+    if(s <= 2){
+      const n = S.flags.length, combos = Math.pow(2, n);
+      return `BuildRoute takes <b>${n}</b> flag${n === 1 ? '' : 's'} · <b>${combos}</b> combination${combos === 1 ? '' : 's'} through one method` +
+        (S.cracked ? `<span class="warn"> · two flags asked for different roads</span>`
+                   : `<span class="warn"> · every new option edits Navigator</span>`);
+    }
+    if(s === 5) return S.shape === 'class'
+      ? `A class per strategy: <b>named, testable, can hold its own config</b>`
+      : `A function as the strategy: <b>less ceremony, nothing to name, harder to inject or configure</b>`;
+    const n = S.tried.size || (S.given ? 1 : 0);
+    return `Navigator edits since the interface <b>0</b><span class="ok"> · ${n} strateg${n === 1 ? 'y' : 'ies'} tried · swappable at run time</span>`;
+  },
+
+  files,
+  note: S => NOTES[S.step],
+
+  onStage(S){
+    const s = S.step, id = document.getElementById.bind(document);
+    const switchMode = s <= 2;
+    id('switchBox').style.display = switchMode ? '' : 'none';
+    id('slotBox').style.display = switchMode ? 'none' : '';
+    id('unit').classList.toggle('cracked', S.cracked && s <= 2);
+
+    if(switchMode){
+      id('branches').innerHTML =
+        `<text class="branch ${S.pick === 'shortest' ? 'on' : ''}" x="52" y="298">default → ShortestRoute</text>` +
+        S.flags.map((f, i) =>
+          `<text class="branch ${S.pick === f ? 'on' : ''}" x="52" y="${313 + i * 15}">if (${FLAGS[f]}) → ${WAY[f].cls}</text>`).join('');
+      id('switchBox').querySelector('rect').setAttribute('height', 30 + (S.flags.length + 1) * 15);
+    } else {
+      const W = WAY[S.pick] || WAY.shortest;
+      id('algoBlock').setAttribute('fill', W.color);
+      id('algoBlock').setAttribute('stroke', S.pick === 'fake' ? 'var(--muted)' : 'none');
+      id('algoBlock').setAttribute('stroke-dasharray', S.pick === 'fake' ? '4 3' : '');
+      id('algoLabel').textContent = S.shape === 'function' && s === 5 ? '(from, to) => …' : W.cls;
+      id('algo').classList.toggle('out', !(S.given || s >= 4));
+    }
+
+    const W = WAY[S.pick] || WAY.shortest;
+    const r = id('route');
+    r.setAttribute('d', W.d);
+    r.setAttribute('stroke', W.color);
+    r.setAttribute('stroke-dasharray', S.pick === 'fake' ? '6 6' : '1400');
+  },
+
+  onStep(S, n){
+    if(n <= 2 && !(S.pick === 'shortest' || S.flags.includes(S.pick))) S.pick = 'shortest';
+    if(n === 3){ S.given = false; S.pick = 'shortest'; S.tried.clear(); }
+    if(n >= 4 && !S.given){ S.given = true; S.pick = S.pickReal; S.tried.add(S.pick); }
+    if(n === 5) S.shape = 'class';
+  },
+
+  onClick(S, b, api){
+    if(b.dataset.w){
+      S.pick = b.dataset.w; S.given = true; S.tried.add(S.pick);
+      if(S.pick !== 'fake') S.pickReal = S.pick;
+      const W = WAY[S.pick];
+      api.tell('good', S.pick === 'fake'
+        ? '<b>Navigator is testable now.</b> A fake strategy records that it was asked for a route. The test needs no map data and finishes in no time.'
+        : `<b>${W.cls} is in, and Navigator never changed.</b> Same object, same method call, different algorithm behind it.`);
+      api.out(`nav.Use(new ${W.cls}())`);
+      api.replay('algo', 'out');
+      return;
+    }
+    if(b.dataset.shape){
+      S.shape = b.dataset.shape;
+      api.tell('good', S.shape === 'function'
+        ? '<b>A lambda is a strategy.</b> For a one-method interface this is usually the right amount of ceremony: less code, and it still swaps at run time.'
+        : '<b>Keep the class when the strategy is a thing, not just a step.</b> It can be named, injected, given its own settings, and discovered by a container.');
+      return;
+    }
+    const a = b.dataset.a;
+    if(a === 'plan'){ plan(S, api); return; }
+    if(a === 'flag'){
+      const f = b.dataset.f;
+      S.flags.push(f); S.pick = f; S.pickReal = f; S.edits += 2;
+      const combos = Math.pow(2, S.flags.length);
+      api.tell('bad', `<b>Another flag, another rewrite of Navigator.</b> The signature grew again, and there are now <b>${combos}</b> ways to call one method. Nobody tests all of them.`);
+      api.out(`edited Navigator: BuildRoute(..., bool ${FLAGS[f]})`);
+      return;
+    }
+    if(a === 'clash'){
+      S.cracked = true; S.pick = S.flags[0];
+      api.tell('bad', '<b>Which road wins?</b> Two flags are true and the first <code>if</code> decides, silently. This is the bug that flag arguments always grow into: behaviour that depends on the order you wrote the branches.');
+      api.out('BuildRoute(home, office, fastest: true, scenic: true) → whichever if came first');
+      return;
+    }
+    if(a === 'give'){
+      S.given = true; S.pick = 'shortest'; S.pickReal = 'shortest'; S.tried.add('shortest');
+      api.tell('good', '<b>Navigator received an algorithm.</b> It no longer knows any road-finding rules; it just asks whatever it was handed.');
+      api.out('new Navigator(new ShortestRoute())');
+      api.replay('algo', 'out');
+      return;
+    }
+    return false;
+  },
+
+  reset(S){
+    Object.assign(S, {flags:[], edits:0, cracked:false, given:false,
+                      pick:'shortest', pickReal:'shortest', tried:new Set(), shape:'class'});
+  },
+
+  quiz:[
+    {q:'What does Strategy let you change?',
+     o:['Which class gets created','Which algorithm an object uses, without changing that object','How many instances exist','The order methods are called in'], a:1,
+     w:'Strategy makes a family of algorithms interchangeable behind one interface, so the caller swaps behaviour instead of editing it.'},
+    {q:'An interviewer asks how Strategy differs from State. What do you say?',
+     o:['They are the same thing','Strategy: the caller picks between interchangeable algorithms. State: the object changes its own behaviour as its internal state changes, and the states usually decide the transitions','State is for UI only','Strategy cannot be swapped at run time'], a:1,
+     w:'The structure looks identical. The difference is intent and who drives the change: outside choice versus internal transition.'},
+    {q:'A method takes four booleans and has a dozen branches. Why is Strategy the usual answer?',
+     o:['It runs faster','Each combination becomes its own named, testable class, so the method stops growing and no branch order can surprise you','It uses less memory','It removes the need for tests'], a:1,
+     w:'Flag arguments hide behaviour behind branch order. Naming each behaviour also makes the untested combinations obvious.'},
+    {q:'Do you need one class per strategy?',
+     o:['Yes, always','No. For a one-method interface, a lambda, delegate or function reference is a strategy; classes earn their place when the strategy has state, config or dependencies'], a:1,
+     w:'Saying this shows you know the pattern rather than the ceremony around it.'}
+  ],
+  soundbite:'"Strategy puts each way of doing a job behind one interface, so the object that needs the job done holds a strategy instead of the algorithms. The caller can swap it at run time on the same object. I reach for it when a method is growing flags or a long if/else over a mode, and in modern code the strategy is often just a lambda."'
+});
+
+function plan(S, api){
+  const r = api.el('route');
+  r.classList.remove('go'); void r.getBBox(); r.classList.add('go');
+  const W = WAY[S.pick] || WAY.shortest;
+  if(S.step === 3 && !S.given){ api.out('Navigator has no strategy: nothing to ask.'); return; }
+  api.out(W.out);
+}
+</script>
+</body>
+</html>
