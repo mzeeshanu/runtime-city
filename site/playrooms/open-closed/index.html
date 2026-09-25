@@ -1,0 +1,296 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Open/Closed Playroom · Runtime City</title>
+<meta name="description" content="Grow a discount engine by editing it, then open it for extension so a new promotion is a new file and the engine is never reopened. A playroom from Runtime City.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,600;12..96,800&family=IBM+Plex+Sans:wght@400;500&family=JetBrains+Mono:wght@400&display=swap">
+<link rel="stylesheet" href="../../assets/playroom.css">
+<style>
+.engine{fill:var(--surface);stroke:var(--ink);stroke-width:2}
+.engine.hot{stroke:var(--bad)}
+.enginelbl{font:400 12px var(--mono);fill:var(--ink);text-anchor:middle}
+.branch{font:400 11px var(--mono);fill:var(--muted)}
+.branch.fresh{fill:var(--bad)}
+.card{fill:var(--surface);stroke:var(--accent);stroke-width:1.5}
+.card.fresh{fill:rgba(201,112,29,.14)}
+.cardlbl{font:400 10px var(--mono);fill:var(--ink);text-anchor:middle}
+.port{fill:none;stroke:var(--accent);stroke-width:1.5;stroke-dasharray:5 4}
+.portlbl{font:400 10px var(--mono);fill:var(--accent);text-anchor:middle}
+.seal{font:400 10px var(--mono);fill:var(--good);text-anchor:middle}
+.bill{font:400 11px var(--mono);fill:var(--ink);text-anchor:end}
+.bill.cut{fill:var(--good)}
+.pop{animation:pop .4s ease-out}
+@keyframes pop{from{opacity:0;transform:translateY(-8px)}to{opacity:1;transform:none}}
+</style>
+</head>
+<body>
+<div id="playroom"></div>
+
+<script src="../../assets/city.js"></script>
+<script src="../../assets/nav.js"></script>
+<script src="../../assets/playroom.js"></script>
+<script>
+const RULES = {
+  bulk:    {cls:'BulkDiscount',      label:'10% over £100',      cut:12.40},
+  loyalty: {cls:'LoyaltyDiscount',   label:'5% for members',     cut:6.20},
+  weekend: {cls:'WeekendDiscount',   label:'£5 off at weekends', cut:5.00},
+  student: {cls:'StudentDiscount',   label:'15% with an NUS card', cut:18.60}
+};
+
+const STAGE = `
+<svg viewBox="0 0 600 280" role="img" aria-label="A pricing engine with discount rules">
+  <defs><pattern id="grid" width="24" height="24" patternUnits="userSpaceOnUse"><path d="M24 0H0V24" class="gridline" fill="none"/></pattern></defs>
+  <rect width="600" height="280" fill="url(#grid)" opacity=".6"/>
+  <g id="scene"></g>
+  <g id="bill">
+    <text class="bill" x="576" y="236">basket £124.00</text>
+    <text class="bill cut" id="cut" x="576" y="256"></text>
+  </g>
+</svg>`;
+
+const NOTES = {
+  1:'<b>One rule, one if.</b> Perfectly good code, until the second rule arrives.',
+  2:'<b>Every new promotion reopens the engine.</b> Each edit risks the rules already in there, and they are the ones already taking money.',
+  3:'<b>Close the engine, open the list.</b> The engine loops over rules it knows nothing about; a rule is a small class that answers one question.',
+  4:'<b>A new promotion is a new file.</b> The engine is not recompiled, not retested, not reviewed: it cannot break, because it did not change.',
+  5:'<b>You cannot be closed against everything.</b> Guessing the wrong axis leaves you with abstractions nobody needs, so wait for the second real change before opening a seam.',
+  6:'<b>Interview tip:</b> "open for extension, closed for modification" means new behaviour arrives as new code, not edits to working code. Then name the mechanism: polymorphism, a rule list, a plug-in.'
+};
+
+function files(S){
+  const L = S.lang, s = S.step, pick = o => o[L];
+  const active = Object.keys(RULES).filter(k => S.rules.includes(k));
+
+  if(s <= 2) return pick({
+    cs:[{n:'PricingEngine.cs', lines:[
+      ['public decimal Total(Basket b)'],['{'],
+      ['    var total = b.Subtotal;'],
+      ...active.map(k => [`    if (${k === 'bulk' ? 'total > 100' : k === 'loyalty' ? 'b.Customer.IsMember' : k === 'weekend' ? 'IsWeekend()' : 'b.Customer.HasStudentCard'}) total -= ${k === 'weekend' ? '5m' : 'total * ' + (k === 'bulk' ? '0.10m' : k === 'loyalty' ? '0.05m' : '0.15m')};`,
+                          k === S.justAdded ? 'bad' : '']),
+      ['    return total;'],['}'],
+      ...(S.justAdded ? [['',''],['// Every rule above was already live. This edit recompiled all of them.','bad']] : [])]}],
+    java:[{n:'PricingEngine.java', lines:[
+      ['BigDecimal total(Basket b) {'],
+      ['    BigDecimal total = b.subtotal();'],
+      ...active.map(k => [`    if (${k === 'bulk' ? 'total.compareTo(HUNDRED) > 0' : k === 'loyalty' ? 'b.customer().isMember()' : k === 'weekend' ? 'isWeekend()' : 'b.customer().hasStudentCard()'}) total = apply(total, ${k});`,
+                          k === S.justAdded ? 'bad' : '']),
+      ['    return total;'],['}']]}],
+    ts:[{n:'pricing-engine.ts', lines:[
+      ['export function total(b: Basket) {'],
+      ['  let total = b.subtotal;'],
+      ...active.map(k => [`  if (${k === 'bulk' ? 'total > 100' : k === 'loyalty' ? 'b.customer.isMember' : k === 'weekend' ? 'isWeekend()' : 'b.customer.hasStudentCard'}) total -= ${k === 'weekend' ? '5' : 'total * ' + (k === 'bulk' ? '0.10' : k === 'loyalty' ? '0.05' : '0.15')};`,
+                          k === S.justAdded ? 'bad' : '']),
+      ['  return total;'],['}']]}]
+  });
+
+  if(s === 5 && S.overbuilt) return pick({
+    cs:[{n:'Overbuilt.cs', lines:[
+      ['// Opened for every axis someone might one day want'],
+      ['interface IDiscountRule { }','bad'],
+      ['interface IDiscountRuleFactory { }','bad'],
+      ['interface IDiscountRuleSelectionStrategy { }','bad'],
+      ['interface IDiscountRuleOrderingPolicy { }','bad'],
+      ['interface IDiscountContextProvider { }','bad'],[''],
+      ['// Five abstractions, one implementation each, no second case in sight.']]}],
+    java:[{n:'Overbuilt.java', lines:[
+      ['interface DiscountRule { }','bad'],
+      ['interface DiscountRuleFactory { }','bad'],
+      ['interface DiscountRuleSelectionStrategy { }','bad'],
+      ['interface DiscountRuleOrderingPolicy { }','bad'],
+      ['interface DiscountContextProvider { }','bad'],[''],
+      ['// Each with exactly one implementation.']]}],
+    ts:[{n:'overbuilt.ts', lines:[
+      ['interface DiscountRule { }','bad'],
+      ['interface DiscountRuleFactory { }','bad'],
+      ['interface DiscountRuleSelector { }','bad'],
+      ['interface DiscountRuleOrdering { }','bad'],
+      ['interface DiscountContext { }','bad']]}]
+  });
+
+  const newest = S.justAdded ? RULES[S.justAdded].cls : null;
+  return pick({
+    cs:[{n:'PricingEngine.cs', lines:[
+      ['public class PricingEngine(IEnumerable<IDiscountRule> rules)   // sealed against change','hl'],['{'],
+      ['    public decimal Total(Basket b)'],['    {'],
+      ['        var total = b.Subtotal;'],
+      ['        foreach (var rule in rules) total = rule.Apply(total, b);'],
+      ['        return total;'],['    }'],['}']]},
+      {n:(newest || 'BulkDiscount') + '.cs', lines:[
+      [`public class ${newest || 'BulkDiscount'} : IDiscountRule`, S.step >= 4 ? 'new' : ''],['{'],
+      ['    public decimal Apply(decimal total, Basket b) => /* one rule, one file */;','hl'],['}'],[''],
+      ['// Registered once, wherever the app is wired up:'],
+      ['builder.Services.AddSingleton<IDiscountRule, ' + (newest || 'BulkDiscount') + '>();']]}],
+    java:[{n:'PricingEngine.java', lines:[
+      ['class PricingEngine {'],
+      ['    private final List<DiscountRule> rules;      // sealed against change','hl'],
+      ['    BigDecimal total(Basket b) {'],
+      ['        BigDecimal total = b.subtotal();'],
+      ['        for (DiscountRule r : rules) total = r.apply(total, b);'],
+      ['        return total;'],['    }'],['}']]},
+      {n:(newest || 'BulkDiscount') + '.java', lines:[
+      [`@Component class ${newest || 'BulkDiscount'} implements DiscountRule {`, S.step >= 4 ? 'new' : ''],
+      ['    public BigDecimal apply(BigDecimal total, Basket b) { /* one rule */ }','hl'],['}']]}],
+    ts:[{n:'pricing-engine.ts', lines:[
+      ['export const total = (b: Basket, rules: DiscountRule[]) =>   // sealed against change','hl'],
+      ['  rules.reduce((sum, r) => r.apply(sum, b), b.subtotal);']]},
+      {n:(newest ? newest.replace(/([a-z])([A-Z])/g,'$1-$2').toLowerCase() : 'bulk-discount') + '.ts', lines:[
+      [`export const ${newest ? newest[0].toLowerCase() + newest.slice(1) : 'bulkDiscount'}: DiscountRule = {`, S.step >= 4 ? 'new' : ''],
+      ['  apply: (total, b) => /* one rule, one file */,','hl'],['};']]}]
+  });
+}
+
+const P = Playroom({
+  district:'SOLID Quarter',
+  title:'Open/Closed',
+  dek:'New behaviour should arrive as new code, not as edits to code that works.',
+  steps:['One rule','Break it','Open a seam','Extend it','Not everything','Interview check'],
+  stage:STAGE,
+
+  state:{rules:['bulk'], open:false, edits:0, justAdded:null, overbuilt:false},
+
+  story(S, api){
+    const fb = api.fb();
+    return {
+      1:`<h2>One discount, one branch</h2><p>The pricing engine takes 10% off baskets over £100. Nothing wrong with it at all.</p>${fb}`,
+      2:`<h2>Marketing has ideas</h2><p>Add the promotions they ask for. Each one edits the engine, and the rules already in there are the ones currently taking money.</p>${fb}`,
+      3:`<h2>Open a seam</h2><p>Give a discount a shape — <code>IDiscountRule</code> — and let the engine loop over a list. Now the engine can be <b>closed</b>: it never needs editing again.</p>${fb}`,
+      4:`<h2>Add promotions without reopening it</h2><p>Same requests as before. This time each is a new file and a line of registration.</p>${fb}`,
+      5:`<h2>You cannot be open to everything</h2><p>Every seam costs an abstraction. Open the one that has actually varied twice; guessing the rest leaves you with interfaces that have one implementation forever.</p>${fb}`,
+      6:`<h2>Interview check</h2>${api.quizHTML()}`
+    }[S.step];
+  },
+
+  controls(S){
+    const s = S.step;
+    const add = k => S.rules.includes(k) ? '' :
+      `<button class="btn" data-add="${k}">Add ${RULES[k].label}</button>`;
+    if(s === 1) return `<button class="btn primary" data-a="price">Price the basket</button>`;
+    if(s === 2) return add('loyalty') + add('weekend') + add('student') +
+      `<button class="btn primary" data-a="price" style="margin-left:auto">Price the basket</button>`;
+    if(s === 3) return S.open
+      ? `<button class="btn primary" data-a="price">Price the basket</button>`
+      : `<button class="btn primary" data-a="open">Make discounts a rule list</button>`;
+    if(s === 4) return add('loyalty') + add('weekend') + add('student') +
+      `<button class="btn primary" data-a="price" style="margin-left:auto">Price the basket</button>`;
+    if(s === 5) return S.overbuilt
+      ? `<button class="btn primary" data-a="trim">Keep only the seam that varies</button>`
+      : `<button class="btn" data-a="overbuild">Open every axis, just in case</button>`;
+    return '';
+  },
+
+  statusLine(S){
+    const s = S.step;
+    if(s === 5) return S.overbuilt
+      ? `Abstractions <b>5</b> · implementations each <b>1</b><span class="warn"> · cost paid, no variation to show for it</span>`
+      : `Abstractions <b>1</b><span class="ok"> · opened along the axis that actually changes</span>`;
+    return `Rules <b>${S.rules.length}</b> · edits to PricingEngine <b>${S.edits}</b>` +
+      (S.open ? `<span class="ok"> · the engine has not been reopened since</span>`
+              : `<span class="warn"> · every promotion rebuilds and retests the live ones</span>`);
+  },
+
+  files,
+  note: S => NOTES[S.step],
+
+  onStage(S){
+    const id = document.getElementById.bind(document);
+    const keys = S.rules;
+    if(!S.open){
+      id('scene').innerHTML =
+        `<rect class="engine ${S.justAdded ? 'hot' : ''}" x="150" y="40" width="300" height="${60 + keys.length * 26}" rx="8"/>` +
+        `<text class="enginelbl" x="300" y="32">PricingEngine</text>` +
+        keys.map((k, i) =>
+          `<text class="branch ${S.justAdded === k ? 'fresh' : ''}" x="172" y="${72 + i * 26}">if (${RULES[k].label}) total -= …</text>`).join('') +
+        `<text class="branch" x="172" y="${72 + keys.length * 26}">return total;</text>`;
+    } else {
+      id('scene').innerHTML =
+        `<rect class="engine" x="150" y="40" width="300" height="84" rx="8"/>` +
+        `<text class="enginelbl" x="300" y="32">PricingEngine</text>` +
+        `<text class="branch" x="172" y="72">foreach (var rule in rules)</text>` +
+        `<text class="branch" x="172" y="96">    total = rule.Apply(total, basket);</text>` +
+        `<text class="seal" x="300" y="140">closed · not edited since the seam was opened</text>` +
+        `<rect class="port" x="150" y="152" width="300" height="80" rx="8"/>` +
+        `<text class="portlbl" x="300" y="170">IDiscountRule</text>` +
+        keys.map((k, i) =>
+          `<g class="${S.justAdded === k ? 'pop' : ''}"><rect class="card ${S.justAdded === k ? 'fresh' : ''}" x="${162 + i * 70}" y="${182 + (i > 3 ? 0 : 0)}" width="62" height="40" rx="5"/>` +
+          `<text class="cardlbl" x="${193 + i * 70}" y="${206}">${RULES[k].cls.replace('Discount','')}</text></g>`).join('');
+    }
+    const cut = S.priced ? keys.reduce((a, k) => a + RULES[k].cut, 0) : 0;
+    id('cut').textContent = cut ? `− £${cut.toFixed(2)} in discounts` : '';
+  },
+
+  onStep(S, n){
+    S.justAdded = null; S.priced = false;
+    if(n <= 2){ S.open = false; }
+    if(n === 2 && S.rules.length === 1) S.edits = 0;
+    if(n === 3){ S.open = false; S.rules = ['bulk','loyalty','weekend']; S.edits = 4; }
+    if(n >= 4){ S.open = true; if(S.rules.length > 3) S.rules = ['bulk','loyalty','weekend']; S.edits = 0; }
+    if(n !== 5) S.overbuilt = false;
+  },
+
+  onClick(S, b, api){
+    if(b.dataset.add){
+      const k = b.dataset.add;
+      S.rules.push(k); S.justAdded = k;
+      if(S.open){
+        api.tell('good', `<b>${RULES[k].cls} is a new file.</b> The engine was not opened, not recompiled and not retested. Nothing that was working could break, because none of it changed.`);
+        api.out(`new ${RULES[k].cls}.cs  ·  PricingEngine edits: 0`);
+      } else {
+        S.edits++;
+        api.tell('bad', `<b>Another branch inside the engine.</b> The three rules already in this method are live and taking money; this edit rebuilds and retests all of them for the sake of one new promotion.`);
+        api.out(`edited PricingEngine  ·  +1 branch  ·  ${S.rules.length} rules now share one method`);
+      }
+      return;
+    }
+    const a = b.dataset.a;
+    if(a === 'price'){
+      S.priced = true;
+      const cut = S.rules.reduce((x, k) => x + RULES[k].cut, 0);
+      api.out(`£124.00 − £${cut.toFixed(2)} = £${(124 - cut).toFixed(2)}  ·  ${S.rules.length} rules applied`);
+      return;
+    }
+    if(a === 'open'){
+      S.open = true; S.edits = 0; S.justAdded = null;
+      api.tell('good', '<b>The engine now depends on a shape, not on a list of promotions.</b> It loops over whatever rules it is given. This is the "open" half: behaviour can be added from outside.');
+      api.out('interface IDiscountRule { decimal Apply(decimal total, Basket b); }');
+      return;
+    }
+    if(a === 'overbuild'){
+      S.overbuilt = true;
+      api.tell('bad', '<b>Five seams, one implementation each.</b> Every abstraction has a cost: indirection to read, wiring to maintain, tests to write. Open/Closed is not "abstract everything", it is "be closed against the change that actually happens".');
+      api.out('5 interfaces · 5 single implementations · no second case yet');
+      return;
+    }
+    if(a === 'trim'){
+      S.overbuilt = false;
+      api.tell('good', '<b>One seam, where the variation is real.</b> A good rule of thumb: write it concretely the first time, and open the seam when the second case arrives, because that is when you learn what actually varies.');
+      api.out('1 interface · 4 implementations · the axis that changes');
+      return;
+    }
+    return false;
+  },
+
+  reset(S){ Object.assign(S, {rules:['bulk'], open:false, edits:0, justAdded:null, overbuilt:false, priced:false}); },
+
+  quiz:[
+    {q:'What does "open for extension, closed for modification" mean in practice?',
+     o:['Never change code','New behaviour arrives as new code — a new class, rule or plug-in — rather than by editing code that already works','Use inheritance everywhere','Make every class final'], a:1,
+     w:'The point is protecting working code from risk: what you do not edit cannot regress.'},
+    {q:'Which is the smell that the principle is being broken?',
+     o:['A long class name','A switch or if-chain over a type or mode that grows every time the business adds a case','Too many interfaces','Deep inheritance'], a:1,
+     w:'Same smell as the Factory Method playroom. The fix is polymorphism, a rule list, or a lookup registered from outside.'},
+    {q:'Why can you not be closed against every kind of change?',
+     o:['Compilers forbid it','Each seam costs an abstraction, and you cannot predict which axis will vary — guessing leaves interfaces with one implementation forever'], a:1,
+     w:'Open the seam when the second real case arrives. That is when you know what actually varies.'},
+    {q:'How does Open/Closed relate to Strategy and Factory Method?',
+     o:['They are unrelated','Those patterns are mechanisms for achieving it: an interface plus polymorphism is how you make a class extendable without editing it'], a:1,
+     w:'Principle versus pattern. Saying which is which is a strong signal in an interview.'}
+  ],
+  soundbite:'"Open/Closed means I can add behaviour without editing the code that already works, because whatever I do not touch cannot regress. In practice the smell is a switch or if-chain that grows with every new business case, and the fix is an interface the module loops over, with each case as its own class registered from outside. I do not open seams speculatively though: I write it concretely first and open it when the second real case shows me what actually varies."'
+});
+</script>
+</body>
+</html>

@@ -1,0 +1,296 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Liskov Substitution Playroom · Runtime City</title>
+<meta name="description" content="Pass a Square where a Rectangle is expected and watch a correct test fail, then fix it without inheritance. A playroom from Runtime City.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,600;12..96,800&family=IBM+Plex+Sans:wght@400;500&family=JetBrains+Mono:wght@400&display=swap">
+<link rel="stylesheet" href="../../assets/playroom.css">
+<style>
+.bench{fill:none;stroke:var(--hair);stroke-width:1.5;stroke-dasharray:5 4}
+.benchlbl{font:400 10px var(--mono);fill:var(--muted)}
+.shape{fill:rgba(201,112,29,.14);stroke:var(--accent);stroke-width:2;transition:width .4s ease,height .4s ease,y .4s ease}
+.shape.bad{fill:rgba(185,59,51,.14);stroke:var(--bad)}
+.dim{font:400 10px var(--mono);fill:var(--muted);text-anchor:middle}
+.expect{font:400 11px var(--mono);fill:var(--muted)}
+.expect b{fill:var(--ink)}
+.result{font:600 12px var(--mono)}
+.result.pass{fill:var(--good)} .result.fail{fill:var(--bad)}
+.lamp{stroke-width:2}
+.lamp.pass{fill:var(--good);stroke:var(--good)}
+.lamp.fail{fill:var(--bad);stroke:var(--bad)}
+.lamp.off{fill:none;stroke:var(--hair)}
+.tag{font:400 10px var(--mono);fill:var(--ink);text-anchor:middle}
+.tag.sub{fill:var(--accent)}
+</style>
+</head>
+<body>
+<div id="playroom"></div>
+
+<script src="../../assets/city.js"></script>
+<script src="../../assets/nav.js"></script>
+<script src="../../assets/playroom.js"></script>
+<script>
+const STAGE = `
+<svg viewBox="0 0 600 270" role="img" aria-label="A shape on a test bench">
+  <defs><pattern id="grid" width="24" height="24" patternUnits="userSpaceOnUse"><path d="M24 0H0V24" class="gridline" fill="none"/></pattern></defs>
+  <rect width="600" height="270" fill="url(#grid)" opacity=".6"/>
+
+  <rect class="bench" x="24" y="34" width="330" height="200" rx="8"/>
+  <text class="benchlbl" x="34" y="26">TEST BENCH — the code only knows Rectangle</text>
+
+  <rect class="shape" id="shape" x="60" y="70" width="140" height="80" rx="4"/>
+  <text class="dim" id="dimW" x="130" y="176">width 5</text>
+  <text class="dim" id="dimH" x="42" y="114">h 4</text>
+  <text class="tag" id="tag" x="130" y="58">Rectangle</text>
+
+  <text class="expect" x="382" y="72">SetWidth(5); SetHeight(4);</text>
+  <text class="expect" x="382" y="96">expect Area() == <tspan font-weight="600">20</tspan></text>
+  <circle class="lamp off" id="lamp" cx="392" cy="134" r="9"/>
+  <text class="result" id="result" x="412" y="139"></text>
+  <text class="expect" id="why" x="382" y="176"></text>
+  <text class="expect" id="why2" x="382" y="196"></text>
+</svg>`;
+
+const NOTES = {
+  1:'<b>A rectangle behaves the way the test expects.</b> Set two sides, get the area you asked for.',
+  2:'<b>The subclass keeps the interface and breaks the promise.</b> Nothing fails to compile; a test that was correct yesterday starts failing.',
+  3:'<b>"Is-a" is about behaviour, not vocabulary.</b> A square is a rectangle in geometry, but a mutable Square is not substitutable for a mutable Rectangle.',
+  4:'<b>Model the behaviour you need.</b> Make the shape immutable, or make Square its own type. Either way, nothing is pretending.',
+  5:'<b>The everyday version of this bug.</b> A subclass that throws for part of the interface, or refuses inputs the base accepts, is the same violation in different clothing.',
+  6:'<b>Interview tip:</b> "a subtype must be usable anywhere the base type is, without the caller knowing". Then give the throwing-subclass example, which people meet far more often than squares.'
+};
+
+function files(S){
+  const L = S.lang, s = S.step, pick = o => o[L];
+
+  if(s <= 3) return pick({
+    cs:[{n:'Shapes.cs', lines:[
+      ['public class Rectangle'],['{'],
+      ['    public virtual int Width { get; set; }'],
+      ['    public virtual int Height { get; set; }'],
+      ['    public int Area() => Width * Height;'],['}'],[''],
+      ['public class Square : Rectangle', S.square ? 'bad' : ''],['{'],
+      ['    public override int Width  { set { base.Width = base.Height = value; } }', S.square ? 'bad' : ''],
+      ['    public override int Height { set { base.Width = base.Height = value; } }', S.square ? 'bad' : ''],
+      ['}'],[''],
+      ['void Resize(Rectangle r) { r.Width = 5; r.Height = 4; }   // knows only Rectangle','hl']]}],
+    java:[{n:'Shapes.java', lines:[
+      ['class Rectangle {'],
+      ['    void setWidth(int w) { this.w = w; }'],
+      ['    void setHeight(int h) { this.h = h; }'],
+      ['    int area() { return w * h; }'],['}'],[''],
+      ['class Square extends Rectangle {', S.square ? 'bad' : ''],
+      ['    @Override void setWidth(int v)  { super.setWidth(v); super.setHeight(v); }', S.square ? 'bad' : ''],
+      ['    @Override void setHeight(int v) { super.setWidth(v); super.setHeight(v); }', S.square ? 'bad' : ''],
+      ['}'],[''],
+      ['void resize(Rectangle r) { r.setWidth(5); r.setHeight(4); }   // knows only Rectangle','hl']]}],
+    ts:[{n:'shapes.ts', lines:[
+      ['class Rectangle {'],
+      ['  set width(w: number) { this.w = w; }'],
+      ['  set height(h: number) { this.h = h; }'],
+      ['  area() { return this.w * this.h; }'],['}'],[''],
+      ['class Square extends Rectangle {', S.square ? 'bad' : ''],
+      ['  set width(v: number)  { super.width = v; super.height = v; }', S.square ? 'bad' : ''],
+      ['  set height(v: number) { super.width = v; super.height = v; }', S.square ? 'bad' : ''],
+      ['}'],[''],
+      ['function resize(r: Rectangle) { r.width = 5; r.height = 4; }   // knows only Rectangle','hl']]}]
+  });
+
+  if(s === 4) return pick({
+    cs:[{n:'Fixed.cs', lines:[
+      ['// 1. Immutable: nothing can be resized behind the caller\'s back'],
+      ['public record Rectangle(int Width, int Height) { public int Area => Width * Height; }','new'],
+      ['public record Square(int Side) { public int Area => Side * Side; }','new'],[''],
+      ['// 2. Or share a capability instead of a base class'],
+      ['public interface IHasArea { int Area { get; } }','hl'],[''],
+      ['// Square is no longer pretending to be a Rectangle, so nothing can break.']]}],
+    java:[{n:'Fixed.java', lines:[
+      ['// 1. Immutable values: no setters to override'],
+      ['record Rectangle(int width, int height) { int area() { return width * height; } }','new'],
+      ['record Square(int side) { int area() { return side * side; } }','new'],[''],
+      ['// 2. Or share a capability, not an implementation'],
+      ['interface HasArea { int area(); }','hl']]}],
+    ts:[{n:'fixed.ts', lines:[
+      ['// 1. Immutable shapes'],
+      ['type Rectangle = { readonly width: number; readonly height: number };','new'],
+      ['type Square = { readonly side: number };','new'],[''],
+      ['// 2. Share the capability'],
+      ['type HasArea = { area(): number };','hl']]}]
+  });
+
+  if(s === 5) return pick({
+    cs:[{n:'Everyday.cs', lines:[
+      ['class ReadOnlyBasket : List<Item>'],['{'],
+      ['    public override void Add(Item i) => throw new NotSupportedException();   // refuses part of the contract','bad'],
+      ['}'],[''],
+      ['void Fill(List<Item> list) { list.Add(item); }   // correct code, crashes on this subtype','hl'],[''],
+      ['// Other versions of the same violation:'],
+      ['//  · a subclass that rejects inputs the base accepts (narrowing preconditions)'],
+      ['//  · a subclass that returns less than the base promised (weakening postconditions)']]}],
+    java:[{n:'Everyday.java', lines:[
+      ['class ReadOnlyBasket extends ArrayList<Item> {'],
+      ['    @Override public boolean add(Item i) { throw new UnsupportedOperationException(); }','bad'],
+      ['}'],[''],
+      ['void fill(List<Item> list) { list.add(item); }   // correct code, crashes on this subtype','hl'],[''],
+      ['// The JDK does this itself with Arrays.asList and List.of, which is why'],
+      ['// "it is a List" is never enough to know what you can do with it.']]}],
+    ts:[{n:'everyday.ts', lines:[
+      ['class ReadOnlyBasket extends Basket {'],
+      ['  add(item: Item): never { throw new Error("read only"); }   // refuses part of the contract','bad'],
+      ['}'],[''],
+      ['function fill(b: Basket) { b.add(item); }   // correct code, crashes on this subtype','hl'],[''],
+      ['// Structural typing does not save you: the shape matches, the behaviour does not.']]}]
+  });
+
+  return files({...S, step:4});
+}
+
+const P = Playroom({
+  district:'SOLID Quarter',
+  title:'Liskov Substitution',
+  dek:'If the caller has to know which subtype it got, the subtype is a lie.',
+  steps:['A rectangle','Swap in a square','Why it breaks','Fix it','The everyday version','Interview check'],
+  stage:STAGE,
+
+  state:{square:false, w:5, h:4, ran:false, fixed:false},
+
+  story(S, api){
+    const fb = api.fb();
+    return {
+      1:`<h2>Code that only knows Rectangle</h2><p><code>Resize</code> sets the width to 5 and the height to 4, then the test checks the area is 20. Run it.</p>${fb}`,
+      2:`<h2>Hand it a Square instead</h2><p>Square inherits from Rectangle, so it compiles and every type checker is happy. Run exactly the same test.</p>${fb}`,
+      3:`<h2>What actually broke</h2><p>Nothing about types. The <b>promise</b> broke: Rectangle says the sides move independently, and Square cannot keep that promise. Inheritance copied the vocabulary, not the behaviour.</p>${fb}`,
+      4:`<h2>Fix it by not pretending</h2><p>Make the shapes immutable so there is nothing to override, or let Square be its own type sharing a capability. Then run the test again.</p>${fb}`,
+      5:`<h2>The version you will actually meet</h2><p>Nobody ships squares. They ship a subclass that throws for half the interface, or one that rejects inputs the base accepted. Same violation.</p>${fb}`,
+      6:`<h2>Interview check</h2>${api.quizHTML()}`
+    }[S.step];
+  },
+
+  controls(S){
+    const s = S.step;
+    const run = `<button class="btn primary" data-a="run">Run the test</button>`;
+    if(s === 1) return run;
+    if(s === 2) return `<button class="chip" data-t="rect" aria-pressed="${!S.square}"><i style="background:var(--accent)"></i>Rectangle</button>` +
+      `<button class="chip" data-t="square" aria-pressed="${S.square}"><i style="background:var(--bad)"></i>Square</button>` + run;
+    if(s === 3) return `<button class="btn" data-a="explain">Show what the caller assumed</button>` + run;
+    if(s === 4) return (S.fixed ? '' : `<button class="btn primary" data-a="fix">Make the shapes immutable</button>`) + run;
+    if(s === 5) return `<button class="btn primary" data-a="readonly">Call Add on a read-only basket</button>`;
+    return '';
+  },
+
+  statusLine(S){
+    const s = S.step;
+    if(s === 5) return S.ran
+      ? `List.Add on ReadOnlyBasket → <b>NotSupportedException</b><span class="warn"> · the caller did nothing wrong</span>`
+      : `A subclass that refuses part of the interface it inherited`;
+    if(S.fixed) return `Area <b>${S.w * S.h}</b> · expected <b>20</b><span class="ok"> · no subtype can change the rules any more</span>`;
+    return `width <b>${S.w}</b> · height <b>${S.h}</b> · area <b>${S.w * S.h}</b> · expected <b>20</b>` +
+      (S.square ? `<span class="warn"> · Square forced both sides to 4</span>` : `<span class="ok"> · sides move independently</span>`);
+  },
+
+  files,
+  note: S => NOTES[S.step],
+
+  onStage(S){
+    const id = document.getElementById.bind(document);
+    const scale = 26;
+    const w = S.w * scale, h = S.h * scale;
+    const sh = id('shape');
+    sh.setAttribute('width', w); sh.setAttribute('height', h);
+    sh.setAttribute('y', 150 - h);
+    sh.setAttribute('class', 'shape' + (S.square && S.ran && !S.fixed ? ' bad' : ''));
+    id('dimW').setAttribute('x', 60 + w / 2);
+    id('dimW').textContent = 'width ' + S.w;
+    id('dimH').setAttribute('y', 150 - h / 2);
+    id('dimH').textContent = 'h ' + S.h;
+    id('tag').setAttribute('x', 60 + w / 2);
+    id('tag').setAttribute('class', 'tag' + (S.square ? ' sub' : ''));
+    id('tag').textContent = S.fixed ? (S.square ? 'Square (its own type)' : 'Rectangle (immutable)') : (S.square ? 'Square : Rectangle' : 'Rectangle');
+
+    const pass = !S.ran ? null : (S.w * S.h === 20);
+    id('lamp').setAttribute('class', 'lamp ' + (pass === null ? 'off' : pass ? 'pass' : 'fail'));
+    id('result').setAttribute('class', 'result ' + (pass ? 'pass' : 'fail'));
+    id('result').textContent = pass === null ? '' : pass ? 'PASS · area 20' : `FAIL · area ${S.w * S.h}`;
+    id('why').textContent = S.ran && !pass ? 'Setting Height also set Width.' : '';
+    id('why2').textContent = S.ran && !pass ? 'The caller never asked for a square.' : '';
+  },
+
+  onStep(S, n){
+    S.ran = false; S.w = 5; S.h = 4;
+    if(n <= 1){ S.square = false; S.fixed = false; }
+    if(n === 2 || n === 3) S.fixed = false;
+    if(n === 4){ S.fixed = false; S.square = true; }
+    if(n === 5){ S.square = false; S.fixed = true; }
+  },
+
+  onClick(S, b, api){
+    if(b.dataset.t){
+      S.square = b.dataset.t === 'square'; S.ran = false; S.w = 5; S.h = 4;
+      api.out(S.square ? 'Resize(new Square())' : 'Resize(new Rectangle())');
+      return;
+    }
+    const a = b.dataset.a;
+    if(a === 'run'){
+      S.ran = true;
+      if(S.fixed){
+        S.w = 5; S.h = 4;
+        api.tell('good', '<b>Passes, and cannot be broken by a subtype.</b> There are no setters to override, so no subclass can change what the caller was promised.');
+        api.out('area 20 · PASS');
+        return;
+      }
+      if(S.square){
+        S.w = 4; S.h = 4;
+        api.tell('bad', '<b>Area 16, not 20.</b> Setting the height quietly set the width as well. The test is correct, <code>Resize</code> is correct, and the failure is caused by a subtype that could not keep the base class\'s promise.');
+        api.out('SetWidth(5); SetHeight(4); → 4 × 4 = 16 · FAIL');
+      } else {
+        S.w = 5; S.h = 4;
+        api.tell('good', '<b>Area 20.</b> Exactly what the caller expected from a rectangle.');
+        api.out('SetWidth(5); SetHeight(4); → 5 × 4 = 20 · PASS');
+      }
+      return;
+    }
+    if(a === 'explain'){
+      api.tell('bad', '<b>The caller relied on an invariant nobody wrote down:</b> "changing one side leaves the other alone". Liskov says a subtype may not weaken what the base type promised. Square strengthens a constraint instead, and the caller pays for it.');
+      api.out('invariant: Width and Height are independent  ·  Square breaks it');
+      return;
+    }
+    if(a === 'fix'){
+      S.fixed = true; S.ran = false; S.w = 5; S.h = 4;
+      api.tell('good', '<b>Two honest types.</b> An immutable Rectangle has no setters to override, and a Square is its own value with a side. Anything that needs "something with an area" asks for that capability instead. Inheritance was never the problem; pretending was.');
+      api.out('record Rectangle(int Width, int Height) · record Square(int Side)');
+      return;
+    }
+    if(a === 'readonly'){
+      S.ran = true;
+      api.tell('bad', '<b>This is the one you will meet in real code.</b> A subclass inherits a method and throws instead of doing it. Every caller holding the base type is now wrong, and only at run time. If a subtype cannot do the whole job, it should not claim the whole interface: split it, which is the next building along.');
+      api.out('list.Add(item) → NotSupportedException on ReadOnlyBasket');
+      return;
+    }
+    return false;
+  },
+
+  reset(S){ Object.assign(S, {square:false, w:5, h:4, ran:false, fixed:false}); },
+
+  quiz:[
+    {q:'What does the Liskov Substitution Principle require?',
+     o:['Subclasses must not add methods','Code written against a base type must keep working when handed any subtype, without knowing which one it got','Every class must have an interface','Inheritance is forbidden'], a:1,
+     w:'It is about behaviour and promises, not about compiling. The compiler is happy long before the principle is satisfied.'},
+    {q:'Why is a mutable Square a bad subclass of a mutable Rectangle?',
+     o:['Squares have no area','Rectangle promises the sides move independently; Square cannot keep that promise, so callers written against Rectangle break','It wastes memory','Because of the constructor'], a:1,
+     w:'"A square is a rectangle" is true in geometry and false for mutable objects. Real-world taxonomies are not a design.'},
+    {q:'Which is the most common Liskov violation in real code?',
+     o:['Deep inheritance trees','A subclass that throws for part of the interface it inherited, or rejects inputs the base accepted','Using abstract classes','Overriding toString'], a:1,
+     w:'Unsupported operations and narrowed preconditions. Both turn a compile-time promise into a run-time surprise.'},
+    {q:'What is the usual fix?',
+     o:['Add a type check before calling','Model it honestly: immutable values, separate types, or a smaller interface the type can actually satisfy'], a:1,
+     w:'A type check at the call site is the smell itself: the caller now has to know which subtype it got.'}
+  ],
+  soundbite:'"Liskov means code written against a base type must keep working with any subtype, without knowing which one it has. The square-rectangle case makes it concrete: Rectangle promises the sides move independently, Square cannot, so a correct test fails. In real code it shows up as a subclass that throws for part of the interface it inherited. The fix is to stop pretending: immutable values, separate types, or a smaller interface the type can honestly implement."'
+});
+</script>
+</body>
+</html>

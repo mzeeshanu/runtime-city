@@ -1,0 +1,353 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Interface Segregation Playroom · Runtime City</title>
+<meta name="description" content="Force a simple printer to implement scan and fax, watch it throw, then split the interface by what each client actually needs. A playroom from Runtime City.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,600;12..96,800&family=IBM+Plex+Sans:wght@400;500&family=JetBrains+Mono:wght@400&display=swap">
+<link rel="stylesheet" href="../../assets/playroom.css">
+<style>
+.iface{fill:none;stroke:var(--accent);stroke-width:1.5;stroke-dasharray:5 4}
+.ifacelbl{font:400 11px var(--mono);fill:var(--accent);text-anchor:middle}
+.cap{font:400 10px var(--mono);fill:var(--muted)}
+.cap.ok{fill:var(--good)} .cap.miss{fill:var(--bad)}
+.dev{fill:var(--surface);stroke:var(--ink);stroke-width:1.5}
+.dev.broken{stroke:var(--bad);stroke-dasharray:5 4}
+.devlbl{font:400 11px var(--mono);fill:var(--ink);text-anchor:middle}
+.devsub{font:400 9px var(--mono);fill:var(--muted);text-anchor:middle}
+.devsub.warn{fill:var(--bad)}
+.client{fill:var(--surface);stroke:var(--hair);stroke-width:1.5}
+.client.active{stroke:var(--accent)}
+.clientlbl{font:400 10px var(--mono);fill:var(--ink)}
+.wire{stroke:var(--hair);stroke-width:1.5;fill:none}
+.wire.live{stroke:var(--accent)}
+.wire.dead{stroke:var(--bad);stroke-dasharray:4 3}
+</style>
+</head>
+<body>
+<div id="playroom"></div>
+
+<script src="../../assets/city.js"></script>
+<script src="../../assets/nav.js"></script>
+<script src="../../assets/playroom.js"></script>
+<script>
+const CAPS = [
+  {id:'print', name:'Print(doc)'},
+  {id:'scan',  name:'Scan()'},
+  {id:'fax',   name:'Fax(number)'},
+  {id:'staple',name:'Staple()'}
+];
+const DEVICES = {
+  all:    {cls:'OfficeMachine', can:['print','scan','fax','staple']},
+  simple: {cls:'DeskPrinter',   can:['print']},
+  scanner:{cls:'FlatbedScanner',can:['scan']}
+};
+const CLIENTS = {
+  reports: {cls:'ReportService', needs:['print']},
+  intake:  {cls:'IntakeService', needs:['scan']},
+  legacy:  {cls:'LegacyBridge',  needs:['fax']}
+};
+
+const IFACE = {print:'IPrinter', scan:'IScanner', fax:'IFax', staple:'IStapler'};
+
+const STAGE = `
+<svg viewBox="0 0 600 280" role="img" aria-label="Clients, an interface and the devices behind it">
+  <defs><pattern id="grid" width="24" height="24" patternUnits="userSpaceOnUse"><path d="M24 0H0V24" class="gridline" fill="none"/></pattern></defs>
+  <rect width="600" height="280" fill="url(#grid)" opacity=".6"/>
+  <g id="clients"></g>
+  <g id="wires"></g>
+  <g id="ifaces"></g>
+  <g id="devices"></g>
+</svg>`;
+
+const NOTES = {
+  1:'<b>One interface, four abilities.</b> Fine while exactly one machine implements it.',
+  2:'<b>A small device cannot keep a big promise.</b> It either throws or returns nonsense, and the caller only finds out at run time.',
+  3:'<b>Split the interface by capability.</b> Each device implements what it can actually do, and nothing lies.',
+  4:'<b>Then let each client ask for the least it needs.</b> A report service wants IPrinter, not the office machine, which also makes it trivial to fake in a test.',
+  5:'<b>Segregate by client need, not by method count.</b> One interface per method is just as unhelpful as one interface for everything.',
+  6:'<b>Interview tip:</b> "no client should be forced to depend on methods it does not use", then give the throwing-implementation example and mention the recompile coupling.'
+};
+
+function files(S){
+  const L = S.lang, s = S.step, pick = o => o[L];
+
+  if(s <= 2) return pick({
+    cs:[{n:'IMachine.cs', lines:[
+      ['public interface IMachine'],['{'],
+      ['    void Print(Document d);'],['    Document Scan();'],
+      ['    void Fax(string number);'],['    void Staple();'],['}'],[''],
+      ['public class DeskPrinter : IMachine', S.device === 'simple' ? 'bad' : ''],['{'],
+      ['    public void Print(Document d) { /* fine */ }'],
+      ['    public Document Scan() => throw new NotSupportedException();', S.device === 'simple' ? 'bad' : ''],
+      ['    public void Fax(string n) => throw new NotSupportedException();', S.device === 'simple' ? 'bad' : ''],
+      ['    public void Staple() => throw new NotSupportedException();', S.device === 'simple' ? 'bad' : ''],
+      ['}']]}],
+    java:[{n:'Machine.java', lines:[
+      ['public interface Machine {'],
+      ['    void print(Document d);'],['    Document scan();'],
+      ['    void fax(String number);'],['    void staple();'],['}'],[''],
+      ['public class DeskPrinter implements Machine {', S.device === 'simple' ? 'bad' : ''],
+      ['    public void print(Document d) { /* fine */ }'],
+      ['    public Document scan() { throw new UnsupportedOperationException(); }', S.device === 'simple' ? 'bad' : ''],
+      ['    public void fax(String n) { throw new UnsupportedOperationException(); }', S.device === 'simple' ? 'bad' : ''],
+      ['    public void staple() { throw new UnsupportedOperationException(); }', S.device === 'simple' ? 'bad' : ''],
+      ['}']]}],
+    ts:[{n:'machine.ts', lines:[
+      ['export interface Machine {'],
+      ['  print(d: Document): void;'],['  scan(): Document;'],
+      ['  fax(number: string): void;'],['  staple(): void;'],['}'],[''],
+      ['export class DeskPrinter implements Machine {', S.device === 'simple' ? 'bad' : ''],
+      ['  print(d: Document) { /* fine */ }'],
+      ['  scan(): Document { throw new Error("no scanner"); }', S.device === 'simple' ? 'bad' : ''],
+      ['  fax(n: string) { throw new Error("no fax"); }', S.device === 'simple' ? 'bad' : ''],
+      ['  staple() { throw new Error("no stapler"); }', S.device === 'simple' ? 'bad' : ''],
+      ['}']]}]
+  });
+
+  if(s === 5 && S.shredded) return pick({
+    cs:[{n:'TooMany.cs', lines:[
+      ['// One interface per method, whether or not any client wants them apart'],
+      ['interface IPrintStarter { }','bad'],
+      ['interface IPrintCanceller { }','bad'],
+      ['interface IPrintQueueReader { }','bad'],
+      ['interface IPrintTrayChooser { }','bad'],[''],
+      ['// Every printing client now depends on four interfaces to do one job.']]}],
+    java:[{n:'TooMany.java', lines:[
+      ['interface PrintStarter { }','bad'],
+      ['interface PrintCanceller { }','bad'],
+      ['interface PrintQueueReader { }','bad'],
+      ['interface PrintTrayChooser { }','bad']]}],
+    ts:[{n:'too-many.ts', lines:[
+      ['interface PrintStarter {}','bad'],
+      ['interface PrintCanceller {}','bad'],
+      ['interface PrintQueueReader {}','bad'],
+      ['interface PrintTrayChooser {}','bad']]}]
+  });
+
+  return pick({
+    cs:[{n:'Capabilities.cs', lines:[
+      ['public interface IPrinter { void Print(Document d); }','hl'],
+      ['public interface IScanner { Document Scan(); }','hl'],
+      ['public interface IFax     { void Fax(string number); }','hl'],[''],
+      ['public class DeskPrinter   : IPrinter { }                 // honest','new'],
+      ['public class OfficeMachine : IPrinter, IScanner, IFax { }  // also honest','new']]},
+      {n:'ReportService.cs', lines:[
+      ['public class ReportService(IPrinter printer)     // asks for the least it needs','hl'],['{'],
+      ['    public void Send(Report r) => printer.Print(r.ToDocument());'],['}'],[''],
+      ['// A test passes a two-line fake printer, not a whole office machine.']]}],
+    java:[{n:'Capabilities.java', lines:[
+      ['interface Printer { void print(Document d); }','hl'],
+      ['interface Scanner { Document scan(); }','hl'],
+      ['interface Fax     { void fax(String number); }','hl'],[''],
+      ['class DeskPrinter   implements Printer { }','new'],
+      ['class OfficeMachine implements Printer, Scanner, Fax { }','new']]},
+      {n:'ReportService.java', lines:[
+      ['class ReportService {'],
+      ['    private final Printer printer;               // the least it needs','hl'],
+      ['    void send(Report r) { printer.print(r.toDocument()); }'],['}']]}],
+    ts:[{n:'capabilities.ts', lines:[
+      ['export interface Printer { print(d: Document): void }','hl'],
+      ['export interface Scanner { scan(): Document }','hl'],
+      ['export interface Fax     { fax(number: string): void }','hl'],[''],
+      ['export class DeskPrinter implements Printer { }','new'],
+      ['export class OfficeMachine implements Printer, Scanner, Fax { }','new']]},
+      {n:'report-service.ts', lines:[
+      ['export class ReportService {'],
+      ['  constructor(private printer: Printer) {}      // the least it needs','hl'],
+      ['  send(r: Report) { this.printer.print(r.toDocument()); }'],['}']]}]
+  });
+}
+
+const P = Playroom({
+  district:'SOLID Quarter',
+  title:'Interface Segregation',
+  dek:'Nobody should have to implement, or depend on, work they do not do.',
+  steps:['One big interface','Break it','Split it','Ask for less','Not too far','Interview check'],
+  stage:STAGE,
+
+  state:{split:false, device:'all', client:'reports', called:null, shredded:false},
+
+  story(S, api){
+    const fb = api.fb();
+    return {
+      1:`<h2>One interface for the whole machine</h2><p><code>IMachine</code> can print, scan, fax and staple. The office machine implements all four, and everything is fine.</p>${fb}`,
+      2:`<h2>Buy a cheap printer</h2><p>It only prints. To be an <code>IMachine</code> it must still implement scan, fax and staple — so it throws. Switch to it and try to scan.</p>${fb}`,
+      3:`<h2>Split by capability</h2><p><code>IPrinter</code>, <code>IScanner</code>, <code>IFax</code>. Each device implements exactly what it can do, so no method is a lie and the compiler knows it.</p>${fb}`,
+      4:`<h2>Let clients ask for the least</h2><p>The report service needs printing, nothing else. Pick a client and see what it depends on now.</p>${fb}`,
+      5:`<h2>Don't shred it</h2><p>Segregation is about what <b>clients</b> use together, not about method count. One interface per method scatters a single job across four dependencies.</p>${fb}`,
+      6:`<h2>Interview check</h2>${api.quizHTML()}`
+    }[S.step];
+  },
+
+  controls(S){
+    const s = S.step;
+    const devices = Object.entries(DEVICES).map(([k, d]) =>
+      `<button class="chip" data-dev="${k}" aria-pressed="${S.device === k}"><i style="background:${k === 'all' ? 'var(--accent)' : 'var(--muted)'}"></i>${d.cls}</button>`).join('');
+    const calls = CAPS.slice(0, 3).map(c =>
+      `<button class="btn" data-call="${c.id}">${c.name}</button>`).join('');
+    if(s === 1) return calls;
+    if(s === 2) return devices + calls;
+    if(s === 3) return S.split ? devices + calls : `<button class="btn primary" data-a="split">Split into capabilities</button>`;
+    if(s === 4) return Object.entries(CLIENTS).map(([k, c]) =>
+      `<button class="chip" data-client="${k}" aria-pressed="${S.client === k}"><i style="background:var(--accent)"></i>${c.cls}</button>`).join('') +
+      `<button class="btn primary" data-a="fake" style="margin-left:auto">Write a fake for a test</button>`;
+    if(s === 5) return S.shredded
+      ? `<button class="btn primary" data-a="unshred">Group them by client need</button>`
+      : `<button class="btn" data-a="shred">One interface per method</button>`;
+    return '';
+  },
+
+  statusLine(S){
+    const s = S.step;
+    const dev = DEVICES[S.device];
+    if(s === 5) return S.shredded
+      ? `Interfaces a printing client depends on <b>4</b><span class="warn"> · one job, four dependencies</span>`
+      : `Interfaces a printing client depends on <b>1</b><span class="ok"> · IPrinter, and nothing else</span>`;
+    if(s === 4){
+      const c = CLIENTS[S.client];
+      return `${c.cls} depends on <b>${c.needs.map(n => IFACE[n]).join(', ')}</b>` +
+        `<span class="ok"> · 1 method to fake in a test · unaffected when the others change</span>`;
+    }
+    const unsupported = S.split ? 0 : 4 - dev.can.length;
+    const shown = S.split ? dev.can.length : 4;
+    return `${dev.cls} implements <b>${shown}</b> method${shown === 1 ? "" : "s"} · can actually do <b>${dev.can.length}</b>` +
+      (S.split ? `<span class="ok"> · nothing unimplemented</span>`
+               : (unsupported ? `<span class="warn"> · ${unsupported} throw at run time</span>` : ''));
+  },
+
+  files,
+  note: S => NOTES[S.step],
+
+  onStage(S){
+    const id = document.getElementById.bind(document);
+    const dev = DEVICES[S.device];
+
+    /* the interface band */
+    id('ifaces').innerHTML = S.split
+      ? ['IPrinter','IScanner','IFax'].map((n, i) =>
+          `<rect class="iface" x="${228 + i * 118}" y="96" width="106" height="44" rx="6"/>` +
+          `<text class="ifacelbl" x="${281 + i * 118}" y="123">${n}</text>`).join('')
+      : `<rect class="iface" x="228" y="70" width="342" height="96" rx="8"/>` +
+        `<text class="ifacelbl" x="399" y="92">IMachine</text>` +
+        CAPS.map((c, i) => {
+          const can = dev.can.includes(c.id);
+          return `<text class="cap ${can ? 'ok' : 'miss'}" x="${248 + (i % 2) * 170}" y="${118 + Math.floor(i / 2) * 22}">` +
+                 `${can ? '✓' : '✗'} ${c.name}${can ? '' : ' → throws'}</text>`;
+        }).join('');
+
+    /* the device */
+    const broken = !S.split && dev.can.length < 4;
+    id('devices').innerHTML =
+      `<rect class="dev ${broken ? 'broken' : ''}" x="288" y="192" width="222" height="60" rx="8"/>` +
+      `<text class="devlbl" x="399" y="216">${dev.cls}</text>` +
+      `<text class="devsub ${broken ? 'warn' : ''}" x="399" y="236">` +
+      (S.split ? 'implements: ' + dev.can.join(', ')
+               : broken ? `${4 - dev.can.length} methods it cannot do` : 'does all four') + `</text>`;
+
+    /* clients */
+    const list = S.step >= 4 ? Object.entries(CLIENTS) : [['reports', CLIENTS.reports]];
+    id('clients').innerHTML = list.map(([k, c], i) =>
+      `<rect class="client ${S.client === k && S.step >= 4 ? 'active' : ''}" x="20" y="${60 + i * 62}" width="158" height="46" rx="6"/>` +
+      `<text class="clientlbl" x="34" y="${88 + i * 62}">${c.cls}</text>`).join('');
+
+    id('wires').innerHTML = list.map(([k, c], i) => {
+      const y = 83 + i * 62;
+      const live = S.step < 4 || S.client === k;
+      const dead = S.called && !DEVICES[S.device].can.includes(S.called) && !S.split;
+      return `<path class="wire ${dead && live ? 'dead' : live ? 'live' : ''}" d="M178 ${y} C 210 ${y}, 210 118, 228 118"/>`;
+    }).join('');
+  },
+
+  onStep(S, n){
+    S.called = null;
+    if(n <= 2){ S.split = false; if(n === 1) S.device = 'all'; }
+    if(n === 2 && S.device === 'all') S.device = 'all';
+    if(n === 3) S.split = false;
+    if(n >= 4){ S.split = true; S.device = 'simple'; }
+    if(n !== 5) S.shredded = false;
+  },
+
+  onClick(S, b, api){
+    if(b.dataset.dev){
+      S.device = b.dataset.dev; S.called = null;
+      const d = DEVICES[S.device];
+      if(!S.split && d.can.length < 4)
+        api.tell('bad', `<b>${d.cls} had to implement all four.</b> Three of them cannot work, so they throw. The interface made a promise the device cannot keep, and only the run time finds out.`);
+      else api.out(`using ${d.cls}`);
+      return;
+    }
+    if(b.dataset.client){
+      S.client = b.dataset.client;
+      const c = CLIENTS[S.client];
+      api.tell('good', `<b>${c.cls} depends on one capability.</b> It cannot call anything else, it does not recompile when faxing changes, and a test fakes it with a couple of lines.`);
+      api.out(`${c.cls}(${c.needs.map(n => IFACE[n]).join(', ')})`);
+      return;
+    }
+    if(b.dataset.call){
+      const cap = b.dataset.call;
+      S.called = cap;
+      const can = DEVICES[S.device].can.includes(cap);
+      if(can){
+        api.tell('good', `<b>Works.</b> ${DEVICES[S.device].cls} really can do that.`);
+        api.out(`${CAPS.find(c => c.id === cap).name} → ok`);
+      } else if(S.split){
+        api.tell('good', `<b>It will not compile.</b> With split interfaces this device does not offer that capability at all, so the mistake is caught at build time instead of in front of a user.`);
+        api.out(`${DEVICES[S.device].cls} does not implement I${cap[0].toUpperCase() + cap.slice(1)} · compile error`);
+      } else {
+        api.tell('bad', `<b>NotSupportedException.</b> The type said it could; the object could not. Every caller holding an <code>IMachine</code> has to know which machine it really has, which is exactly what an interface was supposed to prevent.`);
+        api.out(`${CAPS.find(c => c.id === cap).name} → NotSupportedException`);
+      }
+      return;
+    }
+    const a = b.dataset.a;
+    if(a === 'split'){
+      S.split = true; S.called = null;
+      api.tell('good', '<b>Three small interfaces.</b> A device implements what it can do, callers ask for what they need, and "it compiles" starts meaning something again. There is a second win: changing IFax no longer recompiles every printing client.');
+      api.out('IPrinter · IScanner · IFax');
+      return;
+    }
+    if(a === 'fake'){
+      api.tell('good', '<b>Two lines.</b> <code>class FakePrinter : IPrinter { public void Print(Document d) => Printed++; }</code> — with the fat interface that fake needed four methods, three of which were noise. Test pain is usually design feedback.');
+      api.out('class FakePrinter : IPrinter { … }   // 2 lines');
+      return;
+    }
+    if(a === 'shred'){
+      S.shredded = true;
+      api.tell('bad', '<b>Four interfaces for one job.</b> Nobody uses printing without starting and cancelling, so splitting those apart adds ceremony and no substitution. Segregate where clients differ, not wherever a method boundary exists.');
+      api.out('IPrintStarter · IPrintCanceller · IPrintQueueReader · IPrintTrayChooser');
+      return;
+    }
+    if(a === 'unshred'){
+      S.shredded = false;
+      api.tell('good', '<b>Back to one role interface.</b> The test is simple: do any two clients need different subsets? If not, leave it whole.');
+      api.out('IPrinter · one role, used as one');
+      return;
+    }
+    return false;
+  },
+
+  reset(S){ Object.assign(S, {split:false, device:'all', client:'reports', called:null, shredded:false}); },
+
+  quiz:[
+    {q:'What does Interface Segregation say?',
+     o:['Interfaces should have one method','No client should be forced to depend on methods it does not use','Always program to an interface','Interfaces should not be public'], a:1,
+     w:'It is about the client\'s view. One method per interface is a possible outcome, never the rule.'},
+    {q:'What is the clearest sign a fat interface is hurting you?',
+     o:['It is long','Implementations throw NotSupportedException, or are full of empty methods, for parts they cannot do','It has generics','More than one class implements it'], a:1,
+     w:'That is also a Liskov violation: the object cannot honour the type it claims.'},
+    {q:'Besides unimplemented methods, what does a fat interface cost you?',
+     o:['Nothing','Coupling: every client depends on and recompiles with parts it never calls, and test fakes must stub methods nobody uses'], a:1,
+     w:'The recompile-and-redeploy argument is the one senior interviewers listen for.'},
+    {q:'How do you decide where to split?',
+     o:['One method per interface','By what each client actually uses together: if two clients need different subsets, that is the seam'], a:1,
+     w:'Role interfaces. Splitting beyond real client differences just adds ceremony.'}
+  ],
+  soundbite:'"Interface Segregation means no client should depend on methods it does not use. The visible symptom is an implementation throwing NotSupportedException for half the interface, which is also a Liskov violation. The quieter cost is coupling: every client recompiles when an unrelated part of the interface changes, and every test fake has to stub methods nobody calls. I split by what clients actually use together, so the seams follow roles rather than method counts."'
+});
+</script>
+</body>
+</html>

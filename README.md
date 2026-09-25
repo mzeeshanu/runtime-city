@@ -20,6 +20,11 @@ Audience: students preparing for interviews first, then early-career developers.
 | Memory Harbour | [Boxing](site/playrooms/boxing/index.html) | Prototype |
 | Memory Harbour | [Pointers and Null](site/playrooms/pointers-and-null/index.html) | Prototype |
 | Memory Harbour | [Caching](site/playrooms/caching/index.html) | Prototype |
+| SOLID Quarter | [Single Responsibility](site/playrooms/single-responsibility/index.html) | Prototype |
+| SOLID Quarter | [Open/Closed](site/playrooms/open-closed/index.html) | Prototype |
+| SOLID Quarter | [Liskov Substitution](site/playrooms/liskov-substitution/index.html) | Prototype |
+| SOLID Quarter | [Interface Segregation](site/playrooms/interface-segregation/index.html) | Prototype |
+| SOLID Quarter | [Dependency Inversion](site/playrooms/dependency-inversion/index.html) | Prototype |
 
 Every playroom follows the same loop: **see it → break it → fix it → code it (C#, Java, TypeScript) → interview check**.
 

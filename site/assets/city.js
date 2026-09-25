@@ -37,9 +37,15 @@
         name: 'SOLID Quarter',
         slug: 'solid-quarter',
         blurb: 'Five principles, five buildings that crack when you break them.',
-        open: false,
-        playrooms: [],
-        soon: ['Single Responsibility', 'Open/Closed', 'Liskov Substitution', 'Interface Segregation', 'Dependency Inversion']
+        open: true,
+        playrooms: [
+          {slug:'single-responsibility',  title:'Single Responsibility',  blurb:'four departments, one file, and the crack down the middle'},
+          {slug:'open-closed',            title:'Open/Closed',            blurb:'stop editing the engine to add a promotion'},
+          {slug:'liskov-substitution',    title:'Liskov Substitution',    blurb:'a square that makes a correct test fail'},
+          {slug:'interface-segregation',  title:'Interface Segregation',  blurb:'a printer forced to promise it can fax'},
+          {slug:'dependency-inversion',   title:'Dependency Inversion',   blurb:'flip the arrow between your rules and your database'}
+        ],
+        soon: []
       },
       {
         name: 'Network Highway',

@@ -1,0 +1,304 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Single Responsibility Playroom · Runtime City</title>
+<meta name="description" content="Count the people who can force a change to one class, watch an invoice class crack under four of them, then split it by reason to change. A playroom from Runtime City.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,600;12..96,800&family=IBM+Plex+Sans:wght@400;500&family=JetBrains+Mono:wght@400&display=swap">
+<link rel="stylesheet" href="../../assets/playroom.css">
+<style>
+.bld{fill:var(--surface);stroke:var(--ink);stroke-width:2}
+.bld.cracked{stroke:var(--bad)}
+.floor{fill:none;stroke:var(--hair);stroke-width:1}
+.floorlbl{font:400 11px var(--mono);fill:var(--ink)}
+.floorlbl.touched{fill:var(--bad)}
+.owner{font:400 10px var(--mono);fill:var(--muted);text-anchor:end}
+.owner.pulling{fill:var(--accent)}
+.rope{stroke:var(--hair);stroke-width:1.5;fill:none}
+.rope.pulling{stroke:var(--accent);stroke-width:2}
+.crack{fill:none;stroke:var(--bad);stroke-width:2.5;opacity:0;transition:opacity .2s}
+.cracked .crack{opacity:1}
+.smalllbl{font:400 10px var(--mono);fill:var(--ink);text-anchor:middle}
+.smallsub{font:400 9px var(--mono);fill:var(--muted);text-anchor:middle}
+.unit{fill:var(--surface);stroke:var(--ink);stroke-width:1.5;transition:opacity .3s}
+.unit.hot{stroke:var(--accent);fill:rgba(201,112,29,.12)}
+</style>
+</head>
+<body>
+<div id="playroom"></div>
+
+<script src="../../assets/city.js"></script>
+<script src="../../assets/nav.js"></script>
+<script src="../../assets/playroom.js"></script>
+<script>
+const JOBS = [
+  {id:'calc',  name:'work out the totals', owner:'Finance',  cls:'InvoiceCalculator'},
+  {id:'pdf',   name:'render the PDF',      owner:'Design',   cls:'InvoicePdf'},
+  {id:'mail',  name:'send the email',      owner:'Marketing',cls:'InvoiceMailer'},
+  {id:'save',  name:'save it to the database', owner:'Platform', cls:'InvoiceRepository'}
+];
+
+const STAGE = `
+<svg viewBox="0 0 600 280" role="img" aria-label="One class carrying four jobs, then four smaller classes">
+  <defs><pattern id="grid" width="24" height="24" patternUnits="userSpaceOnUse"><path d="M24 0H0V24" class="gridline" fill="none"/></pattern></defs>
+  <rect width="600" height="280" fill="url(#grid)" opacity=".6"/>
+  <g id="owners"></g>
+  <g id="scene"></g>
+</svg>`;
+
+const NOTES = {
+  1:'<b>Four jobs, four different people who can ask for a change.</b> That is the real definition: a class should have one reason to change, meaning one group of people asking.',
+  2:'<b>Unrelated work collides.</b> A layout tweak touches the file that holds the tax rules, so the tax tests run, the reviewer is the wrong person, and two teams queue behind one file.',
+  3:'<b>Split along the reasons, not the methods.</b> Each new class answers to one group. The invoice class keeps the story and delegates the work.',
+  4:'<b>Now a layout change stays in the layout file.</b> One file edited, one set of tests, one reviewer.',
+  5:'<b>Splitting further stops helping.</b> A class per method scatters one piece of behaviour across a directory, and every change touches five files instead of one.',
+  6:'<b>Interview tip:</b> say "one reason to change, where a reason is a group of people", then give the invoice example. Avoid "a class should do one thing" — nobody can define the thing.'
+};
+
+function files(S){
+  const L = S.lang, s = S.step, pick = o => o[L];
+  const touched = S.touched;
+
+  if(s <= 2) return pick({
+    cs:[{n:'InvoiceService.cs', lines:[
+      ['public class InvoiceService'],['{'],
+      ['    public decimal Total(Invoice inv) { /* tax rules */ }', touched === 'calc' ? 'bad' : ''],
+      ['    public byte[] ToPdf(Invoice inv) { /* fonts, layout */ }', touched === 'pdf' ? 'bad' : ''],
+      ['    public void Email(Invoice inv) { /* smtp, templates */ }', touched === 'mail' ? 'bad' : ''],
+      ['    public void Save(Invoice inv) { /* sql */ }', touched === 'save' ? 'bad' : ''],
+      ['}'],
+      ...(touched ? [['',''],['// One file, four audiences. This change needed the whole class rebuilt','bad'],
+                     ['// and every test that touches invoices to run.','bad']] : [])]}],
+    java:[{n:'InvoiceService.java', lines:[
+      ['public class InvoiceService {'],
+      ['    public BigDecimal total(Invoice inv) { /* tax rules */ }', touched === 'calc' ? 'bad' : ''],
+      ['    public byte[] toPdf(Invoice inv) { /* fonts, layout */ }', touched === 'pdf' ? 'bad' : ''],
+      ['    public void email(Invoice inv) { /* smtp, templates */ }', touched === 'mail' ? 'bad' : ''],
+      ['    public void save(Invoice inv) { /* sql */ }', touched === 'save' ? 'bad' : ''],
+      ['}']]}],
+    ts:[{n:'invoice-service.ts', lines:[
+      ['export class InvoiceService {'],
+      ['  total(inv: Invoice) { /* tax rules */ }', touched === 'calc' ? 'bad' : ''],
+      ['  toPdf(inv: Invoice) { /* fonts, layout */ }', touched === 'pdf' ? 'bad' : ''],
+      ['  email(inv: Invoice) { /* smtp, templates */ }', touched === 'mail' ? 'bad' : ''],
+      ['  save(inv: Invoice) { /* sql */ }', touched === 'save' ? 'bad' : ''],
+      ['}']]}]
+  });
+
+  if(s === 5 && S.shredded) return pick({
+    cs:[{n:'TooFar.cs', lines:[
+      ['// One class per method, and now one behaviour lives in five files'],
+      ['class InvoiceTotalCalculator { }','bad'],
+      ['class InvoiceTaxLineCalculator { }','bad'],
+      ['class InvoiceDiscountLineCalculator { }','bad'],
+      ['class InvoiceRoundingPolicy { }','bad'],
+      ['class InvoiceCurrencyFormatter { }','bad'],[''],
+      ['// Finance asks for one change and you open all five.']]}],
+    java:[{n:'TooFar.java', lines:[
+      ['// One class per method: one behaviour, five files'],
+      ['class InvoiceTotalCalculator { }','bad'],
+      ['class InvoiceTaxLineCalculator { }','bad'],
+      ['class InvoiceDiscountLineCalculator { }','bad'],
+      ['class InvoiceRoundingPolicy { }','bad'],
+      ['class InvoiceCurrencyFormatter { }','bad']]}],
+    ts:[{n:'too-far.ts', lines:[
+      ['// One function per file, all for the same reason to change'],
+      ['export const calcTotal = …;','bad'],
+      ['export const calcTax = …;','bad'],
+      ['export const calcDiscount = …;','bad'],
+      ['export const round = …;','bad'],
+      ['export const format = …;','bad']]}]
+  });
+
+  /* split */
+  const hot = c => touched && JOBS.find(j => j.id === touched).cls === c ? 'hl' : '';
+  return pick({
+    cs:[{n:'Invoice*.cs', lines:[
+      ['public class InvoiceCalculator { public decimal Total(Invoice i) { } }', hot('InvoiceCalculator')],
+      ['public class InvoicePdf        { public byte[] Render(Invoice i) { } }', hot('InvoicePdf')],
+      ['public class InvoiceMailer     { public void Send(Invoice i) { } }', hot('InvoiceMailer')],
+      ['public class InvoiceRepository { public void Save(Invoice i) { } }', hot('InvoiceRepository')]]},
+      {n:'IssueInvoice.cs', lines:[
+      ['public class IssueInvoice(InvoiceCalculator calc, InvoicePdf pdf,'],
+      ['                          InvoiceMailer mail, InvoiceRepository repo)'],['{'],
+      ['    public void Handle(Invoice inv)      // the story, not the work'],['    {'],
+      ['        inv.Total = calc.Total(inv);'],
+      ['        repo.Save(inv);'],
+      ['        mail.Send(inv, pdf.Render(inv));'],['    }'],['}']]}],
+    java:[{n:'Invoice*.java', lines:[
+      ['class InvoiceCalculator { BigDecimal total(Invoice i) { } }', hot('InvoiceCalculator')],
+      ['class InvoicePdf        { byte[] render(Invoice i) { } }', hot('InvoicePdf')],
+      ['class InvoiceMailer     { void send(Invoice i) { } }', hot('InvoiceMailer')],
+      ['class InvoiceRepository { void save(Invoice i) { } }', hot('InvoiceRepository')]]},
+      {n:'IssueInvoice.java', lines:[
+      ['class IssueInvoice {'],
+      ['    void handle(Invoice inv) {           // the story, not the work'],
+      ['        inv.setTotal(calc.total(inv));'],
+      ['        repo.save(inv);'],
+      ['        mail.send(inv, pdf.render(inv));'],['    }'],['}']]}],
+    ts:[{n:'invoice/*.ts', lines:[
+      ['export class InvoiceCalculator { total(i: Invoice) { } }', hot('InvoiceCalculator')],
+      ['export class InvoicePdf        { render(i: Invoice) { } }', hot('InvoicePdf')],
+      ['export class InvoiceMailer     { send(i: Invoice) { } }', hot('InvoiceMailer')],
+      ['export class InvoiceRepository { save(i: Invoice) { } }', hot('InvoiceRepository')]]},
+      {n:'issue-invoice.ts', lines:[
+      ['export function issueInvoice(inv: Invoice) {   // the story, not the work'],
+      ['  inv.total = calc.total(inv);'],
+      ['  repo.save(inv);'],
+      ['  mail.send(inv, pdf.render(inv));'],['}']]}]
+  });
+}
+
+const P = Playroom({
+  district:'SOLID Quarter',
+  title:'Single Responsibility',
+  dek:'One reason to change. A reason is a group of people, not a line count.',
+  steps:['Four jobs','Break it','Split it','Change again','Too far','Interview check'],
+  stage:STAGE,
+
+  state:{split:false, touched:null, edits:0, files:1, shredded:false},
+
+  story(S, api){
+    const fb = api.fb();
+    return {
+      1:`<h2>One class, four audiences</h2><p><code>InvoiceService</code> works out totals, renders the PDF, sends the email and saves the record. Four different departments can walk in and ask for a change to this one file.</p>${fb}`,
+      2:`<h2>Let one of them ask</h2><p>Pick a department and make their change. Watch which file gets edited, and who else is now affected.</p>${fb}`,
+      3:`<h2>Split by reason, not by method</h2><p>One class per audience: Finance owns the calculator, Design owns the PDF, Platform owns the repository. A thin <code>IssueInvoice</code> keeps the order of events.</p>${fb}`,
+      4:`<h2>Now let them ask again</h2><p>Same requests, different blast radius.</p>${fb}`,
+      5:`<h2>The other failure</h2><p>Split too far and one behaviour spreads over five files, all changing for the same reason. That is not SRP; it is scattering.</p>${fb}`,
+      6:`<h2>Interview check</h2>${api.quizHTML()}`
+    }[S.step];
+  },
+
+  controls(S){
+    const s = S.step;
+    const asks = JOBS.map(j =>
+      `<button class="chip" data-job="${j.id}" aria-pressed="${S.touched === j.id}"><i style="background:var(--accent)"></i>${j.owner} asks</button>`).join('');
+    if(s === 1) return `<button class="btn primary" data-a="count">Count the reasons to change</button>`;
+    if(s === 2) return asks;
+    if(s === 3) return S.split ? asks : `<button class="btn primary" data-a="split">Split it into four classes</button>`;
+    if(s === 4) return asks;
+    if(s === 5) return S.shredded
+      ? `<button class="btn primary" data-a="unshred">Put the calculator back together</button>`
+      : `<button class="btn" data-a="shred">Split the calculator into five classes</button>`;
+    return '';
+  },
+
+  statusLine(S){
+    const s = S.step;
+    if(s === 5) return S.shredded
+      ? `Files for one tax change <b>5</b><span class="warn"> · same reason to change, five places to look</span>`
+      : `Files for one tax change <b>1</b><span class="ok"> · one reason, one file</span>`;
+    if(!S.split) return `Reasons to change <b>4</b> · files edited <b>${S.edits}</b>` +
+      (S.touched ? `<span class="warn"> · every invoice test runs, and three other teams share this file</span>`
+                 : `<span class="warn"> · Finance, Design, Marketing and Platform all edit this class</span>`);
+    return `Reasons to change per class <b>1</b> · files edited <b>${S.edits}</b>` +
+      (S.touched ? `<span class="ok"> · only ${JOBS.find(j => j.id === S.touched).cls} was touched</span>`
+                 : `<span class="ok"> · each class answers to one group</span>`);
+  },
+
+  files,
+  note: S => NOTES[S.step],
+
+  onStage(S){
+    const id = document.getElementById.bind(document);
+    id('owners').innerHTML = JOBS.map((j, i) =>
+      `<text class="owner ${S.touched === j.id ? 'pulling' : ''}" x="120" y="${64 + i * 46}">${j.owner}</text>` +
+      `<path class="rope ${S.touched === j.id ? 'pulling' : ''}" d="M128 ${60 + i * 46} H ${S.split ? 236 : 228}"/>`).join('');
+
+    if(!S.split){
+      id('scene').innerHTML =
+        `<g class="${S.touched ? 'cracked' : ''}">` +
+        `<rect class="bld ${S.touched ? 'cracked' : ''}" x="230" y="34" width="250" height="212" rx="8"/>` +
+        `<text class="smalllbl" x="355" y="26">InvoiceService</text>` +
+        JOBS.map((j, i) =>
+          `<rect class="floor" x="230" y="${34 + i * 53}" width="250" height="53"/>` +
+          `<text class="floorlbl ${S.touched === j.id ? 'touched' : ''}" x="248" y="${66 + i * 53}">${j.name}</text>`).join('') +
+        `<path class="crack" d="M300 34 L316 90 L296 140 L318 196 L302 246"/>` +
+        `</g>`;
+    } else {
+      id('scene').innerHTML = JOBS.map((j, i) => {
+        const x = 236 + (i % 2) * 176, y = 40 + Math.floor(i / 2) * 110;
+        const hot = S.touched === j.id;
+        return `<g><rect class="unit ${hot ? 'hot' : ''}" x="${x}" y="${y}" width="160" height="84" rx="8"/>` +
+          `<text class="smalllbl" x="${x + 80}" y="${y + 36}">${j.cls}</text>` +
+          `<text class="smallsub" x="${x + 80}" y="${y + 56}">${j.name}</text>` +
+          `<text class="smallsub" x="${x + 80}" y="${y + 72}">owner: ${j.owner}</text></g>`;
+      }).join('');
+    }
+  },
+
+  onStep(S, n){
+    S.touched = null;
+    if(n <= 2) S.split = false;
+    if(n >= 3) S.split = n > 3;
+    if(n === 3) S.split = false;
+    if(n >= 4) S.split = true;
+    if(n !== 5) S.shredded = false;
+    S.edits = 0;
+  },
+
+  onClick(S, b, api){
+    if(b.dataset.job){
+      const j = JOBS.find(x => x.id === b.dataset.job);
+      S.touched = j.id; S.edits++;
+      if(S.split){
+        api.tell('good', `<b>${j.cls} only.</b> ${j.owner} got their change, the other three classes were not opened, and the review went to the right people.`);
+        api.out(`edited ${j.cls}  ·  1 file  ·  ${j.owner} reviewed`);
+      } else {
+        api.tell('bad', `<b>${j.owner} changed the file that also holds the other three jobs.</b> The tax rules, the SMTP settings and the SQL all live here, so this edit rebuilds them, reruns their tests, and blocks whoever else is in the file today.`);
+        api.out(`edited InvoiceService  ·  4 jobs in one file  ·  all invoice tests run`);
+      }
+      return;
+    }
+    const a = b.dataset.a;
+    if(a === 'count'){
+      api.tell('bad', '<b>Four reasons to change.</b> Robert Martin\'s wording is "one reason to change", and a reason means a group of people who can ask. Finance changing tax rules should never be able to break the PDF.');
+      api.out('reasons to change: Finance · Design · Marketing · Platform');
+      return;
+    }
+    if(a === 'split'){
+      S.split = true; S.touched = null; S.edits = 0;
+      api.tell('good', '<b>Four classes, one audience each.</b> <code>IssueInvoice</code> still tells the story in order; it just no longer knows how any step is done.');
+      api.out('InvoiceCalculator · InvoicePdf · InvoiceMailer · InvoiceRepository');
+      return;
+    }
+    if(a === 'shred'){
+      S.shredded = true;
+      api.tell('bad', '<b>Five classes for one reason to change.</b> Finance asks for one rounding tweak and you open all of them. SRP counts audiences, not methods: if two pieces always change together, they belong together.');
+      api.out('5 files · 1 reason to change · every edit touches all of them');
+      return;
+    }
+    if(a === 'unshred'){
+      S.shredded = false;
+      api.tell('good', '<b>Back to one calculator.</b> Cohesion is the other half of the principle: things that change together belong together.');
+      api.out('InvoiceCalculator · 1 file · 1 reason');
+      return;
+    }
+    return false;
+  },
+
+  reset(S){ Object.assign(S, {split:false, touched:null, edits:0, shredded:false}); },
+
+  quiz:[
+    {q:'What is a "responsibility" in the Single Responsibility Principle?',
+     o:['A method','A reason to change, meaning a group of people who can ask for that change','A layer of the application','A microservice'], a:1,
+     w:'Martin later restated it as "gather things that change for the same reason, separate things that change for different reasons".'},
+    {q:'Why is "a class should do one thing" a weak answer?',
+     o:['It is too long','Nobody can define the thing: any class does one thing at some level of zoom, so the rule gives no guidance','It is outdated','It only applies to services'], a:1,
+     w:'Changing the framing to "who asks for changes here" makes it decidable, and points straight at the split.'},
+    {q:'A class calculates tax and renders a PDF. Why is that a problem beyond tidiness?',
+     o:['It is slower','Two teams edit one file: their changes, tests, reviews and deploys are coupled, and a layout tweak can break tax','It uses more memory','It cannot be tested'], a:1,
+     w:'The cost is organisational as much as technical. That is the answer interviewers are listening for.'},
+    {q:'When have you split too far?',
+     o:['More than three classes','When pieces that always change together live in different files, so one request touches five of them','When class names get long','Never, more classes is always better'], a:1,
+     w:'Cohesion is the counterweight. Scattering one reason across many files is the opposite failure, and just as expensive.'}
+  ],
+  soundbite:'"Single Responsibility means one reason to change, and a reason is a group of people. If Finance can change the tax rules and Design can change the PDF layout in the same class, those two teams are coupled through a file: their tests, reviews and releases collide. I split along those audiences, not along methods, because pieces that always change together should stay together."'
+});
+</script>
+</body>
+</html>

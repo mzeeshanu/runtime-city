@@ -1,0 +1,359 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Dependency Inversion Playroom · Runtime City</title>
+<meta name="description" content="Watch the dependency arrow between your domain and your database flip direction, and learn why DIP, DI and an IoC container are three different things. A playroom from Runtime City.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="../../assets/playroom.css">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,600;12..96,800&family=IBM+Plex+Sans:wght@400;500&family=JetBrains+Mono:wght@400&display=swap">
+<style>
+.layer{fill:var(--surface);stroke:var(--ink);stroke-width:1.5}
+.layer.policy{stroke-width:2}
+.layerlbl{font:400 12px var(--mono);fill:var(--ink)}
+.layersub{font:400 9px var(--mono);fill:var(--muted)}
+.port{fill:rgba(201,112,29,.12);stroke:var(--accent);stroke-width:1.5;stroke-dasharray:5 4}
+.portlbl{font:400 10px var(--mono);fill:var(--accent)}
+.arrow{stroke:var(--ink);stroke-width:2;fill:none;marker-end:url(#tip)}
+.arrow.bad{stroke:var(--bad);marker-end:url(#tipBad)}
+.arrow.good{stroke:var(--good);marker-end:url(#tipGood)}
+.arrowlbl{font:400 10px var(--mono);text-anchor:middle}
+.arrowlbl.bad{fill:var(--bad)} .arrowlbl.good{fill:var(--good)}
+.stamp{font:400 10px var(--mono);fill:var(--muted)}
+</style>
+</head>
+<body>
+<div id="playroom"></div>
+
+<script src="../../assets/city.js"></script>
+<script src="../../assets/nav.js"></script>
+<script src="../../assets/playroom.js"></script>
+<script>
+const IMPLS = {
+  sql:   {cls:'SqlOrderRepository',   label:'SQL Server'},
+  mongo: {cls:'MongoOrderRepository', label:'MongoDB'},
+  fake:  {cls:'InMemoryOrders',       label:'in-memory (tests)'}
+};
+const SHAPE_FILE = {dip:'WhoOwnsTheAbstraction', di:'HandItIn', ioc:'LetTheContainerWire'};
+const SHAPES = {dip:'The principle (DIP)', di:'The technique (DI)', ioc:'The tool (a container)'};
+
+const STAGE = `
+<svg viewBox="0 0 600 270" role="img" aria-label="A domain layer and an infrastructure layer with a dependency arrow">
+  <defs>
+    <pattern id="grid" width="24" height="24" patternUnits="userSpaceOnUse"><path d="M24 0H0V24" class="gridline" fill="none"/></pattern>
+    <marker id="tip" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto"><path d="M0 0 L10 5 L0 10 z" fill="var(--ink)"/></marker>
+    <marker id="tipBad" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto"><path d="M0 0 L10 5 L0 10 z" fill="var(--bad)"/></marker>
+    <marker id="tipGood" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto"><path d="M0 0 L10 5 L0 10 z" fill="var(--good)"/></marker>
+  </defs>
+  <rect width="600" height="270" fill="url(#grid)" opacity=".6"/>
+  <g id="scene"></g>
+</svg>`;
+
+const NOTES = {
+  1:'<b>The policy imports the detail.</b> <code>OrderService</code> says <code>new SqlOrderRepository()</code>, so your business rules now depend on a database driver.',
+  2:'<b>Every infrastructure decision becomes a domain change.</b> Swapping the store, or testing without one, means editing the rules.',
+  3:'<b>Invert the arrow by moving the interface.</b> The domain declares what it needs; infrastructure implements it. Now the dependency points inward, at the abstraction.',
+  4:'<b>Who owns the interface is the whole principle.</b> If it lives next to the database code, nothing was inverted: the domain still points outward.',
+  5:'<b>Three different things.</b> DIP is the direction of dependencies, DI is handing objects in, a container is a tool that automates the handing.',
+  6:'<b>Interview tip:</b> "high-level modules should not depend on low-level ones; both depend on abstractions — and the abstraction belongs to the high-level module".'
+};
+
+function files(S){
+  const L = S.lang, s = S.step, pick = o => o[L];
+  const impl = IMPLS[S.impl];
+
+  if(s <= 2) return pick({
+    cs:[{n:'Domain/OrderService.cs', lines:[
+      ['using Infrastructure.Sql;               // the domain now knows the database','bad'],[''],
+      ['public class OrderService'],['{'],
+      ['    private readonly SqlOrderRepository _repo = new();   // policy → detail','bad'],
+      ['    public void Place(Order o) { /* rules */ _repo.Save(o); }'],['}'],
+      ...(S.swapped ? [['',''],['// Switching store meant editing this file. So did writing a test.','bad']] : [])]}],
+    java:[{n:'domain/OrderService.java', lines:[
+      ['import infrastructure.sql.SqlOrderRepository;   // the domain knows the database','bad'],[''],
+      ['public class OrderService {'],
+      ['    private final SqlOrderRepository repo = new SqlOrderRepository();   // policy → detail','bad'],
+      ['    public void place(Order o) { /* rules */ repo.save(o); }'],['}']]}],
+    ts:[{n:'domain/order-service.ts', lines:[
+      ['import { SqlOrderRepository } from "../infrastructure/sql";   // domain → database','bad'],[''],
+      ['export class OrderService {'],
+      ['  private repo = new SqlOrderRepository();      // policy → detail','bad'],
+      ['  place(o: Order) { /* rules */ this.repo.save(o); }'],['}']]}]
+  });
+
+  if(s === 4 && S.wrongOwner) return pick({
+    cs:[{n:'Infrastructure/IOrderRepository.cs', lines:[
+      ['namespace Infrastructure.Persistence;    // the interface lives with the database code','bad'],[''],
+      ['public interface IOrderRepository { void Save(Order o); }'],[''],
+      ['// Domain/OrderService.cs still has to reference Infrastructure to see it:'],
+      ['using Infrastructure.Persistence;        // arrow still points outward','bad'],[''],
+      ['// An interface does not invert anything on its own. Ownership does.']]}],
+    java:[{n:'infrastructure/OrderRepository.java', lines:[
+      ['package infrastructure.persistence;      // the interface lives with the database code','bad'],[''],
+      ['public interface OrderRepository { void save(Order o); }'],[''],
+      ['// domain/OrderService.java still imports infrastructure:'],
+      ['import infrastructure.persistence.OrderRepository;   // arrow still points outward','bad']]}],
+    ts:[{n:'infrastructure/order-repository.ts', lines:[
+      ['// The port declared in the infrastructure folder','bad'],
+      ['export interface OrderRepository { save(o: Order): void }'],[''],
+      ['// domain/order-service.ts:'],
+      ['import { OrderRepository } from "../infrastructure/order-repository";   // still outward','bad']]}]
+  });
+
+  if(s === 5) return pick({
+    cs:[{n:SHAPE_FILE[S.shape] + '.cs', lines:[
+      ...(S.shape === 'dip'
+        ? [['// DIP — a rule about which way dependencies point'],
+           ['namespace Domain;  public interface IOrderRepository { void Save(Order o); }','hl'],
+           ['// The domain owns the abstraction. Infrastructure implements it.'],
+           ['// You can follow DIP with no framework at all.']]
+        : S.shape === 'di'
+        ? [['// DI — a technique: the object is handed in rather than created'],
+           ['public OrderService(IOrderRepository repo) => _repo = repo;','hl'],
+           ['var service = new OrderService(new SqlOrderRepository());   // by hand, still DI'],
+           ['// You can do DI while breaking DIP, if the interface belongs to infrastructure.']]
+        : [['// IoC container — a tool that performs the handing in for you'],
+           ['builder.Services.AddScoped<IOrderRepository, SqlOrderRepository>();','hl'],
+           ['var service = host.Services.GetRequiredService<OrderService>();'],
+           ['// Optional. Useful at scale. Not the principle, and not the technique.']])]}],
+    java:[{n:SHAPE_FILE[S.shape] + '.java', lines:[
+      ...(S.shape === 'dip'
+        ? [['// DIP — the domain package declares the port'],
+           ['package domain;  public interface OrderRepository { void save(Order o); }','hl']]
+        : S.shape === 'di'
+        ? [['// DI — constructor injection, with or without a framework'],
+           ['OrderService(OrderRepository repo) { this.repo = repo; }','hl'],
+           ['new OrderService(new JpaOrderRepository());   // by hand, still DI']]
+        : [['// Container — Spring does the wiring'],
+           ['@Bean OrderService orderService(OrderRepository repo) { return new OrderService(repo); }','hl']])]}],
+    ts:[{n:SHAPE_FILE[S.shape].replace(/([a-z])([A-Z])/g,'$1-$2').toLowerCase() + '.ts', lines:[
+      ...(S.shape === 'dip'
+        ? [['// DIP — the port is declared in the domain folder'],
+           ['// domain/ports.ts'],
+           ['export interface OrderRepository { save(o: Order): void }','hl']]
+        : S.shape === 'di'
+        ? [['// DI — pass it in'],
+           ['constructor(private repo: OrderRepository) {}','hl'],
+           ['new OrderService(new SqlOrderRepository());   // by hand, still DI']]
+        : [['// Container — optional in TypeScript, common in Nest/tsyringe'],
+           ['container.register("OrderRepository", { useClass: SqlOrderRepository });','hl']])]}]
+  });
+
+  /* inverted */
+  return pick({
+    cs:[{n:'Domain/IOrderRepository.cs', lines:[
+      ['namespace Domain;                       // the DOMAIN owns the abstraction','new'],
+      ['public interface IOrderRepository { void Save(Order o); }','hl']]},
+      {n:'Domain/OrderService.cs', lines:[
+      ['public class OrderService(IOrderRepository repo)   // no using Infrastructure','new'],['{'],
+      ['    public void Place(Order o) { /* rules */ repo.Save(o); }'],['}']]},
+      {n:'Infrastructure/' + impl.cls + '.cs', lines:[
+      ['using Domain;                           // infrastructure points INWARD','new'],
+      [`public class ${impl.cls} : IOrderRepository { public void Save(Order o) { } }`,'hl']]}],
+    java:[{n:'domain/OrderRepository.java', lines:[
+      ['package domain;                         // the DOMAIN owns the abstraction','new'],
+      ['public interface OrderRepository { void save(Order o); }','hl']]},
+      {n:'domain/OrderService.java', lines:[
+      ['public class OrderService {'],
+      ['    private final OrderRepository repo;   // no import of infrastructure','new'],
+      ['    public void place(Order o) { /* rules */ repo.save(o); }'],['}']]},
+      {n:'infrastructure/' + impl.cls + '.java', lines:[
+      ['import domain.OrderRepository;          // infrastructure points INWARD','new'],
+      [`public class ${impl.cls} implements OrderRepository { public void save(Order o) { } }`,'hl']]}],
+    ts:[{n:'domain/ports.ts', lines:[
+      ['// the DOMAIN owns the abstraction','new'],
+      ['export interface OrderRepository { save(o: Order): void }','hl']]},
+      {n:'domain/order-service.ts', lines:[
+      ['import type { OrderRepository } from "./ports";   // no infrastructure import','new'],
+      ['export class OrderService {'],
+      ['  constructor(private repo: OrderRepository) {}'],
+      ['  place(o: Order) { /* rules */ this.repo.save(o); }'],['}']]},
+      {n:'infrastructure/' + impl.cls.replace(/([a-z])([A-Z])/g,'$1-$2').toLowerCase() + '.ts', lines:[
+      ['import type { OrderRepository } from "../domain/ports";   // points INWARD','new'],
+      [`export class ${impl.cls} implements OrderRepository { save(o: Order) { } }`,'hl']]}]
+  });
+}
+
+const P = Playroom({
+  district:'SOLID Quarter',
+  title:'Dependency Inversion',
+  dek:'Your business rules should not import your database driver.',
+  steps:['Rules meet the database','Break it','Flip the arrow','Who owns it','DIP vs DI vs container','Interview check'],
+  stage:STAGE,
+
+  state:{inverted:false, impl:'sql', edits:0, wrongOwner:false, swapped:false, shape:'dip'},
+
+  story(S, api){
+    const fb = api.fb();
+    return {
+      1:`<h2>The rules import the driver</h2><p><code>OrderService</code> holds the business rules and creates a <code>SqlOrderRepository</code> itself. The arrow points from your most valuable code to your least stable code.</p>${fb}`,
+      2:`<h2>Change the database</h2><p>Move to Mongo, or just try to test the rules without a server running.</p>${fb}`,
+      3:`<h2>Flip the arrow</h2><p>Put <code>IOrderRepository</code> <b>in the domain</b>. The rules depend on their own abstraction; the database implements it. Now infrastructure points inward.</p>${fb}`,
+      4:`<h2>Ownership is the principle</h2><p>Move that same interface into the infrastructure folder and look at the arrow again. An interface alone inverts nothing.</p>${fb}`,
+      5:`<h2>Three things people mix up</h2><p>The principle, the technique and the tool. Interviewers ask this to see whether you learned the idea or just the framework.</p>${fb}`,
+      6:`<h2>Interview check</h2>${api.quizHTML()}`
+    }[S.step];
+  },
+
+  controls(S){
+    const s = S.step;
+    const impls = Object.entries(IMPLS).map(([k, i]) =>
+      `<button class="chip" data-impl="${k}" aria-pressed="${S.impl === k}"><i style="background:${k === 'fake' ? 'var(--muted)' : 'var(--accent)'}"></i>${i.label}</button>`).join('');
+    if(s === 1) return `<button class="btn primary" data-a="trace">Follow the dependency</button>`;
+    if(s === 2) return impls + `<button class="btn" data-a="test" style="margin-left:auto">Unit-test the rules</button>`;
+    if(s === 3) return S.inverted
+      ? impls + `<button class="btn" data-a="test" style="margin-left:auto">Unit-test the rules</button>`
+      : `<button class="btn primary" data-a="invert">Move the interface into the domain</button>`;
+    if(s === 4) return S.wrongOwner
+      ? `<button class="btn primary" data-a="ownback">Move it back into the domain</button>`
+      : `<button class="btn" data-a="ownwrong">Put the interface in the infrastructure folder</button>`;
+    if(s === 5) return Object.entries(SHAPES).map(([k, v]) =>
+      `<button class="chip" data-shape="${k}" aria-pressed="${S.shape === k}"><i style="background:${k === 'dip' ? 'var(--accent)' : 'var(--muted)'}"></i>${v}</button>`).join('');
+    return '';
+  },
+
+  statusLine(S){
+    const s = S.step;
+    if(s === 4) return S.wrongOwner
+      ? `Arrow: domain → infrastructure<span class="warn"> · an interface in the wrong package inverts nothing</span>`
+      : `Arrow: infrastructure → domain<span class="ok"> · the domain owns the port</span>`;
+    if(s === 5) return `<b>${SHAPES[S.shape]}</b>` + {
+      dip:`<span class="ok"> · about direction: the abstraction belongs to the policy</span>`,
+      di:`<span class="ok"> · about delivery: the object is handed in</span>`,
+      ioc:`<span class="ok"> · about automation: optional, and not the principle</span>`}[S.shape];
+    return S.inverted
+      ? `Domain edits to change store <b>0</b><span class="ok"> · rules testable with no database</span>`
+      : `Domain edits so far <b>${S.edits}</b><span class="warn"> · the rules depend on a database driver</span>`;
+  },
+
+  files,
+  note: S => NOTES[S.step],
+
+  onStage(S){
+    const id = document.getElementById.bind(document);
+    const inverted = S.inverted && !(S.step === 4 && S.wrongOwner);
+    const impl = IMPLS[S.impl];
+
+    const domain =
+      `<rect class="layer policy" x="40" y="46" width="228" height="120" rx="8"/>` +
+      `<text class="layerlbl" x="58" y="74">Domain</text>` +
+      `<text class="layersub" x="58" y="92">OrderService · business rules</text>` +
+      (inverted
+        ? `<rect class="port" x="58" y="104" width="192" height="44" rx="6"/>` +
+          `<text class="portlbl" x="70" y="122">interface IOrderRepository</text>` +
+          `<text class="portlbl" x="70" y="138" style="opacity:.75">declared here</text>`
+        : `<text class="layersub" x="58" y="118">new ${impl.cls}()</text>`);
+
+    const infra =
+      `<rect class="layer" x="332" y="46" width="228" height="120" rx="8"/>` +
+      `<text class="layerlbl" x="350" y="74">Infrastructure</text>` +
+      `<text class="layersub" x="350" y="92">${impl.cls}</text>` +
+      (S.step === 4 && S.wrongOwner
+        ? `<rect class="port" x="350" y="104" width="192" height="44" rx="6"/>` +
+          `<text class="portlbl" x="362" y="122">interface IOrderRepository</text>` +
+          `<text class="portlbl" x="362" y="138" style="opacity:.75">declared here</text>`
+        : `<text class="layersub" x="350" y="118">${inverted ? 'implements IOrderRepository' : 'drivers, SQL, connection strings'}</text>`);
+
+    const arrow = inverted
+      ? `<path class="arrow good" d="M332 196 H 280"/>` +
+        `<text class="arrowlbl good" x="300" y="222">infrastructure depends on the domain</text>`
+      : `<path class="arrow bad" d="M268 196 H 330"/>` +
+        `<text class="arrowlbl bad" x="300" y="222">the rules depend on the database</text>`;
+
+    id('scene').innerHTML = domain + infra + arrow +
+      `<text class="stamp" x="40" y="252">${inverted ? 'swap the store, or pass a fake: the domain never changes' : 'every infrastructure decision reaches into the rules'}</text>`;
+  },
+
+  onStep(S, n){
+    if(n <= 2){ S.inverted = false; S.impl = 'sql'; }
+    if(n === 2) S.edits = 0;
+    if(n === 3) S.inverted = false;
+    if(n >= 4) S.inverted = true;
+    if(n !== 4) S.wrongOwner = false;
+    if(n === 5) S.shape = 'dip';
+  },
+
+  onClick(S, b, api){
+    if(b.dataset.impl){
+      S.impl = b.dataset.impl;
+      if(S.inverted){
+        api.tell('good', `<b>${IMPLS[S.impl].label}, and the domain did not change.</b> The rules depend on an interface they own; swapping the implementation is a composition-root decision.`);
+        api.out(`new OrderService(new ${IMPLS[S.impl].cls}())  ·  domain edits: 0`);
+      } else {
+        S.edits += 2;
+        api.tell('bad', `<b>You edited the business rules to change a database.</b> Those two things have nothing to do with each other, which is the whole complaint the principle makes.`);
+        api.out(`edited Domain/OrderService  ·  now imports ${IMPLS[S.impl].cls}`);
+      }
+      return;
+    }
+    if(b.dataset.shape){
+      S.shape = b.dataset.shape;
+      api.tell('good', {
+        dip:'<b>DIP is a rule about direction.</b> High-level modules must not depend on low-level ones; both depend on abstractions, and the abstraction belongs to the high-level module. No framework required.',
+        di:'<b>DI is just passing dependencies in.</b> <code>new OrderService(new SqlRepo())</code> is dependency injection. You can do DI and still break DIP, if the interface lives in the infrastructure package.',
+        ioc:'<b>A container is a convenience.</b> It builds object graphs for you. Plenty of well-inverted codebases have no container at all, and plenty of container-heavy ones point the wrong way.'
+      }[S.shape]);
+      api.out(SHAPES[S.shape]);
+      return;
+    }
+    const a = b.dataset.a;
+    if(a === 'trace'){
+      api.tell('bad', '<b>Rules → repository → driver → connection string.</b> Your most valuable, longest-lived code depends on the part most likely to be replaced. Uncle Bob\'s wording: high-level modules should not depend on low-level modules.');
+      api.out('OrderService → SqlOrderRepository → SqlClient → connection string');
+      return;
+    }
+    if(a === 'test'){
+      if(S.inverted){
+        S.impl = 'fake';
+        api.tell('good', '<b>Two-line fake, no server.</b> The rules only ever needed "somewhere to save an order". With the port in the domain, a test supplies an in-memory one and runs in milliseconds.');
+        api.out('new OrderService(new InMemoryOrders())  ·  0 ms  ·  no database');
+      } else {
+        api.tell('bad', '<b>You need a database to test a pricing rule.</b> The service creates its own repository, so there is no seam. This is the same pain as the Dependency Injection playroom, seen from the architecture level.');
+        api.out('test requires SQL Server · slow · fails on CI without a container');
+      }
+      return;
+    }
+    if(a === 'invert'){
+      S.inverted = true; S.edits = 0;
+      api.tell('good', '<b>The arrow flipped.</b> <code>IOrderRepository</code> now lives in the domain, so the domain declares what it needs and infrastructure adapts to it. This is the shape behind ports and adapters, hexagonal and clean architecture.');
+      api.out('Domain/IOrderRepository.cs  ·  Infrastructure implements it');
+      return;
+    }
+    if(a === 'ownwrong'){
+      S.wrongOwner = true;
+      api.tell('bad', '<b>Same interface, no inversion.</b> The domain must now reference the infrastructure package to see the type it depends on, so the arrow points outward again. Adding an "I" to a class name is not architecture: where the abstraction lives is.');
+      api.out('Domain → Infrastructure.Persistence.IOrderRepository');
+      return;
+    }
+    if(a === 'ownback'){
+      S.wrongOwner = false;
+      api.tell('good', '<b>Ownership restored.</b> A good check in review: could you delete the infrastructure project and still compile the domain? If yes, the dependencies point the right way.');
+      api.out('Domain owns IOrderRepository  ·  infrastructure references domain');
+      return;
+    }
+    return false;
+  },
+
+  reset(S){ Object.assign(S, {inverted:false, impl:'sql', edits:0, wrongOwner:false, shape:'dip'}); },
+
+  quiz:[
+    {q:'What does the Dependency Inversion Principle actually say?',
+     o:['Use a DI container','High-level modules should not depend on low-level modules; both should depend on abstractions, and the abstraction belongs to the high-level module','Never use new','Inject everything'], a:1,
+     w:'The second half is the part people forget, and the part that makes it inversion rather than just indirection.'},
+    {q:'You extract IOrderRepository but leave it in the infrastructure package. What have you achieved?',
+     o:['Full inversion','Little: the domain still references infrastructure to see the interface, so the dependency still points outward'], a:1,
+     w:'Ownership decides the direction. A useful review check: could the domain compile with the infrastructure project deleted?'},
+    {q:'What is the difference between DIP and DI?',
+     o:['They are the same','DIP is a rule about which way dependencies point; DI is the technique of handing a dependency to an object. You can do DI and still break DIP'], a:1,
+     w:'And an IoC container is a third thing: a tool that automates DI. Naming all three cleanly is a strong senior signal.'},
+    {q:'Which benefit follows most directly from inverting this dependency?',
+     o:['Faster queries','The business rules can be compiled, understood and tested without a database, and the store can be replaced without touching them','Less memory','Fewer classes'], a:1,
+     w:'Testability is the everyday payoff; replaceability is the long-term one.'}
+  ],
+  soundbite:'"Dependency Inversion says high-level policy should not depend on low-level detail: both depend on an abstraction, and crucially the abstraction belongs to the policy. So the repository interface lives in the domain and the database implements it, which flips the arrow so infrastructure points inward. That is what lets me test the rules with an in-memory fake and swap the store without touching them. It is also not the same as dependency injection, which is just handing the object in, or an IoC container, which only automates that."'
+});
+</script>
+</body>
+</html>
