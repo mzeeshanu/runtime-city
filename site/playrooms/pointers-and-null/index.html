@@ -1,0 +1,331 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Pointers and Null Playroom · Runtime City</title>
+<meta name="description" content="Point a reference at nothing, crash on it, then move the problem into the type system with nullable types, Optional and strict null checks. A playroom from Runtime City.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,600;12..96,800&family=IBM+Plex+Sans:wght@400;500&family=JetBrains+Mono:wght@400&display=swap">
+<link rel="stylesheet" href="../../assets/playroom.css">
+<style>
+.slot{fill:var(--surface);stroke:var(--ink);stroke-width:1.5}
+.slotname{font:400 12px var(--mono);fill:var(--ink)}
+.slotval{font:400 11px var(--mono);fill:var(--accent);text-anchor:end}
+.slotval.null{fill:var(--bad)}
+.obj{fill:var(--surface);stroke:var(--ink);stroke-width:2}
+.obj.ghost{stroke:var(--hair);stroke-dasharray:5 4;opacity:.5}
+.objlbl{font:400 12px var(--mono);fill:var(--ink)}
+.objlbl.ghost{fill:var(--muted)}
+.field{font:400 11px var(--mono);fill:var(--muted)}
+.ref{stroke:var(--ink);stroke-width:1.5;fill:none;marker-end:url(#arrow)}
+.ref.dead{stroke:var(--bad);stroke-dasharray:5 4;marker-end:url(#arrowBad)}
+.voidlbl{font:400 11px var(--mono);fill:var(--bad)}
+.boom{font:600 13px var(--mono);fill:var(--bad);text-anchor:middle;opacity:0;transition:opacity .2s}
+.crashed .boom{opacity:1}
+.shield{fill:none;stroke:var(--good);stroke-width:2;opacity:0;transition:opacity .25s}
+.guarded .shield{opacity:1}
+.shieldlbl{font:400 10px var(--mono);fill:var(--good);text-anchor:middle;opacity:0}
+.guarded .shieldlbl{opacity:1}
+</style>
+</head>
+<body>
+<div id="playroom"></div>
+
+<script src="../../assets/city.js"></script>
+<script src="../../assets/nav.js"></script>
+<script src="../../assets/playroom.js"></script>
+<script>
+const STAGE = `
+<svg viewBox="0 0 600 260" role="img" aria-label="A reference that may point at an object or at nothing">
+  <defs>
+    <pattern id="grid" width="24" height="24" patternUnits="userSpaceOnUse"><path d="M24 0H0V24" class="gridline" fill="none"/></pattern>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto"><path d="M0 0 L10 5 L0 10 z" fill="var(--ink)"/></marker>
+    <marker id="arrowBad" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto"><path d="M0 0 L10 5 L0 10 z" fill="var(--bad)"/></marker>
+  </defs>
+  <rect width="600" height="260" fill="url(#grid)" opacity=".6"/>
+
+  <g id="scene">
+    <rect class="slot" x="30" y="96" width="180" height="46" rx="6"/>
+    <text class="slotname" x="44" y="124">user</text>
+    <text class="slotval" id="slotval" x="196" y="124">→ 0x8a2</text>
+
+    <path class="ref" id="ref" d="M212 119 C 260 119, 268 119, 316 119"/>
+    <text class="voidlbl" id="voidlbl" x="240" y="104" style="opacity:0">points at nothing</text>
+
+    <g id="target">
+      <rect class="obj" id="objbox" x="318" y="84" width="212" height="70" rx="8"/>
+      <text class="objlbl" id="objlbl" x="336" y="112">User</text>
+      <text class="field" id="objfield" x="336" y="136">Name: "Ana"</text>
+    </g>
+
+    <circle class="shield" cx="264" cy="119" r="18"/>
+    <text class="shieldlbl" x="264" y="154">checked</text>
+    <text class="boom" id="boom" x="424" y="196">user.Name → NullReferenceException</text>
+  </g>
+</svg>`;
+
+const NOTES = {
+  1:'<b>A reference variable holds an address, or the special value "none".</b> Null is not an object: there is nothing at the other end to call.',
+  2:'<b>The crash happens at the call, not at the assignment.</b> Which is why the stack trace points at code that is perfectly correct.',
+  3:'<b>Guards work, and they multiply.</b> Every caller has to remember, and the compiler never reminds them.',
+  4:'<b>Move it into the type system.</b> Then "might be missing" is visible in the signature and the compiler checks the callers for you.',
+  5:'<b>Better still, return something callable.</b> An empty list, a null object, a default: no branch at the call site at all.',
+  6:'<b>Interview tip:</b> the answer they want is not "add null checks". It is "make absence visible in the type, and return something safe to use".'
+};
+
+function files(S){
+  const L = S.lang, s = S.step;
+  const pick = o => o[L];
+
+  if(s <= 2) return pick({
+    cs:[{n:'Program.cs', lines:[
+      ['User user = FindUser(id);       // may or may not find one','hl'],
+      [S.isNull ? 'user = null;                    // nobody found' : '// found: user points at an object', S.isNull ? 'bad' : ''],
+      [S.crashed ? 'Console.WriteLine(user.Name);   // boom' : 'Console.WriteLine(user.Name);', S.crashed ? 'bad' : ''],
+      ...(S.crashed ? [['','']].concat([['// System.NullReferenceException: Object reference not set to an instance of an object.','bad']]) : [])]}],
+    java:[{n:'Main.java', lines:[
+      ['User user = findUser(id);       // may or may not find one','hl'],
+      [S.isNull ? 'user = null;                    // nobody found' : '// found: user points at an object', S.isNull ? 'bad' : ''],
+      [S.crashed ? 'System.out.println(user.getName());   // boom' : 'System.out.println(user.getName());', S.crashed ? 'bad' : ''],
+      ...(S.crashed ? [['','']].concat([['// java.lang.NullPointerException: Cannot invoke "User.getName()" because "user" is null','bad']]) : [])]}],
+    ts:[{n:'main.ts', lines:[
+      ['let user = findUser(id);        // may or may not find one','hl'],
+      [S.isNull ? 'user = null;                    // nobody found' : '// found: user points at an object', S.isNull ? 'bad' : ''],
+      [S.crashed ? 'console.log(user.name);         // boom' : 'console.log(user.name);', S.crashed ? 'bad' : ''],
+      ...(S.crashed ? [['','']].concat([['// TypeError: Cannot read properties of null (reading \'name\')','bad']]) : [])]}]
+  });
+
+  if(s === 3) return pick({
+    cs:[{n:'Guards.cs', lines:[
+      ['var user = FindUser(id);'],
+      ['if (user is null) return NotFound();        // guard 1','hl'],
+      ['if (user.Address is null) return NoAddress();   // guard 2','hl'],
+      ['if (user.Address.City is null) return "unknown";   // guard 3','bad'],[''],
+      ['// Nothing forces the next caller to write any of these.']]}],
+    java:[{n:'Guards.java', lines:[
+      ['User user = findUser(id);'],
+      ['if (user == null) return notFound();        // guard 1','hl'],
+      ['if (user.getAddress() == null) return noAddress();   // guard 2','hl'],
+      ['if (user.getAddress().getCity() == null) return "unknown";   // guard 3','bad'],[''],
+      ['// Nothing forces the next caller to write any of these.']]}],
+    ts:[{n:'guards.ts', lines:[
+      ['const user = findUser(id);'],
+      ['if (!user) return notFound();               // guard 1','hl'],
+      ['if (!user.address) return noAddress();      // guard 2','hl'],
+      ['const city = user.address.city ?? "unknown";   // guard 3','bad'],[''],
+      ['// Careful: !user is also true for "" and 0. Prefer user == null.']]}]
+  });
+
+  if(s === 4) return pick({
+    cs:[{n:'Nullable.cs', lines:[
+      ['#nullable enable'],[''],
+      ['User? FindUser(int id);         // the ? says it can be missing','new'],
+      ['string Name(User user) => user.Name;   // this one never can','new'],[''],
+      ['var user = FindUser(id);'],
+      ['// warning CS8602: dereference of a possibly null reference','hl'],
+      ['if (user is not null) Use(user);       // the compiler is satisfied']]}],
+    java:[{n:'Optional.java', lines:[
+      ['Optional<User> findUser(int id);      // absence is in the return type','new'],[''],
+      ['findUser(id)'],
+      ['    .map(User::getName)'],
+      ['    .orElse("unknown");                // no branch, no NPE','hl'],[''],
+      ['// Keep Optional for return values; for fields and parameters prefer'],
+      ['// @Nullable annotations your IDE and build can check.']]}],
+    ts:[{n:'strict.ts', lines:[
+      ['// tsconfig: "strictNullChecks": true','new'],[''],
+      ['function findUser(id: number): User | null;   // absence is in the type','new'],[''],
+      ['const user = findUser(id);'],
+      ['user.name;            // error TS18047: user is possibly null','hl'],
+      ['user?.name ?? "unknown";   // fine: optional chaining plus a default']]}]
+  });
+
+  if(s === 5) return pick({
+    cs:[{n:'NoNull.cs', lines:[
+      ['// 1. Return something callable instead of null'],
+      ['IReadOnlyList<Order> GetOrders() => _orders ?? Array.Empty<Order>();','new'],[''],
+      ['// 2. A null object: same shape, does nothing'],
+      ['class NullUser : IUser { public string Name => "guest"; }','hl'],[''],
+      ['// 3. Fail loudly at the edge, where the mistake is'],
+      ['ArgumentNullException.ThrowIfNull(user);']]}],
+    java:[{n:'NoNull.java', lines:[
+      ['// 1. Return something callable instead of null'],
+      ['List<Order> getOrders() { return orders == null ? List.of() : orders; }','new'],[''],
+      ['// 2. A null object: same shape, does nothing'],
+      ['class NullUser implements User { public String getName() { return "guest"; } }','hl'],[''],
+      ['// 3. Fail loudly at the edge'],
+      ['Objects.requireNonNull(user, "user");']]}],
+    ts:[{n:'no-null.ts', lines:[
+      ['// 1. Return something callable instead of null'],
+      ['const getOrders = (): Order[] => orders ?? [];','new'],[''],
+      ['// 2. A null object: same shape, does nothing'],
+      ['const guest: User = { name: "guest", isGuest: true };','hl'],[''],
+      ['// 3. Narrow once, at the edge, then work with a non-null type'],
+      ['if (!user) throw new Error("user required");']]}]
+  });
+
+  return files({...S, step:4});
+}
+
+const P = Playroom({
+  district:'Memory Harbour',
+  title:'Pointers and Null',
+  dek:'A reference can point at nothing. Everything else follows from that.',
+  steps:['A reference','Break it','Guard it','Say it in the type','Design it out','Interview check'],
+  stage:STAGE,
+
+  state:{isNull:false, crashed:false, guarded:false, checks:0},
+
+  story(S, api){
+    const fb = api.fb();
+    return {
+      1:`<h2>Pointing at something, or at nothing</h2><p><code>user</code> holds an address. Set it to <code>null</code> and the arrow has nowhere to land: there is no object, no fields, nothing to call.</p>${fb}`,
+      2:`<h2>Use it anyway</h2><p>Reading <code>user.Name</code> when <code>user</code> is null is the most common crash in professional software. Try it.</p>${fb}`,
+      3:`<h2>Guard every use</h2><p>The usual answer is a null check. It works, and then it spreads: each caller, each field, each nested field. Nothing makes the next person remember.</p>${fb}`,
+      4:`<h2>Put it in the signature</h2><p>Better: make "might be missing" part of the <b>type</b>. <code>User?</code>, <code>Optional&lt;User&gt;</code>, <code>User | null</code>. Now the compiler finds the callers you forgot.</p>${fb}`,
+      5:`<h2>Or remove the choice</h2><p>Best: hand back something that is always safe to use. An empty list, a guest user, a default. The caller writes no branch at all.</p>${fb}`,
+      6:`<h2>Interview check</h2>${api.quizHTML()}`
+    }[S.step];
+  },
+
+  controls(S){
+    const s = S.step;
+    const use = `<button class="btn primary" data-a="use">Read user.Name</button>`;
+    if(s === 1) return `<button class="btn primary" data-a="tonull">Set user = null</button><button class="btn" data-a="find">Find a user</button>`;
+    if(s === 2) return `<button class="btn" data-a="tonull">Set user = null</button><button class="btn" data-a="find">Find a user</button>` + use;
+    if(s === 3) return `<button class="btn primary" data-a="guard">Add a null check</button>` + use;
+    if(s === 4) return `<button class="btn primary" data-a="compile">Compile with nullable types on</button>` + use;
+    if(s === 5) return `<button class="btn primary" data-a="nullobj">Return a guest user instead</button>` + use;
+    return use;
+  },
+
+  statusLine(S){
+    const s = S.step;
+    if(s === 3) return `Null checks written <b>${S.checks}</b>` +
+      (S.guarded ? `<span class="ok"> · this call site is safe · every other one is not</span>`
+                 : `<span class="warn"> · one crash per unguarded call site</span>`);
+    if(s === 4) return S.guarded
+      ? `Type says <b>User?</b><span class="ok"> · the compiler checks every caller for you</span>`
+      : `Type says <b>User</b><span class="warn"> · the signature lies: it can return null</span>`;
+    if(s === 5) return S.guarded
+      ? `Returns <b>a guest user</b><span class="ok"> · always callable · no branch at the call site</span>`
+      : `Returns <b>null</b><span class="warn"> · every caller must remember</span>`;
+    return S.isNull
+      ? `user = <b>null</b><span class="warn"> · nothing at the other end</span>`
+      : `user → <b>0x8a2</b><span class="ok"> · a real object with fields</span>`;
+  },
+
+  files,
+  note: S => NOTES[S.step],
+
+  onStage(S){
+    const id = document.getElementById.bind(document);
+    const safe = S.guarded && S.step >= 4;
+    id('slotval').textContent = S.isNull ? 'null' : '→ 0x8a2';
+    id('slotval').setAttribute('class', 'slotval' + (S.isNull ? ' null' : ''));
+    id('ref').setAttribute('class', 'ref' + (S.isNull ? ' dead' : ''));
+    id('voidlbl').style.opacity = S.isNull ? 1 : 0;
+    id('objbox').setAttribute('class', 'obj' + (S.isNull ? ' ghost' : ''));
+    id('objlbl').setAttribute('class', 'objlbl' + (S.isNull ? ' ghost' : ''));
+    id('objlbl').textContent = S.step === 5 && S.guarded ? 'GuestUser' : 'User';
+    id('objfield').textContent = S.step === 5 && S.guarded ? 'Name: "guest"' : 'Name: "Ana"';
+    if(S.step === 5 && S.guarded){ id('objbox').setAttribute('class','obj'); id('objlbl').setAttribute('class','objlbl'); }
+    id('scene').classList.toggle('crashed', S.crashed);
+    id('scene').classList.toggle('guarded', S.guarded);
+    id('boom').textContent = {cs:'user.Name → NullReferenceException',
+                              java:'user.getName() → NullPointerException',
+                              ts:'user.name → TypeError'}[S.lang];
+  },
+
+  onStep(S, n){
+    S.crashed = false;
+    if(n <= 2){ S.guarded = false; }
+    if(n === 3){ S.isNull = true; S.guarded = false; S.checks = 0; }
+    if(n >= 4){ S.isNull = true; S.guarded = false; }
+    if(n === 5) S.isNull = false;
+  },
+
+  onClick(S, b, api){
+    const a = b.dataset.a;
+    if(a === 'tonull'){
+      S.isNull = true; S.crashed = false;
+      api.tell('good', '<b>The variable is fine.</b> It legally holds "no object". Nothing has gone wrong yet, which is exactly why null is dangerous: the mistake and the crash happen in different places.');
+      api.out('user = null');
+      return;
+    }
+    if(a === 'find'){
+      S.isNull = false; S.crashed = false;
+      api.out('user = FindUser(id)  →  0x8a2');
+      return;
+    }
+    if(a === 'use'){
+      if(S.step === 5 && S.guarded){
+        api.tell('good', '<b>It just works.</b> A guest user answers the same questions as a real one, so the call site has nothing to check.');
+        api.out('user.Name → "guest"');
+        return;
+      }
+      if(S.step === 4 && S.guarded){
+        api.tell('good', '<b>It does not even compile.</b> The compiler saw a possibly-null value being dereferenced and stopped you, at build time, in every place you forgot.');
+        api.out('warning CS8602 / TS18047: possible null dereference');
+        return;
+      }
+      if(S.guarded && S.step === 3){
+        api.tell('good', '<b>Safe here.</b> This one call site is guarded. The next developer calling the same method gets no warning at all.');
+        api.out('if (user is null) return NotFound();');
+        return;
+      }
+      if(S.isNull){
+        S.crashed = true;
+        api.tell('bad', '<b>There was nothing to ask.</b> The exception names the variable, not the bug: the real mistake was further back, where something returned null and the signature did not say so.');
+        api.out({cs:'NullReferenceException: Object reference not set to an instance of an object.',
+                 java:'NullPointerException: Cannot invoke "User.getName()" because "user" is null',
+                 ts:'TypeError: Cannot read properties of null (reading \'name\')'}[S.lang]);
+        return;
+      }
+      api.tell('good', '<b>Fine, this time.</b> The reference points at a real object, so the call works. Nothing in the code says it always will.');
+      api.out('user.Name → "Ana"');
+      return;
+    }
+    if(a === 'guard'){
+      S.guarded = true; S.checks += 1;
+      api.tell('bad', `<b>Check number ${S.checks}.</b> It fixes this line. It does not fix the method, and the compiler will not ask the next caller for one. Guards grow faster than the code they protect.`);
+      api.out('if (user is null) return NotFound();');
+      return;
+    }
+    if(a === 'compile'){
+      S.guarded = true;
+      api.tell('good', '<b>Now the type tells the truth.</b> <code>User?</code> says it can be missing, and a plain <code>User</code> promises it cannot. The compiler checks every call site, including the ones you have not written yet.');
+      api.out('#nullable enable · Optional<User> · strictNullChecks');
+      return;
+    }
+    if(a === 'nullobj'){
+      S.guarded = true; S.isNull = false;
+      api.tell('good', '<b>No absence to handle.</b> A guest user, an empty list, a zero total: the caller uses the result without asking whether it is real. Keep null for the cases where "missing" genuinely needs a decision.');
+      api.out('return new GuestUser();   // always callable');
+      return;
+    }
+    return false;
+  },
+
+  reset(S){ Object.assign(S, {isNull:false, crashed:false, guarded:false, checks:0}); },
+
+  quiz:[
+    {q:'Why is a NullReferenceException so often reported in code that looks correct?',
+     o:['The runtime is buggy','The crash happens where the value is used, while the mistake happened where something returned null without saying so','Null checks are slow','It only happens in production'], a:1,
+     w:'Tony Hoare called null his billion-dollar mistake for this reason: the type gives no warning, so the failure surfaces far from its cause.'},
+    {q:'What is the strongest fix, in an interview answer?',
+     o:['Add null checks everywhere','Make absence part of the type — User?, Optional<User>, User | null — so the compiler checks every caller','Catch the exception','Return an empty string'], a:1,
+     w:'Checks rely on memory. Types rely on the compiler. Say that, then mention returning something callable when absence has an obvious default.'},
+    {q:'In TypeScript, what is wrong with guarding using if (!user)?',
+     o:['Nothing','It also catches "", 0, NaN and false, so a legitimate empty value takes the missing-value branch','It is slower','It does not narrow the type'], a:1,
+     w:'Use <code>user == null</code> (which covers null and undefined) or an explicit check when falsy values are legal data.'},
+    {q:'When is returning null still reasonable?',
+     o:['Never','When absence is a real answer the caller must decide about, and the type says so. Returning an empty collection is better than null for lists'], a:1,
+     w:'"Not found" is information. Hiding it behind a default can be worse. What matters is that the signature admits it.'}
+  ],
+  soundbite:'"Null means the reference points at nothing, so the crash lands where the value is used rather than where the mistake was made. I prefer to make absence part of the type, with nullable reference types, Optional or strict null checks, so the compiler finds every caller. Where there is a sensible default I return something always callable, like an empty list or a guest object, so the call site needs no branch at all."'
+});
+</script>
+</body>
+</html>

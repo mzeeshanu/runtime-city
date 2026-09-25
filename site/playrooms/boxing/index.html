@@ -1,0 +1,340 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Boxing Playroom · Runtime City</title>
+<meta name="description" content="Watch a number leave the stack and become an object on the heap, count what that costs in a loop, and meet the equality trap it brings with it. A playroom from Runtime City.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,600;12..96,800&family=IBM+Plex+Sans:wght@400;500&family=JetBrains+Mono:wght@400&display=swap">
+<link rel="stylesheet" href="../../assets/playroom.css">
+<style>
+.zone{fill:none;stroke:var(--hair);stroke-width:1.5;stroke-dasharray:5 4}
+.zonelbl{font:400 10px var(--mono);fill:var(--muted);letter-spacing:.08em}
+.slot{fill:var(--surface);stroke:var(--ink);stroke-width:1.5}
+.slotname{font:400 11px var(--mono);fill:var(--ink)}
+.slotval{font:400 11px var(--mono);fill:var(--accent);text-anchor:end}
+.box{fill:var(--surface);stroke:var(--accent);stroke-width:2;transition:opacity .3s}
+.boxval{font:400 12px var(--mono);fill:var(--ink);text-anchor:middle}
+.boxtag{font:400 9px var(--mono);fill:var(--accent);text-anchor:middle}
+.ref{stroke:var(--ink);stroke-width:1.5;fill:none;marker-end:url(#arrow)}
+.pile{fill:var(--accent);opacity:.5}
+.pilelbl{font:400 10px var(--mono);fill:var(--muted)}
+.eqlbl{font:600 12px var(--mono);text-anchor:middle}
+.eqlbl.ok{fill:var(--good)} .eqlbl.bad{fill:var(--bad)}
+.pop{animation:pop .4s ease-out}
+@keyframes pop{from{opacity:0;transform:translateY(-10px)}to{opacity:1;transform:translateY(0)}}
+</style>
+</head>
+<body>
+<div id="playroom"></div>
+
+<script src="../../assets/city.js"></script>
+<script src="../../assets/nav.js"></script>
+<script src="../../assets/playroom.js"></script>
+<script>
+const STAGE = `
+<svg viewBox="0 0 600 280" role="img" aria-label="A number on the stack and its box on the heap">
+  <defs>
+    <pattern id="grid" width="24" height="24" patternUnits="userSpaceOnUse"><path d="M24 0H0V24" class="gridline" fill="none"/></pattern>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto"><path d="M0 0 L10 5 L0 10 z" fill="var(--ink)"/></marker>
+  </defs>
+  <rect width="600" height="280" fill="url(#grid)" opacity=".6"/>
+
+  <rect class="zone" x="16" y="34" width="210" height="220" rx="8"/>
+  <text class="zonelbl" x="24" y="26">STACK</text>
+  <rect class="zone" x="262" y="34" width="322" height="220" rx="8"/>
+  <text class="zonelbl" x="270" y="26">HEAP</text>
+
+  <g id="slots"></g>
+  <g id="refs"></g>
+  <g id="boxes"></g>
+  <g id="pile"></g>
+  <text class="eqlbl" id="eq" x="424" y="246"></text>
+</svg>`;
+
+const NOTES = {
+  1:'<b>A value type is the value.</b> It sits in the slot, costs nothing to copy and never troubles the collector.',
+  2:'<b>Boxing wraps it in an object.</b> Anything that wants "any object" — an untyped collection, object, interface dispatch — forces an allocation on the heap.',
+  3:'<b>One box is nothing; a million is a pause.</b> Boxing in a loop is the classic hidden allocation, and it shows up as GC pressure rather than as slow code.',
+  4:'<b>Generics removed the need.</b> A typed list stores the values themselves, so nothing is wrapped and nothing is allocated.',
+  5:'<b>Boxes are objects, so == compares references.</b> Java caches small integers, which makes the bug pass its first test and fail in production.',
+  6:'<b>Interview tip:</b> define boxing in one line, then name a place it happens by accident: an untyped collection, string concatenation in a loop, or a struct used through an interface.'
+};
+
+function files(S){
+  const L = S.lang, s = S.step;
+  const pick = o => o[L];
+
+  if(s === 1) return pick({
+    cs:[{n:'Values.cs', lines:[['int n = 42;        // 4 bytes, in the slot itself','hl'],['int copy = n;      // copied, no allocation']]}],
+    java:[{n:'Values.java', lines:[['int n = 42;        // 4 bytes, in the slot itself','hl'],['int copy = n;      // copied, no allocation']]}],
+    ts:[{n:'values.ts', lines:[['const n = 42;      // a number primitive','hl'],[''],['// JavaScript has no boxing you control, but the same idea exists:'],['// an engine keeps small integers unboxed and allocates when it cannot.']]}]
+  });
+
+  if(s === 2) return pick({
+    cs:[{n:'Boxing.cs', lines:[
+      ['int n = 42;'],
+      ['object boxed = n;            // BOXING: allocates, copies the 42 inside','hl'],
+      ['int back = (int)boxed;       // unboxing: copies it out again'],[''],
+      ['ArrayList list = new();      // untyped: everything gets boxed','bad'],
+      ['list.Add(n);']]}],
+    java:[{n:'Boxing.java', lines:[
+      ['int n = 42;'],
+      ['Integer boxed = n;           // AUTOBOXING: Integer.valueOf(42)','hl'],
+      ['int back = boxed;            // unboxing: boxed.intValue()'],[''],
+      ['List<Integer> list = new ArrayList<>();   // generics cannot hold int','bad'],
+      ['list.add(n);                 // boxed on the way in']]}],
+    ts:[{n:'boxing.ts', lines:[
+      ['const n = 42;'],
+      ['const boxed = new Number(42);   // an object wrapper: almost never useful','hl'],
+      ['typeof n;        // "number"'],
+      ['typeof boxed;    // "object"','bad'],[''],
+      ['// Engines box automatically when a number escapes into a generic structure.']]}]
+  });
+
+  if(s === 3) return pick({
+    cs:[{n:'Loop.cs', lines:[
+      ['long total = 0;'],
+      ['for (int i = 0; i < 1_000_000; i++)'],
+      ['    list.Add(i);             // one allocation per iteration','bad'],[''],
+      ['// ~24 bytes per box on 64-bit: about 24 MB of short-lived garbage,'],
+      ['// which the collector then has to walk.']]}],
+    java:[{n:'Loop.java', lines:[
+      ['long total = 0;'],
+      ['for (int i = 0; i < 1_000_000; i++)'],
+      ['    list.add(i);             // Integer.valueOf(i) each time','bad'],[''],
+      ['// Values from -128 to 127 come from a cache; everything else allocates.'],
+      ['// ~16 bytes per Integer: about 16 MB of young-generation churn.']]}],
+    ts:[{n:'loop.ts', lines:[
+      ['let total = 0;'],
+      ['for (let i = 0; i < 1_000_000; i++)'],
+      ['  list.push(i);              // fine: arrays of numbers stay packed','hl'],[''],
+      ['// It stops being packed the moment you mix types or leave holes:'],
+      ['list.push("42");             // the array is now generic and boxed','bad']]}]
+  });
+
+  if(s === 4) return pick({
+    cs:[{n:'NoBoxing.cs', lines:[
+      ['List<int> list = new();      // a typed list stores the ints themselves','new'],
+      ['list.Add(42);                // no allocation'],[''],
+      ['// Other places boxing hides:'],
+      ['string s = "n = " + n;                  // boxes in older APIs'],
+      ['Span<int> span = stackalloc int[64];    // no heap at all','hl']]}],
+    java:[{n:'NoBoxing.java', lines:[
+      ['int[] values = new int[1_000_000];      // primitives, no wrappers','new'],
+      ['IntStream.range(0, 1_000_000).sum();    // a primitive stream','hl'],[''],
+      ['// Generics cannot hold primitives, so for hot paths reach for'],
+      ['// int[], IntStream, or a primitive collection library.']]}],
+    ts:[{n:'no-boxing.ts', lines:[
+      ['const values = new Int32Array(1_000_000);   // a typed array: raw numbers','new'],
+      ['values[0] = 42;'],[''],
+      ['// Keep arrays monomorphic — all numbers, no holes — and the engine'],
+      ['// keeps them unboxed for you.','hl']]}]
+  });
+
+  if(s === 5) return pick({
+    cs:[{n:'Equality.cs', lines:[
+      ['object a = 42, b = 42;'],
+      ['a == b;              // false: two boxes, two references','bad'],
+      ['a.Equals(b);         // true: value comparison','new'],[''],
+      ['// And a struct used through an interface is boxed on every call:'],
+      ['IComparable c = someStruct;   // allocation','hl']]}],
+    java:[{n:'Equality.java', lines:[
+      ['Integer a = 127, b = 127;'],
+      ['a == b;              // true — both came from the Integer cache','hl'],[''],
+      ['Integer x = 128, y = 128;'],
+      ['x == y;              // FALSE — outside the cache, two objects','bad'],
+      ['x.equals(y);         // true: always compare wrappers with equals','new'],[''],
+      ['// This is why the bug passes every small test and fails on real data.']]}],
+    ts:[{n:'equality.ts', lines:[
+      ['const a = new Number(42), b = new Number(42);'],
+      ['a === b;             // false: two objects','bad'],
+      ['a.valueOf() === b.valueOf();   // true','new'],[''],
+      ['// Which is one reason never to use new Number / new String / new Boolean.','hl']]}]
+  });
+
+  return files({...S, step:4});
+}
+
+const P = Playroom({
+  district:'Memory Harbour',
+  title:'Boxing',
+  dek:'What it costs to put a number where an object is expected.',
+  steps:['A plain value','In a box','A million boxes','Keep it flat','The equality trap','Interview check'],
+  stage:STAGE,
+
+  state:{boxed:false, count:0, flat:false, eq:null, small:true},
+
+  story(S, api){
+    const fb = api.fb();
+    return {
+      1:`<h2>A number in a slot</h2><p><code>int n = 42</code> lives on the stack. Copying it copies four bytes, and the heap never hears about it.</p>${fb}`,
+      2:`<h2>Put it where an object is expected</h2><p>Assign it to <code>object</code>, or add it to a collection that holds objects, and the runtime <b>boxes</b> it: allocates a small object on the heap and copies the value inside.</p>${fb}`,
+      3:`<h2>Now do it a million times</h2><p>One box is nothing. A loop is a different story: a million short-lived objects the collector has to deal with.</p>${fb}`,
+      4:`<h2>Keep the values flat</h2><p>Generics and typed arrays store the numbers themselves. Same code shape, no allocation.</p>${fb}`,
+      5:`<h2>The trap that passes testing</h2><p>Boxes are objects, so <code>==</code> compares <b>references</b>. Java caches −128 to 127, so the bug works on small numbers and breaks on real ones. Try both.</p>${fb}`,
+      6:`<h2>Interview check</h2>${api.quizHTML()}`
+    }[S.step];
+  },
+
+  controls(S){
+    const s = S.step;
+    if(s === 1) return `<button class="btn primary" data-a="copy">Copy the value</button>`;
+    if(s === 2) return S.boxed
+      ? `<button class="btn" data-a="unbox">Unbox it back to int</button>`
+      : `<button class="btn primary" data-a="box">Put it in an object</button>`;
+    if(s === 3) return `<button class="btn primary" data-a="loop">Run the loop (1,000,000)</button><button class="btn" data-a="clear">Clear</button>`;
+    if(s === 4) return `<button class="btn primary" data-a="flat">Use a typed list</button><button class="btn" data-a="loop">Run the loop</button>`;
+    if(s === 5) return `<button class="btn" data-a="eq" data-v="127">Compare 127 == 127</button><button class="btn" data-a="eq" data-v="128">Compare 128 == 128</button><button class="btn" data-a="equals">Compare with equals()</button>`;
+    return '';
+  },
+
+  statusLine(S){
+    const s = S.step;
+    if(s === 3 || s === 4){
+      const bytes = S.flat ? 0 : S.count * (S.lang === 'java' ? 16 : 24);
+      return `Boxes allocated <b>${S.count.toLocaleString()}</b> · heap churn <b>${(bytes / 1048576).toFixed(0)} MB</b>` +
+        (S.flat ? `<span class="ok"> · typed storage: the values sit in the array</span>`
+                : (S.count ? `<span class="warn"> · every one is short-lived garbage</span>` : ''));
+    }
+    if(s === 5) return S.eq
+      ? (S.eq.ok ? `<b>${S.eq.expr}</b><span class="ok"> · ${S.eq.why}</span>`
+                 : `<b>${S.eq.expr}</b><span class="warn"> · ${S.eq.why}</span>`)
+      : `Two boxes with the same number inside are still <b>two objects</b>`;
+    return S.boxed
+      ? `Stack <b>1 reference</b> · heap <b>1 box</b><span class="warn"> · the 42 was copied into an object</span>`
+      : `Stack <b>the value itself</b><span class="ok"> · nothing on the heap</span>`;
+  },
+
+  files,
+  note: S => NOTES[S.step],
+
+  onStage(S){
+    const id = document.getElementById.bind(document);
+    const boxed = S.boxed && S.step >= 2 && !(S.step >= 4 && S.flat);
+    const slots = S.step === 1
+      ? [['n', '42'], ['copy', S.copied ? '42' : '—']]
+      : [['n', '42'], [S.lang === 'java' ? 'boxed' : 'obj', boxed ? '→ 0x4c1' : 'not set']];
+
+    id('slots').innerHTML = slots.map((sl, i) =>
+      `<rect class="slot" x="34" y="${56 + i * 56}" width="174" height="40" rx="5"/>` +
+      `<text class="slotname" x="48" y="${81 + i * 56}">${sl[0]}</text>` +
+      `<text class="slotval" x="190" y="${81 + i * 56}">${sl[1]}</text>`).join('');
+
+    id('boxes').innerHTML = boxed
+      ? `<g class="pop"><rect class="box" x="300" y="92" width="150" height="56" rx="8"/>` +
+        `<text class="boxval" x="375" y="118">42</text>` +
+        `<text class="boxtag" x="375" y="136">${S.lang === 'java' ? 'Integer' : 'boxed int'} · object header + value</text></g>`
+      : '';
+    id('refs').innerHTML = boxed ? `<path class="ref" d="M208 132 C 250 132, 258 120, 298 120"/>` : '';
+
+    /* the pile of short-lived boxes a loop leaves behind */
+    const n = Math.min(60, Math.round(S.count / 16666));
+    id('pile').innerHTML = S.flat || !n ? '' :
+      Array.from({length:n}, (_, i) =>
+        `<rect class="pile" x="${286 + (i % 15) * 19}" y="${170 + Math.floor(i / 15) * 16}" width="14" height="11" rx="2"/>`).join('') +
+      `<text class="pilelbl" x="286" y="248">${S.count.toLocaleString()} short-lived boxes</text>`;
+
+    id('eq').textContent = S.eq ? S.eq.expr + '  →  ' + S.eq.result : '';
+    id('eq').setAttribute('class', 'eqlbl ' + (S.eq && S.eq.ok ? 'ok' : 'bad'));
+  },
+
+  onStep(S, n){
+    S.eq = null;
+    if(n === 1){ S.boxed = false; S.copied = false; }
+    if(n === 2) S.count = 0;
+    if(n === 3){ S.boxed = true; S.flat = false; }
+    if(n === 4){ S.flat = false; S.count = 0; }
+  },
+
+  onClick(S, b, api){
+    const a = b.dataset.a;
+    if(a === 'copy'){
+      S.copied = true;
+      api.tell('good', '<b>Four bytes copied, nothing allocated.</b> Value types are cheap precisely because there is no object to make and nothing for the collector to find later.');
+      api.out('int copy = n;   // 42');
+      return;
+    }
+    if(a === 'box'){
+      S.boxed = true;
+      api.tell('bad', '<b>That assignment allocated.</b> The runtime made an object with a header, copied 42 into it, and handed back a reference. Nothing in the source says "new", which is what makes boxing easy to miss.');
+      api.out(S.lang === 'java' ? 'Integer boxed = n;   // Integer.valueOf(42)' : 'object boxed = n;   // allocation');
+      return;
+    }
+    if(a === 'unbox'){
+      S.boxed = false;
+      api.tell('good', '<b>Copied back out.</b> Unboxing is a cast plus a copy. The box itself is now garbage.');
+      api.out('int back = (int)boxed;');
+      return;
+    }
+    if(a === 'loop'){
+      if(S.flat){
+        S.count = 0;
+        api.tell('good', '<b>A million values, zero boxes.</b> The list holds the numbers themselves, so the loop allocates nothing and the collector has nothing to do.');
+        api.out('List<int> / int[] / Int32Array → 0 allocations');
+        return;
+      }
+      S.count = 1000000; S.boxed = true;
+      const mb = S.lang === 'java' ? 16 : 24;
+      api.tell('bad', `<b>A million allocations from one innocent line.</b> About ${mb} MB of short-lived objects, which is not slow code so much as work handed to the garbage collector. This is how "it gets slower under load" starts.`);
+      api.out('1,000,000 boxes · ~' + mb + ' MB of young-generation churn');
+      return;
+    }
+    if(a === 'clear'){ S.count = 0; api.out('cleared'); return; }
+    if(a === 'flat'){
+      S.flat = true; S.count = 0; S.boxed = false;
+      api.tell('good', '<b>Generics fixed this in 2004.</b> A typed list stores the values inline. Reach for <code>int[]</code>, <code>IntStream</code> or a typed array when you are in a hot path.');
+      api.out(S.lang === 'cs' ? 'List<int>' : S.lang === 'java' ? 'int[] / IntStream' : 'Int32Array');
+      return;
+    }
+    if(a === 'eq'){
+      const v = b.dataset.v;
+      const cached = v === '127';
+      if(S.lang === 'java'){
+        S.eq = {expr:`Integer a = ${v}, b = ${v};  a == b`, result: cached ? 'true' : 'false', ok: cached,
+                why: cached ? 'both came from the Integer cache (−128…127), so it is one object'
+                            : 'outside the cache: two objects, so == compares two different references'};
+        api.tell(cached ? 'good' : 'bad', cached
+          ? '<b>True, and that is the trap.</b> Java caches small Integers, so your test with 127 passes. Nothing about this comparison is actually correct.'
+          : '<b>False, with identical values.</b> Same number, two objects, and <code>==</code> asked whether they are the same object. This is the bug that reaches production because the test used small numbers.');
+      } else {
+        S.eq = {expr:`object a = ${v}, b = ${v};  a == b`, result:'false', ok:false,
+                why:'two boxes, so == compares references, not the numbers inside'};
+        api.tell('bad', '<b>False.</b> Two separate boxes. Once a value is an object, <code>==</code> is a reference question unless the type overloads it.');
+      }
+      api.out(S.eq.expr + '  →  ' + S.eq.result);
+      return;
+    }
+    if(a === 'equals'){
+      S.eq = {expr: S.lang === 'java' ? 'a.equals(b)' : 'a.Equals(b)', result:'true', ok:true,
+              why:'value comparison, whatever the boxes are'};
+      api.tell('good', '<b>Always true.</b> <code>equals</code> compares the values inside. With wrapper types, use it every time and keep <code>==</code> for primitives.');
+      api.out(S.eq.expr + '  →  true');
+      return;
+    }
+    return false;
+  },
+
+  reset(S){ Object.assign(S, {boxed:false, copied:false, count:0, flat:false, eq:null}); },
+
+  quiz:[
+    {q:'What is boxing?',
+     o:['Copying a value between two variables','Wrapping a value type in an object on the heap so it can be used where a reference is expected','Casting between number types','Storing a value in a field'], a:1,
+     w:'The value is copied into a freshly allocated object with a header. Unboxing copies it back out.'},
+    {q:'Where does boxing usually happen by accident?',
+     o:['Only when you write "new"','In untyped or object-based collections, string concatenation in older APIs, and value types used through an interface','Only in Java','Only with floating point numbers'], a:1,
+     w:'Nothing in the source says "allocate", which is why it shows up as GC pressure rather than as obviously slow code.'},
+    {q:'In Java, Integer a = 128, b = 128. What does a == b give?',
+     o:['true','false, because values outside the −128…127 cache are separate objects and == compares references'], a:1,
+     w:'The cache is why the same code with 127 returns true. Compare wrapper types with equals.'},
+    {q:'How do you avoid boxing in a hot loop?',
+     o:['Add more memory','Use typed storage: List<int>, int[], IntStream or a typed array, so values are stored directly','Call the garbage collector','Make the values static'], a:1,
+     w:'Generics in C# store value types inline. Java generics cannot hold primitives, so primitive arrays and streams are the escape hatch.'}
+  ],
+  soundbite:'"Boxing wraps a value type in an object on the heap so it can be used where a reference is expected, and unboxing copies it back. It matters because it allocates: in a loop that is a million short-lived objects and real garbage-collection pressure. It also changes equality, since boxes are objects and == compares references, which is why Java\'s small-integer cache makes that bug pass its first test."'
+});
+</script>
+</body>
+</html>

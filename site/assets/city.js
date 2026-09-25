@@ -25,9 +25,13 @@
         blurb: 'Where your objects actually live.',
         open: true,
         playrooms: [
-          {slug:'stack-and-heap', title:'Stack and Heap', blurb:'two names, one object, and what the collector takes'}
+          {slug:'stack-and-heap',     title:'Stack and Heap',     blurb:'two names, one object, and what the collector takes'},
+          {slug:'garbage-collection', title:'Garbage Collection', blurb:'drop a reference, then find out nothing was freed'},
+          {slug:'boxing',             title:'Boxing',             blurb:'a number becomes an object, a million times'},
+          {slug:'pointers-and-null',  title:'Pointers and Null',  blurb:'point at nothing, crash, then fix it in the type'},
+          {slug:'caching',            title:'Caching',            blurb:'fast answers, stale answers, and the stampede'}
         ],
-        soon: ['Garbage collection', 'Boxing', 'Pointers and null', 'Caching']
+        soon: []
       },
       {
         name: 'SOLID Quarter',

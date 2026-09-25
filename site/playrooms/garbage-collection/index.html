@@ -1,0 +1,312 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Garbage Collection Playroom · Runtime City</title>
+<meta name="description" content="Watch the collector work: allocate, drop references, collect, see survivors promoted, and find out what a static field keeps alive forever. A playroom from Runtime City.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,600;12..96,800&family=IBM+Plex+Sans:wght@400;500&family=JetBrains+Mono:wght@400&display=swap">
+<link rel="stylesheet" href="../../assets/playroom.css">
+<style>
+.lane{fill:none;stroke:var(--hair);stroke-width:1.5;stroke-dasharray:5 4}
+.lanelbl{font:400 10px var(--mono);fill:var(--muted);text-anchor:middle}
+.rootbox{fill:var(--surface);stroke:var(--ink);stroke-width:1.5}
+.rootlbl{font:400 11px var(--mono);fill:var(--ink)}
+.obj{stroke-width:1.5;transition:x .45s ease,y .45s ease,opacity .35s}
+.obj.live{fill:var(--surface);stroke:var(--ink)}
+.obj.garbage{fill:none;stroke:var(--bad);stroke-dasharray:4 3}
+.obj.pinned{fill:rgba(201,112,29,.16);stroke:var(--accent)}
+.objlbl{font:400 9px var(--mono);fill:var(--muted);text-anchor:middle;transition:x .45s ease,y .45s ease}
+.sweep{fill:var(--accent);opacity:0}
+.sweeping .sweep{animation:sweep .7s ease-in-out}
+@keyframes sweep{0%{opacity:.18;transform:translateX(-240px)}100%{opacity:0;transform:translateX(120px)}}
+.pausebar{fill:var(--bad);opacity:.25}
+</style>
+</head>
+<body>
+<div id="playroom"></div>
+
+<script src="../../assets/city.js"></script>
+<script src="../../assets/nav.js"></script>
+<script src="../../assets/playroom.js"></script>
+<script>
+const STAGE = `
+<svg viewBox="0 0 600 300" role="img" aria-label="Roots on the left, a generational heap on the right">
+  <defs><pattern id="grid" width="24" height="24" patternUnits="userSpaceOnUse"><path d="M24 0H0V24" class="gridline" fill="none"/></pattern></defs>
+  <rect width="600" height="300" fill="url(#grid)" opacity=".6"/>
+
+  <text class="tinyl" x="20" y="28">ROOTS</text>
+  <g id="roots"></g>
+
+  <text class="tinyl" x="196" y="28">HEAP</text>
+  <g id="lanes">
+    <rect class="lane" x="196" y="38" width="122" height="220" rx="8"/>
+    <rect class="lane" x="330" y="38" width="122" height="220" rx="8"/>
+    <rect class="lane" x="464" y="38" width="122" height="220" rx="8"/>
+    <text class="lanelbl" x="257" y="276">gen 0 · new</text>
+    <text class="lanelbl" x="391" y="276">gen 1</text>
+    <text class="lanelbl" x="525" y="276">gen 2 · old</text>
+  </g>
+  <g id="objs"></g>
+  <rect class="sweep" x="196" y="38" width="390" height="220" rx="8"/>
+</svg>`;
+
+const NOTES = {
+  1:'<b>New objects land in the nursery.</b> Allocation is cheap: the runtime bumps a pointer and hands it back.',
+  2:'<b>Dropping a reference frees nothing on its own.</b> The object becomes <i>eligible</i>; it keeps its memory until a collection runs.',
+  3:'<b>The collector traces from the roots.</b> Whatever it cannot reach is swept; whatever survives is promoted to an older generation and scanned less often.',
+  4:'<b>Collection is not free.</b> A gen-0 pass is short, but an old-generation pass touches far more memory, and your threads wait for it.',
+  5:'<b>A root keeps anything it touches alive.</b> A static field, a live event handler or a long-lived cache is a root, which is why those cause "leaks" in a garbage-collected language.',
+  6:'<b>Interview tip:</b> lead with "eligible versus collected", then generations, then say that leaks here are unwanted references rather than missing frees.'
+};
+
+const SIZES = {small:'2 MB', big:'48 MB'};
+
+function files(S){
+  const L = S.lang, s = S.step;
+  const pick = o => o[L];
+
+  if(s <= 2) return pick({
+    cs:[{n:'Program.cs', lines:[
+      ['var report = new Report();          // allocated in gen 0','hl'],
+      ['var rows = new List<Row>(10_000);'],
+      [S.dropped ? 'report = null;                       // eligible, not collected' : '// nothing dropped yet', S.dropped ? 'hl' : ''],
+      ['// Memory is still held until a collection actually runs.']]}],
+    java:[{n:'Main.java', lines:[
+      ['Report report = new Report();       // allocated in the young generation','hl'],
+      ['List<Row> rows = new ArrayList<>(10_000);'],
+      [S.dropped ? 'report = null;                      // eligible, not collected' : '// nothing dropped yet', S.dropped ? 'hl' : ''],
+      ['// Memory is still held until a collection actually runs.']]}],
+    ts:[{n:'main.ts', lines:[
+      ['let report = new Report();          // allocated on the heap','hl'],
+      ['const rows = new Array(10_000);'],
+      [S.dropped ? 'report = null;                      // eligible, not collected' : '// nothing dropped yet', S.dropped ? 'hl' : ''],
+      ['// V8 frees it at a GC of its choosing, not at this line.']]}]
+  });
+
+  if(s === 3) return pick({
+    cs:[{n:'Collect.cs', lines:[
+      ['// You do not normally call this: the runtime decides when'],
+      ['GC.Collect();                       // for demonstration only','hl'],[''],
+      ['// What survived moved up a generation:'],
+      ['GC.GetGeneration(keeper);           // 1, then 2 after another pass'],[''],
+      ['// Allocation is a pointer bump; collection is what costs.']]}],
+    java:[{n:'Collect.java', lines:[
+      ['// A hint, not a command: the JVM may ignore it'],
+      ['System.gc();                        // for demonstration only','hl'],[''],
+      ['// Survivors move eden → survivor → old generation.'],
+      ['// -Xlog:gc shows each pass and what it reclaimed.']]}],
+    ts:[{n:'collect.ts', lines:[
+      ['// JavaScript gives you no way to force a collection'],
+      ['// (node --expose-gc adds global.gc() for experiments only)','hl'],[''],
+      ['// V8 scavenges the young space often and compacts the old space rarely.']]}]
+  });
+
+  if(s === 4) return pick({
+    cs:[{n:'Pauses.cs', lines:[
+      ['for (int i = 0; i < 1_000_000; i++)'],
+      ['    _buffer = new byte[48 * 1024 * 1024];   // 48 MB each time','bad'],[''],
+      ['// Large allocations skip gen 0 and land on the Large Object Heap,'],
+      ['// which is collected with the old generation and is not compacted by default.'],
+      ['GCSettings.LatencyMode = GCLatencyMode.SustainedLowLatency;']]}],
+    java:[{n:'Pauses.java', lines:[
+      ['for (int i = 0; i < 1_000_000; i++)'],
+      ['    buffer = new byte[48 * 1024 * 1024];    // 48 MB each time','bad'],[''],
+      ['// Young collections are short; a full (old generation) collection is not.'],
+      ['// -XX:+UseG1GC -XX:MaxGCPauseMillis=200 asks the collector for a pause budget.']]}],
+    ts:[{n:'pauses.ts', lines:[
+      ['for (let i = 0; i < 1_000_000; i++)'],
+      ['  buffer = new Uint8Array(48 * 1024 * 1024);   // 48 MB each time','bad'],[''],
+      ['// A major GC blocks the single JavaScript thread: dropped frames, late timers.']]}]
+  });
+
+  if(s === 5) return pick({
+    cs:[{n:'Roots.cs', lines:[
+      ['static readonly List<Session> _cache = new();   // a static field is a ROOT', S.pinned ? 'bad' : ''],
+      ['_cache.Add(session);            // now nothing can collect this session', S.pinned ? 'bad' : ''],[''],
+      ['tower.Traffic += phone.OnTraffic;   // a live handler roots the phone too','hl'],[''],
+      ['// The fix is not the collector, it is letting go:'],
+      ['_cache.Remove(session);   tower.Traffic -= phone.OnTraffic;', S.pinned ? '' : 'new'],[''],
+      ['// And GC does not run Dispose: unmanaged handles need using/IDisposable.']]}],
+    java:[{n:'Roots.java', lines:[
+      ['static final List<Session> CACHE = new ArrayList<>();   // static field = GC root', S.pinned ? 'bad' : ''],
+      ['CACHE.add(session);            // nothing can collect this session now', S.pinned ? 'bad' : ''],[''],
+      ['// Let go, or hold it weakly:'],
+      ['CACHE.remove(session);', S.pinned ? '' : 'new'],
+      ['Map<Key, Value> weak = new WeakHashMap<>();','hl'],[''],
+      ['// try-with-resources closes files; the collector does not.']]}],
+    ts:[{n:'roots.ts', lines:[
+      ['const cache: Session[] = [];    // a module-level array lives as long as the module', S.pinned ? 'bad' : ''],
+      ['cache.push(session);           // reachable forever', S.pinned ? 'bad' : ''],[''],
+      ['// Let go, or hold weakly:'],
+      ['cache.length = 0;', S.pinned ? '' : 'new'],
+      ['const weak = new WeakMap<object, Meta>();   // does not keep keys alive','hl'],[''],
+      ['// Also: clearInterval and removeEventListener, or the closure stays reachable.']]}]
+  });
+
+  return files({...S, step:3});
+}
+
+let nextId = 1;
+const obj = (label, size, gen) => ({id:nextId++, label, size, gen, live:true, pinned:false});
+
+const P = Playroom({
+  district:'Memory Harbour',
+  title:'Garbage Collection',
+  dek:'Nothing is freed because you finished with it. Only because nothing can reach it.',
+  steps:['Allocate','Drop it','Collect','The pause','What pins it','Interview check'],
+  stage:STAGE,
+
+  state:{objs:[], dropped:false, collections:0, pause:0, pinned:false, swept:0},
+
+  story(S, api){
+    const fb = api.fb();
+    return {
+      1:`<h2>New objects go in the nursery</h2><p>Allocate a few. They land in <b>gen 0</b>, the nursery, where allocation is barely more than moving a pointer.</p>${fb}`,
+      2:`<h2>Let go of one</h2><p>Drop a reference and watch what happens to the memory: <b>nothing</b>. The object is now unreachable, drawn dashed and red, but it still occupies the heap.</p>${fb}`,
+      3:`<h2>Run a collection</h2><p>The collector starts at the roots and follows every reference it can. What it never reaches is swept. What survives is <b>promoted</b> to an older generation, because things that have lived a while usually keep living.</p>${fb}`,
+      4:`<h2>Somebody pays for this</h2><p>Allocate something huge and collect again. A nursery pass is cheap; an old-generation pass walks far more memory, and your threads are stopped while it does.</p>${fb}`,
+      5:`<h2>What keeps objects alive</h2><p>A <b>static field</b> is a root. So is a live event handler, a running timer, or a cache someone forgot. Pin an object and try to collect it.</p>${fb}`,
+      6:`<h2>Interview check</h2>${api.quizHTML()}`
+    }[S.step];
+  },
+
+  controls(S){
+    const s = S.step;
+    const collect = `<button class="btn primary" data-a="collect" style="margin-left:auto">Run a collection</button>`;
+    if(s === 1) return `<button class="btn primary" data-a="alloc">Allocate 3 objects</button>`;
+    if(s === 2) return `<button class="btn" data-a="alloc">Allocate</button><button class="btn primary" data-a="drop">Drop the report reference</button>`;
+    if(s === 3) return `<button class="btn" data-a="alloc">Allocate</button><button class="btn" data-a="drop">Drop one</button>` + collect;
+    if(s === 4) return `<button class="btn" data-a="allocbig">Allocate 48 MB</button>` + collect;
+    if(s === 5) return (S.pinned
+        ? `<button class="btn" data-a="unpin">Remove it from the cache</button>`
+        : `<button class="btn primary" data-a="pin">Add one to a static cache</button>`) + collect;
+    return collect;
+  },
+
+  statusLine(S){
+    const live = S.objs.filter(o => o.live).length;
+    const garbage = S.objs.filter(o => !o.live).length;
+    const mb = S.objs.reduce((a, o) => a + (o.size === 'big' ? 48 : 2), 0);
+    const base = `Heap <b>${mb} MB</b> · reachable <b>${live}</b> · unreachable <b>${garbage}</b>`;
+    if(S.step === 4) return base + (S.pause
+      ? `<span class="warn"> · last pause ${S.pause} ms, every thread stopped</span>`
+      : `<span class="warn"> · allocate something big, then collect</span>`);
+    if(S.step === 5) return base + (S.pinned
+      ? `<span class="warn"> · 1 object rooted by a static cache, collection cannot touch it</span>`
+      : `<span class="ok"> · no static roots holding anything</span>`);
+    return base + (garbage
+      ? `<span class="warn"> · unreachable is not freed until a collection runs</span>`
+      : (S.collections ? `<span class="ok"> · ${S.collections} collection${S.collections === 1 ? '' : 's'} · ${S.swept} swept</span>` : ''));
+  },
+
+  files,
+  note: S => NOTES[S.step],
+
+  onStage(S){
+    const id = document.getElementById.bind(document);
+    const laneX = g => [206, 340, 474][g];
+    const byLane = [0, 0, 0];
+
+    id('objs').innerHTML = S.objs.map(o => {
+      const i = byLane[o.gen]++;
+      const x = laneX(o.gen), y = 50 + i * (o.size === 'big' ? 44 : 30);
+      const h = o.size === 'big' ? 36 : 22;
+      const cls = !o.live ? 'garbage' : (o.pinned ? 'pinned' : 'live');
+      return `<g><rect class="obj ${cls}" x="${x}" y="${y}" width="102" height="${h}" rx="4"/>` +
+        `<text class="objlbl" x="${x + 51}" y="${y + h / 2 + 3}">${o.label} · ${SIZES[o.size]}</text></g>`;
+    }).join('');
+
+    const roots = ['stack: report', 'stack: rows'].concat(S.pinned ? ['static: _cache'] : []);
+    id('roots').innerHTML = roots.map((r, i) =>
+      `<rect class="rootbox" x="16" y="${44 + i * 46}" width="160" height="34" rx="5"/>` +
+      `<text class="rootlbl" x="28" y="${65 + i * 46}">${r}</text>`).join('');
+  },
+
+  onStep(S, n){
+    if(n === 1){ S.objs = []; S.dropped = false; S.pinned = false; S.collections = 0; S.pause = 0; }
+    if(!S.objs.length) S.objs = [obj('Report','small',0), obj('Row[]','small',0), obj('User','small',0)];
+    if(n === 5 && !S.objs.some(o => o.pinned)) S.pinned = false;
+  },
+
+  onClick(S, b, api){
+    const a = b.dataset.a;
+    if(a === 'alloc'){
+      S.objs.push(obj('Report','small',0), obj('Row[]','small',0), obj('Cache','small',0));
+      api.tell('good', '<b>Three more in gen 0.</b> Allocation moved a pointer and zeroed some memory. That part is fast.');
+      api.out('new Report() · new Row[] · new Cache()');
+      return;
+    }
+    if(a === 'allocbig'){
+      S.objs.push(obj('byte[48MB]','big', 2));
+      api.tell('bad', '<b>Big objects skip the nursery.</b> In .NET they go on the Large Object Heap; on the JVM straight into the old generation. Either way they are only reclaimed by an expensive pass.');
+      api.out('new byte[48 * 1024 * 1024]  →  old generation');
+      return;
+    }
+    if(a === 'drop'){
+      const victim = S.objs.find(o => o.live && !o.pinned);
+      if(!victim){ api.out('Nothing left to drop.'); return; }
+      victim.live = false; S.dropped = true;
+      api.tell('bad', `<b>${victim.label} is unreachable, and still here.</b> "Eligible for collection" is not "freed". The memory stays used until a collection runs, which is why a memory graph does not drop the moment you null something.`);
+      api.out(`${victim.label} = null  →  unreachable, still on the heap`);
+      return;
+    }
+    if(a === 'pin'){
+      const o = S.objs.find(x => x.live) || S.objs[0];
+      o.pinned = true; o.live = true; S.pinned = true;
+      api.tell('bad', '<b>A static cache is a root.</b> The collector traces from roots, so anything this list holds is reachable by definition, for as long as the process runs.');
+      api.out('static _cache.Add(obj)  →  rooted');
+      return;
+    }
+    if(a === 'unpin'){
+      S.objs.forEach(o => { if(o.pinned){ o.pinned = false; o.live = false; } });
+      S.pinned = false;
+      api.tell('good', '<b>Now it is ordinary garbage.</b> The fix for a managed leak is always the same: stop holding the reference. Collect and it goes.');
+      api.out('_cache.Remove(obj)  →  unreachable');
+      return;
+    }
+    if(a === 'collect'){
+      const before = S.objs.length;
+      const swept = S.objs.filter(o => !o.live).length;
+      const bigLive = S.objs.some(o => o.size === 'big');
+      S.objs = S.objs.filter(o => o.live).map(o => ({...o, gen: Math.min(2, o.gen + 1)}));
+      S.collections++; S.swept += swept;
+      S.pause = bigLive ? 180 + swept * 4 : 2 + swept;
+      const stage = api.el('playroom');
+      const svg = document.querySelector('.stage svg');
+      svg.classList.remove('sweeping'); void svg.getBBox(); svg.classList.add('sweeping');
+      setTimeout(() => svg.classList.remove('sweeping'), 800);
+      api.tell(bigLive ? 'bad' : 'good', bigLive
+        ? `<b>${S.pause} ms of nothing.</b> That pass had to walk the old generation, including the large buffer. Every request in flight waited for it.`
+        : `<b>Swept ${swept}, promoted ${before - swept}.</b> A nursery pass took about ${S.pause} ms, because it only looked at the young objects, and most of them were already garbage.`);
+      api.out(`GC #${S.collections}: ${swept} collected · ${before - swept} promoted · ${S.pause} ms`);
+      return;
+    }
+    return false;
+  },
+
+  reset(S){
+    Object.assign(S, {objs:[], dropped:false, collections:0, pause:0, pinned:false, swept:0});
+  },
+
+  quiz:[
+    {q:'You set a variable to null. When is the object freed?',
+     o:['Immediately','At the end of the method','When a collection runs and finds nothing can reach it','Never, in a managed language'], a:2,
+     w:'Dropping a reference makes an object <i>eligible</i>. The collector decides when to act, so memory graphs fall in steps, not at your assignment.'},
+    {q:'Why do generational collectors exist?',
+     o:['To use less memory','Because most objects die young, so scanning only the newest ones reclaims most garbage for a fraction of the work','To avoid fragmentation','To support multiple threads'], a:1,
+     w:'The generational hypothesis. Survivors get promoted and scanned less often, which is why long-lived objects are the expensive ones.'},
+    {q:'What causes a memory leak in a garbage-collected language?',
+     o:['Forgetting to call free','A reference you no longer want: a static collection, a cache, an event handler or a timer still holding the object','Allocating too fast','Using too many threads'], a:1,
+     w:'The collector is doing its job perfectly: something is still reachable. Fix it by letting go, or by holding it weakly.'},
+    {q:'Does the collector release file handles and sockets?',
+     o:['Yes, that is its job','No. It reclaims memory. Unmanaged resources need Dispose/using, try-with-resources or an explicit close'], a:1,
+     w:'Finalizers exist as a safety net and make objects live longer. Deterministic cleanup is on you.'}
+  ],
+  soundbite:'"Objects are freed when nothing can reach them, at a moment the collector picks, not when I drop the reference. Collectors are generational because most objects die young, so a nursery pass is cheap and a full pass is not. And a leak in a managed language means something still holds a reference, usually a static collection, a cache or an event handler, so the fix is to let go or hold it weakly."'
+});
+</script>
+</body>
+</html>

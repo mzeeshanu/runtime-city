@@ -1,0 +1,391 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Caching Playroom · Runtime City</title>
+<meta name="description" content="Put a cache in front of a slow store, watch it serve stale data, add expiry and eviction, then meet the stampede. A playroom from Runtime City.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,600;12..96,800&family=IBM+Plex+Sans:wght@400;500&family=JetBrains+Mono:wght@400&display=swap">
+<link rel="stylesheet" href="../../assets/playroom.css">
+<style>
+.node{fill:var(--surface);stroke:var(--ink);stroke-width:1.5}
+.node.cache{stroke:var(--accent);stroke-width:2}
+.node.stale{stroke:var(--bad);stroke-dasharray:5 4}
+.nodelbl{font:400 12px var(--mono);fill:var(--ink);text-anchor:middle}
+.nodesub{font:400 10px var(--mono);fill:var(--muted);text-anchor:middle}
+.nodesub.warn{fill:var(--bad)} .nodesub.ok{fill:var(--good)}
+.pipe{stroke:var(--hair);stroke-width:2;fill:none}
+.packet{fill:var(--accent);opacity:0}
+.flying .packet{animation:fly var(--dur,1s) ease-in-out}
+@keyframes fly{0%{opacity:1;transform:translateX(0)}100%{opacity:1;transform:translateX(var(--dx,300px))}}
+.slotrow{font:400 10px var(--mono);fill:var(--muted)}
+.slotbox{fill:none;stroke:var(--hair);stroke-width:1}
+.slotbox.filled{fill:rgba(201,112,29,.16);stroke:var(--accent)}
+.slotbox.evicted{stroke:var(--bad);stroke-dasharray:3 2}
+</style>
+</head>
+<body>
+<div id="playroom"></div>
+
+<script src="../../assets/city.js"></script>
+<script src="../../assets/nav.js"></script>
+<script src="../../assets/playroom.js"></script>
+<script>
+const STAGE = `
+<svg viewBox="0 0 600 260" role="img" aria-label="A caller, a cache and a slow store">
+  <defs><pattern id="grid" width="24" height="24" patternUnits="userSpaceOnUse"><path d="M24 0H0V24" class="gridline" fill="none"/></pattern></defs>
+  <rect width="600" height="260" fill="url(#grid)" opacity=".6"/>
+
+  <g id="flow">
+    <path class="pipe" d="M150 92 H236"/>
+    <path class="pipe" id="pipe2" d="M386 92 H452"/>
+
+    <rect class="node" x="24" y="66" width="126" height="52" rx="8"/>
+    <text class="nodelbl" x="87" y="90">PriceService</text>
+    <text class="nodesub" x="87" y="107" id="callerSub">asks for AAPL</text>
+
+    <g id="cacheNode">
+      <rect class="node cache" x="236" y="60" width="150" height="64" rx="8"/>
+      <text class="nodelbl" x="311" y="86" id="cacheLbl">Cache</text>
+      <text class="nodesub" x="311" y="104" id="cacheSub">empty</text>
+    </g>
+
+    <rect class="node" x="452" y="66" width="124" height="52" rx="8"/>
+    <text class="nodelbl" x="514" y="90">PriceStore</text>
+    <text class="nodesub" x="514" y="107" id="storeSub">200 ms · $189.20</text>
+
+    <rect class="packet" x="150" y="86" width="12" height="12" rx="3"/>
+  </g>
+
+  <text class="slotrow" x="236" y="160">cache entries</text>
+  <g id="slots"></g>
+</svg>`;
+
+const NOTES = {
+  1:'<b>Every call pays the full cost.</b> Correct, simple, and too slow once anyone is watching.',
+  2:'<b>A cache trades memory for latency.</b> The first call pays; the rest are nearly free, and the hit ratio is the number that matters.',
+  3:'<b>Now two copies of the truth exist.</b> The moment the store changes, the cache is lying, and nothing in the code notices.',
+  4:'<b>Expiry bounds the lie; eviction bounds the memory.</b> A TTL says how stale you are willing to be; a size limit with LRU decides what to throw away.',
+  5:'<b>Everything expiring at once is its own outage.</b> A popular key that expires under load sends every request to the store at the same moment.',
+  6:'<b>Interview tip:</b> "cache invalidation is hard" is a punchline, not an answer. Say TTL, write-through or explicit invalidation, a size bound with eviction, and single-flight for the stampede.'
+};
+
+function files(S){
+  const L = S.lang, s = S.step;
+  const pick = o => o[L];
+
+  if(s === 1) return pick({
+    cs:[{n:'PriceService.cs', lines:[
+      ['public async Task<decimal> GetPrice(string symbol)'],['{'],
+      ['    return await _store.Load(symbol);   // 200 ms, every single time','hl'],
+      ['}']]}],
+    java:[{n:'PriceService.java', lines:[
+      ['public BigDecimal getPrice(String symbol) {'],
+      ['    return store.load(symbol);          // 200 ms, every single time','hl'],
+      ['}']]}],
+    ts:[{n:'price-service.ts', lines:[
+      ['async function getPrice(symbol: string) {'],
+      ['  return await store.load(symbol);      // 200 ms, every single time','hl'],
+      ['}']]}]
+  });
+
+  if(s === 2 || s === 3) return pick({
+    cs:[{n:'PriceService.cs', lines:[
+      ['private readonly Dictionary<string, decimal> _cache = new();'],[''],
+      ['public async Task<decimal> GetPrice(string symbol)'],['{'],
+      ['    if (_cache.TryGetValue(symbol, out var hit)) return hit;   // ~0 ms','hl'],
+      ['    var price = await _store.Load(symbol);'],
+      ['    _cache[symbol] = price;'],
+      ['    return price;'],['}'],
+      ...(S.stale ? [['',''],['// The store changed at 10:04. This cache still says the old price,','bad'],
+                     ['// and nothing here will ever notice.','bad']] : [])]}],
+    java:[{n:'PriceService.java', lines:[
+      ['private final Map<String, BigDecimal> cache = new HashMap<>();'],[''],
+      ['public BigDecimal getPrice(String symbol) {'],
+      ['    BigDecimal hit = cache.get(symbol);'],
+      ['    if (hit != null) return hit;            // ~0 ms','hl'],
+      ['    BigDecimal price = store.load(symbol);'],
+      ['    cache.put(symbol, price);'],
+      ['    return price;'],['}'],
+      ...(S.stale ? [['',''],['// The store changed. This map did not.','bad']] : [])]}],
+    ts:[{n:'price-service.ts', lines:[
+      ['const cache = new Map<string, number>();'],[''],
+      ['async function getPrice(symbol: string) {'],
+      ['  const hit = cache.get(symbol);'],
+      ['  if (hit !== undefined) return hit;        // ~0 ms','hl'],
+      ['  const price = await store.load(symbol);'],
+      ['  cache.set(symbol, price);'],
+      ['  return price;'],['}'],
+      ...(S.stale ? [['',''],['// The store changed. This Map did not.','bad']] : [])]}]
+  });
+
+  if(s === 4) return pick({
+    cs:[{n:'Bounded.cs', lines:[
+      ['_cache = new MemoryCache(new MemoryCacheOptions { SizeLimit = 10_000 });','new'],[''],
+      ['_cache.Set(symbol, price, new MemoryCacheEntryOptions'],
+      ['{'],
+      ['    AbsoluteExpirationRelativeToNow = TimeSpan.FromSeconds(30),   // how stale you accept','hl'],
+      ['    Size = 1'],
+      ['});'],[''],
+      ['// Writes can push instead of waiting for expiry:'],
+      ['await _store.Save(symbol, price);  _cache.Set(symbol, price);   // write-through','hl']]}],
+    java:[{n:'Bounded.java', lines:[
+      ['Cache<String, BigDecimal> cache = Caffeine.newBuilder()','new'],
+      ['    .maximumSize(10_000)              // eviction: LRU-ish when full','hl'],
+      ['    .expireAfterWrite(Duration.ofSeconds(30))   // how stale you accept','hl'],
+      ['    .build();'],[''],
+      ['// Or invalidate on write:'],
+      ['store.save(symbol, price);  cache.put(symbol, price);']]}],
+    ts:[{n:'bounded.ts', lines:[
+      ['type Entry = { value: number; expires: number };'],
+      ['const cache = new Map<string, Entry>();'],
+      ['const TTL = 30_000, MAX = 10_000;','new'],[''],
+      ['function get(symbol: string) {'],
+      ['  const e = cache.get(symbol);'],
+      ['  if (e && e.expires > Date.now()) return e.value;   // still fresh','hl'],
+      ['  cache.delete(symbol);'],
+      ['  return undefined;'],['}'],[''],
+      ['if (cache.size >= MAX) cache.delete(cache.keys().next().value);   // evict oldest','hl']]}]
+  });
+
+  if(s === 5) return pick({
+    cs:[{n:'Stampede.cs', lines:[
+      ['// 500 requests arrive the millisecond the entry expires:'],
+      ['// all miss, all call the store, all write the same value back.','bad'],[''],
+      ['// Single-flight: one caller loads, the rest await the same task'],
+      ['private readonly ConcurrentDictionary<string, Lazy<Task<decimal>>> _inflight = new();','new'],
+      ['var task = _inflight.GetOrAdd(symbol, k => new Lazy<Task<decimal>>(() => _store.Load(k)));','hl'],
+      ['return await task.Value;'],[''],
+      ['// Also useful: jittered TTLs so keys do not expire together.']]}],
+    java:[{n:'Stampede.java', lines:[
+      ['// 500 threads miss at once and all hit the database','bad'],[''],
+      ['// Caffeine loads once per key and makes the others wait:'],
+      ['LoadingCache<String, BigDecimal> cache = Caffeine.newBuilder()','new'],
+      ['    .refreshAfterWrite(Duration.ofSeconds(25))   // refresh before it expires','hl'],
+      ['    .build(store::load);'],[''],
+      ['// Add jitter to TTLs so popular keys do not expire in lockstep.']]}],
+    ts:[{n:'stampede.ts', lines:[
+      ['// Every request that arrives during a miss starts its own load','bad'],[''],
+      ['const inflight = new Map<string, Promise<number>>();','new'],
+      ['function load(symbol: string) {'],
+      ['  let p = inflight.get(symbol);'],
+      ['  if (!p) {'],
+      ['    p = store.load(symbol).finally(() => inflight.delete(symbol));','hl'],
+      ['    inflight.set(symbol, p);'],
+      ['  }'],
+      ['  return p;            // everyone awaits the same promise'],['}']]}]
+  });
+
+  return files({...S, step:4});
+}
+
+const P = Playroom({
+  district:'Memory Harbour',
+  title:'Caching',
+  dek:'Fast, or correct. Every cache is a deal you make between them.',
+  steps:['No cache','Add a cache','Stale data','Expiry and size','The stampede','Interview check'],
+  stage:STAGE,
+
+  state:{cached:false, entries:[], hits:0, misses:0, stale:false, ttl:false, max:6, evicted:0, storm:0, single:false, last:''},
+
+  story(S, api){
+    const fb = api.fb();
+    return {
+      1:`<h2>Straight to the store every time</h2><p>Each request asks <code>PriceStore</code>, which takes 200 ms. Ask a few times and watch the clock.</p>${fb}`,
+      2:`<h2>Remember the answer</h2><p>Keep the value in memory. The first request still pays; the rest are nearly free. The number worth reporting is the <b>hit ratio</b>.</p>${fb}`,
+      3:`<h2>Now the price changes</h2><p>The store is updated. Your cache is not. Ask again and it hands back yesterday's answer with complete confidence.</p>${fb}`,
+      4:`<h2>Bound the lie and the memory</h2><p>A <b>TTL</b> decides how stale you are willing to be. A <b>size limit</b> with eviction decides what gets thrown away, instead of the cache growing until the process dies.</p>${fb}`,
+      5:`<h2>The stampede</h2><p>One popular key expires while 500 requests are in flight. They all miss, and they all call the store at once. Try it, then add single-flight.</p>${fb}`,
+      6:`<h2>Interview check</h2>${api.quizHTML()}`
+    }[S.step];
+  },
+
+  controls(S){
+    const s = S.step;
+    const ask = `<button class="btn primary" data-a="ask">Ask for AAPL</button>`;
+    if(s === 1) return ask;
+    if(s === 2) return (S.cached ? '' : `<button class="btn primary" data-a="addcache">Put a cache in front</button>`) + ask +
+      `<button class="btn" data-a="askmany">Ask 10 times</button>`;
+    if(s === 3) return `<button class="btn" data-a="change">Change the price in the store</button>` + ask;
+    if(s === 4) return `<button class="btn" data-a="ttl">Add a 30 s TTL</button><button class="btn" data-a="fill">Fill the cache</button>` + ask;
+    if(s === 5) return `<button class="btn" data-a="storm">500 requests at expiry</button>` +
+      (S.single ? '' : `<button class="btn" data-a="single">Add single-flight</button>`);
+    return ask;
+  },
+
+  statusLine(S){
+    const s = S.step, total = S.hits + S.misses;
+    const ratio = total ? Math.round(S.hits / total * 100) : 0;
+    if(s === 1) return `Requests <b>${total}</b> · every one <b>200 ms</b><span class="warn"> · the store feels all of it</span>`;
+    if(s === 3) return S.stale
+      ? `Cache says <b>$189.20</b> · store says <b>$196.40</b><span class="warn"> · serving a value that no longer exists</span>`
+      : `Hit ratio <b>${ratio}%</b> · hits ${S.hits} · misses ${S.misses}`;
+    if(s === 4) return `Entries <b>${S.entries.length}/${S.max}</b> · evicted <b>${S.evicted}</b>` +
+      (S.ttl ? `<span class="ok"> · 30 s TTL: stale by at most half a minute</span>`
+             : `<span class="warn"> · no expiry: stale forever, and it never stops growing</span>`);
+    if(s === 5) return S.storm
+      ? (S.single
+          ? `Expiry storm: <b>500</b> requests · store calls <b>1</b><span class="ok"> · the rest waited for that one load</span>`
+          : `Expiry storm: <b>500</b> requests · store calls <b>500</b><span class="warn"> · the cache made the outage worse</span>`)
+      : `One popular key · <b>500</b> requests in flight when it expires`;
+    return `Hit ratio <b>${ratio}%</b> · hits <b>${S.hits}</b> · misses <b>${S.misses}</b>` +
+      (S.cached ? `<span class="ok"> · hits answer in about 0 ms</span>` : '');
+  },
+
+  files,
+  note: S => NOTES[S.step],
+
+  onStage(S){
+    const id = document.getElementById.bind(document);
+    const on = S.cached || S.step >= 3;
+    id('cacheNode').style.opacity = on ? 1 : .25;
+    id('cacheLbl').textContent = S.ttl ? 'Cache · 30 s TTL' : 'Cache';
+    id('cacheSub').textContent = !on ? 'not there yet'
+      : S.stale ? 'AAPL = $189.20 (stale)'
+      : S.entries.length ? S.entries.length + ' entr' + (S.entries.length === 1 ? 'y' : 'ies')
+      : 'empty';
+    id('cacheSub').setAttribute('class', 'nodesub' + (S.stale ? ' warn' : (S.ttl ? ' ok' : '')));
+    id('cacheNode').querySelector('rect').setAttribute('class', 'node cache' + (S.stale ? ' stale' : ''));
+    id('storeSub').textContent = '200 ms · $' + (S.storePrice || '189.20');
+    id('callerSub').textContent = S.last || 'asks for AAPL';
+
+    id('slots').innerHTML = Array.from({length:S.max}, (_, i) => {
+      const filled = i < S.entries.length;
+      const evicted = S.evicted && i === 0 && S.entries.length === S.max;
+      return `<rect class="slotbox ${filled ? 'filled' : ''} ${evicted ? 'evicted' : ''}" ` +
+             `x="${236 + i * 26}" y="172" width="22" height="22" rx="4"/>`;
+    }).join('') + (S.evicted ? `<text class="slotrow" x="${236 + S.max * 26 + 8}" y="188">${S.evicted} evicted</text>` : '');
+  },
+
+  onStep(S, n){
+    S.last = '';
+    if(n === 1){ S.cached = false; S.hits = 0; S.misses = 0; S.entries = []; S.stale = false; S.storePrice = '189.20'; }
+    if(n === 2){ S.cached = false; S.hits = 0; S.misses = 0; S.entries = []; }
+    if(n === 3){ S.cached = true; S.entries = ['AAPL']; S.stale = false; S.storePrice = '189.20'; }
+    if(n === 4){ S.cached = true; S.stale = false; S.ttl = false; S.entries = ['AAPL','MSFT']; S.evicted = 0; }
+    if(n === 5){ S.cached = true; S.ttl = true; S.storm = 0; S.single = false; }
+  },
+
+  onClick(S, b, api){
+    const a = b.dataset.a;
+    const fly = ms => {
+      const f = api.el('flow');
+      f.style.setProperty('--dur', (ms > 50 ? .9 : .35) + 's');
+      f.style.setProperty('--dx', (ms > 50 ? '330px' : '100px'));
+      f.classList.remove('flying'); void f.getBBox(); f.classList.add('flying');
+      setTimeout(() => f.classList.remove('flying'), 950);
+    };
+
+    if(a === 'ask'){
+      const hit = (S.cached || S.step >= 3) && S.entries.includes('AAPL') && !(S.step === 4 && !S.ttl && false);
+      if(hit){
+        S.hits++; fly(0);
+        S.last = 'answered in 0 ms';
+        if(S.stale){
+          api.tell('bad', '<b>It answered instantly, and it was wrong.</b> The store has $' + S.storePrice + '. A cache with no expiry and no invalidation will serve that old number until the process restarts.');
+          api.out('GetPrice("AAPL") → $189.20 (cache) · store has $' + S.storePrice);
+        } else {
+          api.tell('good', '<b>Hit.</b> No network, no database, about 0 ms. This is the entire point of the trade.');
+          api.out('GetPrice("AAPL") → cache hit · 0 ms');
+        }
+      } else {
+        S.misses++; fly(200);
+        if(S.cached || S.step >= 3){ if(!S.entries.includes('AAPL')) S.entries.push('AAPL'); }
+        S.last = 'waited 200 ms';
+        api.tell(S.cached ? 'good' : 'bad', S.cached
+          ? '<b>Miss, so it paid the 200 ms once</b> and kept the answer. Every request after this one is free until it expires.'
+          : '<b>200 ms, again.</b> Nothing is remembered, so identical requests repeat identical work, and the store takes the full load.');
+        api.out('GetPrice("AAPL") → store · 200 ms');
+      }
+      return;
+    }
+    if(a === 'askmany'){
+      if(!S.cached){
+        S.misses += 10; fly(200);
+        api.tell('bad', '<b>Ten requests, two seconds of waiting.</b> All for a number that did not change.');
+        api.out('10 requests · 10 store calls · ~2000 ms');
+      } else {
+        if(!S.entries.includes('AAPL')){ S.entries.push('AAPL'); S.misses++; }
+        S.hits += 9; fly(0);
+        api.tell('good', '<b>One miss, nine hits: a 90% hit ratio.</b> That ratio is what to quote when someone asks whether the cache is working.');
+        api.out('10 requests · 1 store call · ~200 ms total');
+      }
+      return;
+    }
+    if(a === 'addcache'){
+      S.cached = true; S.entries = [];
+      api.tell('good', '<b>A dictionary in front of a slow call.</b> That is the whole pattern. Everything difficult about caching starts on the next step.');
+      api.out('private readonly Dictionary<string, decimal> _cache = new();');
+      return;
+    }
+    if(a === 'change'){
+      S.stale = true; S.storePrice = '196.40';
+      api.tell('bad', '<b>Two copies of the truth, and they disagree.</b> Nothing told the cache. This is what "cache invalidation is hard" actually means: the cache cannot know.');
+      api.out('store.Save("AAPL", 196.40)  ·  cache still holds 189.20');
+      return;
+    }
+    if(a === 'ttl'){
+      S.ttl = true; S.stale = false;
+      api.tell('good', '<b>A TTL turns "wrong forever" into "wrong for at most 30 seconds".</b> Pick the number from the business, not the code: prices might take 5 seconds, a product name can take an hour. Where correctness must be immediate, write through the cache instead.');
+      api.out('AbsoluteExpirationRelativeToNow = 30 s');
+      return;
+    }
+    if(a === 'fill'){
+      const keys = ['AAPL','MSFT','GOOG','AMZN','META','NVDA','TSLA'];
+      keys.forEach(k => { if(!S.entries.includes(k)) S.entries.push(k); });
+      if(S.entries.length > S.max){
+        S.evicted += S.entries.length - S.max;
+        S.entries = S.entries.slice(S.entries.length - S.max);
+        api.tell('good', `<b>Full, so something had to go.</b> With a size limit the cache evicts the least useful entry, usually least-recently-used. Without one it grows until the process runs out of memory: the same leak as a list nobody clears.`);
+        api.out(`cache full · evicted ${S.evicted} least-recently-used`);
+      } else {
+        api.out('cache filled: ' + S.entries.length + ' entries');
+      }
+      return;
+    }
+    if(a === 'storm'){
+      S.storm = 500; fly(200);
+      if(S.single){
+        api.tell('good', '<b>One load, 500 happy callers.</b> The first miss starts the work and every other request waits on the same task, so the store sees a single query.');
+        api.out('500 requests · 1 store call · 200 ms');
+      } else {
+        api.tell('bad', '<b>500 misses in the same millisecond.</b> They all found nothing, all called the store, and all wrote the same value back. The cache made the load spike sharper, not softer. This is the cache stampede, and it is how caches take databases down.');
+        api.out('500 requests · 500 store calls · the database queues');
+      }
+      return;
+    }
+    if(a === 'single'){
+      S.single = true;
+      api.tell('good', '<b>Single-flight, also called request coalescing.</b> Keep a map of in-flight loads per key: the first caller starts it, everyone else awaits the same promise. Add jitter to TTLs so popular keys do not expire in lockstep.');
+      api.out('inflight.GetOrAdd(symbol, …)  ·  refreshAfterWrite  ·  jittered TTL');
+      return;
+    }
+    return false;
+  },
+
+  reset(S){
+    Object.assign(S, {cached:false, entries:[], hits:0, misses:0, stale:false, ttl:false,
+                      max:6, evicted:0, storm:0, single:false, last:'', storePrice:'189.20'});
+  },
+
+  quiz:[
+    {q:'What does a cache actually trade?',
+     o:['Memory for latency, and correctness for speed','CPU for memory','Disk for network','Nothing, it is free'], a:0,
+     w:'You hold a second copy of the data to answer faster, and accept that the copy can be out of date. Both halves are the deal.'},
+    {q:'Your cache has no expiry and no size limit. Name the two bugs.',
+     o:['It is slow and complicated','It serves stale data forever, and it grows until the process runs out of memory','It cannot be shared between servers','It needs a database'], a:1,
+     w:'Staleness and unbounded growth. A TTL fixes the first, a maximum size with eviction fixes the second.'},
+    {q:'What is a cache stampede?',
+     o:['Too many keys at once','A popular entry expires and every concurrent request misses together, hitting the store at the same moment','The cache running out of memory','Two servers disagreeing'], a:1,
+     w:'Fix with single-flight so one load serves all waiters, jittered TTLs, or refreshing before expiry.'},
+    {q:'When should you write through the cache instead of waiting for a TTL?',
+     o:['Never','When the data must be correct immediately after a change: update the store and the cache in the same operation, or invalidate that key'], a:1,
+     w:'TTL suits data where being slightly old is acceptable. Prices after a user edit usually are not.'}
+  ],
+  soundbite:'"A cache trades memory for latency and correctness for speed. The two things I always specify are how stale I am willing to be, which is the TTL or an explicit invalidation on write, and how big it may get, which means a size limit with eviction so it cannot grow forever. The failure people forget is the stampede: when a hot key expires, every concurrent request misses at once, so I coalesce those loads and add jitter to the expiry."'
+});
+</script>
+</body>
+</html>

@@ -16,6 +16,10 @@ Audience: students preparing for interviews first, then early-career developers.
 | Pattern Park | [Observer](site/playrooms/observer/index.html) | Prototype |
 | Pattern Park | [Singleton](site/playrooms/singleton/index.html) | Prototype |
 | Memory Harbour | [Stack and Heap](site/playrooms/stack-and-heap/index.html) | Prototype |
+| Memory Harbour | [Garbage Collection](site/playrooms/garbage-collection/index.html) | Prototype |
+| Memory Harbour | [Boxing](site/playrooms/boxing/index.html) | Prototype |
+| Memory Harbour | [Pointers and Null](site/playrooms/pointers-and-null/index.html) | Prototype |
+| Memory Harbour | [Caching](site/playrooms/caching/index.html) | Prototype |
 
 Every playroom follows the same loop: **see it → break it → fix it → code it (C#, Java, TypeScript) → interview check**.
 

@@ -96,8 +96,8 @@
       '</div>' +
       /* phone only: the stage and the code share the screen, one tap apart */
       '<div class="viewtabs" id="viewtabs" role="tablist" aria-label="View">' +
-        '<button data-v="play" role="tab">Playroom</button>' +
-        '<button data-v="code" role="tab">Code<span class="dot" hidden></span></button>' +
+        '<button data-view="play" role="tab">Playroom</button>' +
+        '<button data-view="code" role="tab">Code<span class="dot" hidden></span></button>' +
       '</div>' +
       '<div class="lesson">' +
         '<div class="col-play">' +
@@ -264,7 +264,7 @@
       S.view = v;
       document.documentElement.setAttribute('data-view', v);
       $('viewtabs').querySelectorAll('button').forEach(b =>
-        b.setAttribute('aria-selected', b.dataset.v === v));
+        b.setAttribute('aria-selected', b.dataset.view === v));
       if(v === 'code') markCode(false);
     }
 
@@ -340,7 +340,7 @@
         return;
       }
       if(b.dataset.quiz !== undefined) return;       // handled in story()
-      if(b.dataset.v) return setView(b.dataset.v);
+      if(b.dataset.view) return setView(b.dataset.view);
       if(b.id === 'prev' || b.id === 'prevTop') return go(S.step - 1);
       if(b.id === 'next' || b.id === 'nextTop') return go(S.step + 1);
       if(b.id === 'again') return restart();
