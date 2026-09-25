@@ -31,16 +31,50 @@ code{font-family:var(--mono);font-size:.87em}
 button{font:inherit;color:inherit;cursor:pointer;background:none;border:0;padding:0}
 button:focus-visible{outline:2px solid var(--accent);outline-offset:3px;border-radius:4px}
 
-/* where you are */
-.top{display:flex;align-items:baseline;gap:10px;flex-wrap:wrap;padding-block:26px 0;font-size:13px;color:var(--muted)}
-.brand{font-family:var(--display);font-weight:800;font-size:15px;letter-spacing:-.01em;color:var(--ink);display:inline-flex;align-items:center;gap:7px}
-.brand svg{width:15px;height:15px}
-.top .sep{opacity:.5}
-.top a{color:inherit;text-decoration:none;border-bottom:1px solid transparent}
-.top a:hover{border-bottom-color:var(--accent)}
-.top .brand a{color:var(--ink)}
-.top .hereroom{color:var(--ink)}
-.top .roomcount{margin-left:auto;font-family:var(--mono);font-size:11px;color:var(--muted)}
+/* ---------- the top bar ---------- */
+.topbar{position:sticky;top:0;z-index:30;background:var(--ground);border-bottom:1px solid var(--hair);
+        padding-top:env(safe-area-inset-top,0px);margin-inline:-16px}
+.topbar-in{max-width:1080px;margin:0 auto;padding:0 16px;height:56px;display:flex;align-items:center;gap:10px;position:relative}
+.brand{font-family:var(--display);font-weight:800;font-size:15px;letter-spacing:-.01em;color:var(--ink);
+       display:inline-flex;align-items:center;gap:8px;text-decoration:none;flex:0 0 auto}
+.brand svg{width:16px;height:16px}
+a.brand:hover span{border-bottom:1px solid var(--accent)}
+.crumb{display:flex;align-items:center;gap:8px;min-width:0;font-size:13px;color:var(--muted);overflow:hidden}
+.crumb .sep{opacity:.45}
+.crumb .cr{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:var(--muted);text-decoration:none;border-bottom:1px solid transparent}
+a.cr:hover{color:var(--ink);border-bottom-color:var(--accent)}
+.crumb .here{color:var(--ink)}
+.nolink{cursor:default}
+
+.menubtn{margin-left:auto;flex:0 0 auto;display:inline-flex;align-items:center;gap:9px;font-size:13.5px;
+         border:1px solid var(--hair);background:var(--surface);border-radius:9px;padding:8px 12px;min-height:38px}
+.menubtn:hover{border-color:var(--muted)}
+.menubtn[aria-expanded="true"]{background:var(--ink);color:var(--surface);border-color:var(--ink)}
+.menubtn .bars{display:grid;gap:3px}
+.menubtn .bars i{display:block;width:14px;height:1.5px;background:currentColor;border-radius:1px}
+.menubtn .of{font-family:var(--mono);font-size:11px;color:var(--muted)}
+.menubtn[aria-expanded="true"] .of{color:var(--hair)}
+
+.citymenu{position:absolute;top:calc(100% + 8px);right:16px;z-index:40;width:min(420px,calc(100vw - 32px));
+          max-height:min(70vh,560px);overflow:auto;background:var(--surface);border:1px solid var(--hair);
+          border-radius:14px;padding:6px;box-shadow:0 18px 40px -22px rgba(0,0,0,.6)}
+.mgroup{padding:10px 10px 6px}
+.mgroup h3{display:flex;align-items:baseline;gap:8px;margin:0 0 6px;font-family:var(--mono);font-weight:400;
+           font-size:11px;text-transform:uppercase;letter-spacing:.08em;color:var(--muted)}
+.mgroup h3 .mhead{color:var(--ink);text-decoration:none;border-bottom:1px solid transparent}
+a.mhead:hover{border-bottom-color:var(--accent)}
+.mgroup h3 .mcount{margin-left:auto;color:var(--accent)}
+.mgroup.planned h3 .mcount{color:var(--muted)}
+.citymenu ul{list-style:none;margin:0;padding:0;display:grid;gap:2px}
+.mrow{display:flex;flex-direction:column;gap:2px;padding:9px 10px;border-radius:9px;text-decoration:none;color:var(--ink)}
+a.mrow:hover{background:var(--surface-hover,rgba(127,127,127,.12))}
+.mrow .mt{font-weight:500;font-size:14.5px}
+.mrow .mb{font-size:12.5px;color:var(--muted)}
+.citymenu li.now .mrow{background:rgba(201,112,29,.12);box-shadow:inset 0 0 0 1px var(--accent)}
+.citymenu li.now .youare{font-family:var(--mono);font-size:10px;text-transform:uppercase;letter-spacing:.08em;color:var(--accent);margin-top:2px}
+.msoon{padding:6px 10px 2px;font-size:12.5px;color:var(--muted);opacity:.8}
+.mgroup + .mgroup{border-top:1px solid var(--hair)}
+:root.menu-open{overflow:hidden}
 
 .intro{padding-block:26px 30px;max-width:32ch}
 .intro h1{font-family:var(--display);font-weight:800;font-size:clamp(38px,7vw,62px);line-height:.96;letter-spacing:-.035em;margin:0 0 10px;text-wrap:balance}
@@ -172,8 +206,10 @@ pre{margin:0;padding:0 0 6px;overflow-x:auto;font-family:var(--mono);font-size:1
   .wrap{padding-bottom:8px}
 
   /* get to the playroom sooner: a shorter head */
-  .top{padding-block:16px 0;font-size:12.5px;gap:8px}
-  .top .roomcount{width:100%;margin-left:0;order:9}
+  .topbar-in{height:52px;gap:8px}
+  .brand span{display:none}          /* the mark alone on a phone */
+  .menubtn{padding:8px 11px;min-height:40px}
+  .citymenu{right:8px;width:calc(100vw - 16px)}
   .intro{padding-block:16px 20px;max-width:none}
   .intro h1{font-size:clamp(32px,9vw,44px)}
   .intro p{font-size:16px}

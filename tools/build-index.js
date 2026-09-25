@@ -40,9 +40,7 @@ const html = `<!doctype html>
 <style>
 body{padding-block:0 72px}
 .wrap{max-width:760px}
-.brand{display:inline-flex;align-items:center;gap:8px;font-family:var(--display);font-weight:800;font-size:15px;padding-block:26px 0}
-.brand svg{width:15px;height:15px}
-h1{font-family:var(--display);font-weight:800;font-size:clamp(40px,8vw,66px);line-height:.95;letter-spacing:-.035em;margin:30px 0 12px;text-wrap:balance}
+h1{font-family:var(--display);font-weight:800;font-size:clamp(40px,8vw,66px);line-height:.95;letter-spacing:-.035em;margin:34px 0 12px;text-wrap:balance}
 .dek{font-size:18px;color:var(--muted);margin:0 0 14px;max-width:46ch}
 .jump{display:flex;flex-wrap:wrap;gap:2px 18px;font-size:13.5px;margin:0 0 40px;padding-bottom:14px;border-bottom:1px solid var(--hair)}
 .jump a{color:var(--muted);text-decoration:none;border-bottom:1px solid transparent;padding-block:10px}
@@ -63,12 +61,16 @@ li.soon{color:var(--muted);padding:14px 2px;font-size:14px}
 </style>
 </head>
 <body>
-<div class="wrap">
-  <span class="brand">
+<header class="topbar"><div class="topbar-in">
+  <a class="brand" href="/">
     <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="2" y="10" width="5" height="12" fill="currentColor"/><rect x="9" y="4" width="6" height="18" fill="currentColor"/><rect x="17" y="13" width="5" height="9" fill="var(--accent)"/></svg>
-    Runtime City
-  </span>
+    <span>Runtime City</span>
+  </a>
+  <nav class="crumb"><span class="sep">/</span><span class="cr here">All districts</span></nav>
+  <span class="menubtn nolink" style="cursor:default">${CITY.all.length} playrooms open</span>
+</div></header>
 
+<div class="wrap">
   <h1>Learn by breaking</h1>
   <p class="dek">Software engineering concepts you can walk into, take apart and put back together. Built for students heading into interviews.</p>
   <nav class="jump">${CITY.districts.map(d => `<a href="#${d.slug}">${esc(d.name)}</a>`).join('')}</nav>
