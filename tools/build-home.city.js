@@ -29,35 +29,7 @@ const LAYOUT = {
 /* Each playroom gets a sign on its facade, drawn in a 24×24 box, plus a
    rooftop that suits it. The point is that you can tell the buildings apart
    before you read a word. */
-const GLYPH = {
-  socket:   '<rect class="gl" x="4" y="7" width="16" height="11" rx="2"/><path class="gl" d="M9 11v3M15 11v3"/><path class="gl a" d="M12 2v5"/>',
-  gear:     '<circle class="gl" cx="12" cy="12" r="5"/><path class="gl a" d="M12 3v3M12 18v3M3 12h3M18 12h3M6 6l2 2M18 6l-2 2"/>',
-  fork:     '<path class="gl" d="M12 21V13"/><path class="gl a" d="M12 13 5 5M12 13l7-8M12 13v-9"/>',
-  antenna:  '<path class="gl" d="M12 21V6"/><path class="gl a" d="M7 9a7 7 0 0 1 10 0M9 12a4 4 0 0 1 6 0"/><circle class="gl a" cx="12" cy="4" r="2"/>',
-  one:      '<path class="gl" d="M9 8l3-3v14"/><path class="gl a" d="M7 19h10"/>',
-  stack:    '<rect class="gl" x="4" y="15" width="16" height="5" rx="1"/><rect class="gl" x="6" y="10" width="12" height="5" rx="1"/><rect class="gl a" x="8" y="5" width="8" height="5" rx="1"/>',
-  bin:      '<path class="gl" d="M6 7h12l-1 13H7L6 7Z"/><path class="gl a" d="M4 7h16M10 4h4"/><path class="gl" d="M10 11v5M14 11v5"/>',
-  box:      '<rect class="gl" x="4" y="7" width="16" height="13" rx="2"/><path class="gl a" d="M4 11h16M12 7v-4"/>',
-  pointer:  '<path class="gl" d="M4 12h9"/><path class="gl" d="M10 8l4 4-4 4"/><circle class="gl a" cx="18" cy="12" r="3"/><path class="gl a" d="M16 14l4-4"/>',
-  bolt:     '<path class="gl a" d="M13 2 5 13h6l-1 9 8-11h-6l1-9Z"/>',
-  onedoor:  '<path class="gl" d="M5 20V9l7-5 7 5v11"/><rect class="gl a" x="10" y="13" width="4" height="7"/>',
-  plus:     '<rect class="gl" x="4" y="8" width="10" height="12" rx="1"/><path class="gl a" d="M17 9v8M13 13h8"/>',
-  shapes:   '<rect class="gl" x="3" y="7" width="18" height="10" rx="1"/><rect class="gl a" x="7" y="7" width="10" height="10" rx="1"/>',
-  split:    '<rect class="gl" x="3" y="6" width="7" height="13" rx="1"/><rect class="gl a" x="14" y="6" width="7" height="13" rx="1"/>',
-  flip:     '<path class="gl" d="M8 20V6"/><path class="gl" d="M5 9l3-3 3 3"/><path class="gl a" d="M16 4v14"/><path class="gl a" d="M13 15l3 3 3-3"/>',
-  signpost: '<path class="gl" d="M12 21V5"/><path class="gl a" d="M12 7h8l-2 3h-6Z"/><path class="gl" d="M12 13H4l2-3h6Z"/>',
-  handshake:'<path class="gl" d="M3 10h5l4 4"/><path class="gl a" d="M21 14h-5l-4-4"/><path class="gl" d="M8 10l4-3 4 3"/>',
-  envelope: '<rect class="gl" x="3" y="6" width="18" height="12" rx="2"/><path class="gl a" d="m3 8 9 6 9-6"/>',
-  padlock:  '<rect class="gl" x="5" y="11" width="14" height="9" rx="2"/><path class="gl a" d="M9 11V8a3 3 0 0 1 6 0v3"/>',
-  tabs:     '<rect class="gl" x="4" y="5" width="16" height="15" rx="2"/><path class="gl a" d="M8 5v6l2-2 2 2V5"/><path class="gl" d="M4 14h16"/>',
-  venn:     '<circle class="gl" cx="9" cy="12" r="6"/><circle class="gl a" cx="15" cy="12" r="6"/>',
-  safe:     '<rect class="gl" x="4" y="5" width="16" height="15" rx="2"/><circle class="gl a" cx="12" cy="12" r="4"/><path class="gl a" d="M12 12l3-2"/>',
-  partition:'<rect class="gl" x="3" y="6" width="18" height="13" rx="2"/><path class="gl a" d="M12 6v13"/>',
-  lanes:    '<path class="gl" d="M7 20V7"/><path class="gl" d="M4 10l3-3 3 3"/><path class="gl a" d="M17 20V7"/><path class="gl a" d="M14 10l3-3 3 3"/>',
-  lock:     '<rect class="gl" x="5" y="10" width="14" height="10" rx="2"/><path class="gl a" d="M9 10V7a3 3 0 0 1 6 0v3"/><circle class="gl a" cx="12" cy="15" r="1.6"/>',
-  cross:    '<path class="gl" d="M4 8h10l-3-3"/><path class="gl a" d="M20 16H10l3 3"/><path class="gl a" d="m8 18 8-12"/>',
-  clock:    '<circle class="gl" cx="12" cy="12" r="8"/><path class="gl a" d="M12 7v5l4 2"/>'
-};
+const GLYPH = require('./glyphs.js');
 
 /* rooftops, so the skyline is not a row of identical boxes */
 const ROOF = {

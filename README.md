@@ -112,6 +112,8 @@ node tools/build-index.js          # park design (default)
 node tools/build-index.js city     # city-blocks design (fallback)
 ```
 
+The playroom icons live in `tools/glyphs.js`, shared by both designs.
+
 Two home-page designs read the same map and can be swapped at any time:
 `tools/build-home.park.js` draws the districts as lands in one park with a
 ride per playroom, and `tools/build-home.city.js` draws them as city blocks
