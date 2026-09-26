@@ -1,5 +1,9 @@
-/* Write site/index.html from the city map, so the home page can never drift
-   from site/assets/city.js.
+/* Write site/index.html from the city map.
+
+   The home page is a drawing of the city: every district is a block, every
+   playroom is a building you can walk into, and finished ones have their
+   lights on. The text list underneath is the same content for phones,
+   search engines and anyone who would rather read than explore.
 
    Usage: node tools/build-index.js
 */
@@ -8,23 +12,99 @@ const CITY = require('../site/assets/city.js');
 
 const esc = s => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 
-const district = d => {
-  const rooms = d.playrooms.map(p =>
-    `    <li data-room="${p.slug}"><a href="playrooms/${p.slug}/"><span class="t">${esc(p.title)}</span> <span class="d">${esc(p.blurb)}</span><span class="state" hidden></span></a></li>`);
-  const soon = d.soon.length
-    ? [`    <li class="soon">${d.soon.map(esc).join(' · ')} — coming soon</li>`]
-    : [];
-  return `  <section id="${d.slug}">
-    <h2>${esc(d.name)} <span class="state">${d.open ? `${d.playrooms.length} playroom${d.playrooms.length === 1 ? '' : 's'}` : 'planned'}</span></h2>
-    <p class="blurb">${esc(d.blurb)}</p>
-    <ul>
-${rooms.concat(soon).join('\n')}
-    </ul>
-  </section>`;
+/* where each district sits on the map, and how its buildings are drawn */
+const LAYOUT = {
+  'pattern-park':        {x:40,  y:44,  w:280, h:180, kind:'park'},
+  'solid-quarter':       {x:360, y:44,  w:280, h:180, kind:'blocks'},
+  'memory-harbour':      {x:680, y:44,  w:280, h:180, kind:'harbour'},
+  'concurrency-crossing':{x:40,  y:268, w:280, h:180, kind:'blocks'},
+  'database-vault':      {x:360, y:268, w:280, h:180, kind:'vault'},
+  'network-highway':     {x:680, y:268, w:280, h:180, kind:'road'}
 };
 
-const open = CITY.districts.filter(d => d.open);
-const planned = CITY.districts.filter(d => !d.open);
+const HEIGHTS = [74, 96, 62, 88, 70];
+
+function building(d, p, i, total, box){
+  const slotW = (box.w - 34) / total;
+  const w = Math.min(46, slotW - 8);
+  const h = HEIGHTS[i % HEIGHTS.length];
+  const x = box.x + 17 + i * slotW + (slotW - 8 - w) / 2;
+  const y = box.y + box.h - 22 - h;
+
+  /* windows: two columns, lit when this playroom is finished */
+  const rows = Math.max(2, Math.floor((h - 22) / 16));
+  const windows = [];
+  for(let r = 0; r < rows; r++){
+    for(let c = 0; c < 2; c++){
+      windows.push(`<rect class="win" x="${(x + 9 + c * (w - 26)).toFixed(1)}" y="${y + 14 + r * 16}" width="9" height="9" rx="1.5"/>`);
+    }
+  }
+
+  return `<a class="bld" href="playrooms/${p.slug}/" data-room="${p.slug}" aria-label="${esc(p.title)} — ${esc(p.blurb)}">` +
+    `<title>${esc(p.title)} · ${esc(p.blurb)}</title>` +
+    `<rect class="wall" x="${x.toFixed(1)}" y="${y}" width="${w}" height="${h}" rx="3"/>` +
+    `<rect class="roof" x="${(x - 3).toFixed(1)}" y="${y - 5}" width="${w + 6}" height="6" rx="2"/>` +
+    windows.join('') +
+    `<rect class="door" x="${(x + w / 2 - 6).toFixed(1)}" y="${y + h - 14}" width="12" height="14" rx="1"/>` +
+    `<text class="bname" x="${(x + w / 2).toFixed(1)}" y="${box.y + box.h - 6}">${esc(p.title.split(/[ /]/)[0])}</text>` +
+    `</a>`;
+}
+
+function districtSvg(d){
+  const box = LAYOUT[d.slug];
+  if(!box) return '';
+  const rooms = d.playrooms.map((p, i) => building(d, p, i, Math.max(d.playrooms.length, 1), box)).join('');
+
+  /* a little scenery so the districts do not all look the same */
+  const scenery = {
+    park:    `<circle class="tree" cx="${box.x + 34}" cy="${box.y + box.h - 34}" r="13"/>` +
+             `<circle class="tree" cx="${box.x + box.w - 30}" cy="${box.y + box.h - 40}" r="10"/>`,
+    harbour: `<path class="water" d="M${box.x + 10} ${box.y + box.h - 14} q 18 -8 36 0 t 36 0 t 36 0 t 36 0 t 36 0 t 36 0 t 36 0"/>` +
+             `<path class="water" d="M${box.x + 10} ${box.y + box.h - 6} q 18 -8 36 0 t 36 0 t 36 0 t 36 0 t 36 0 t 36 0 t 36 0"/>`,
+    vault:   `<circle class="vaultdial" cx="${box.x + box.w - 30}" cy="${box.y + 34}" r="12"/>` +
+             `<line class="vaultdial" x1="${box.x + box.w - 30}" y1="${box.y + 34}" x2="${box.x + box.w - 22}" y2="${box.y + 28}"/>`,
+    road:    `<line class="lane" x1="${box.x + 12}" y1="${box.y + box.h - 12}" x2="${box.x + box.w - 12}" y2="${box.y + box.h - 12}"/>`,
+    blocks:  ''
+  }[box.kind] || '';
+
+  return `<g class="district ${d.open ? 'open' : 'planned'}" data-district="${d.slug}">` +
+    `<rect class="ground" x="${box.x}" y="${box.y}" width="${box.w}" height="${box.h}" rx="10"/>` +
+    scenery +
+    `<text class="dname" x="${box.x + 14}" y="${box.y + 24}">${esc(d.name)}</text>` +
+    `<text class="dcount" x="${box.x + box.w - 14}" y="${box.y + 24}">${d.open ? d.playrooms.length + ' playrooms' : 'planned'}</text>` +
+    rooms +
+    (d.open ? '' : `<text class="soonlbl" x="${box.x + box.w / 2}" y="${box.y + box.h / 2 + 6}">coming soon</text>`) +
+    `</g>`;
+}
+
+const map = `
+<svg class="citymap" viewBox="0 0 1000 492" role="img" aria-label="A map of Runtime City: six districts, each building is a playroom">
+  <defs>
+    <pattern id="mgrid" width="28" height="28" patternUnits="userSpaceOnUse"><path d="M28 0H0V28" fill="none" stroke="var(--grid)" stroke-width="1"/></pattern>
+  </defs>
+  <rect width="1000" height="492" fill="url(#mgrid)" opacity=".5"/>
+
+  <g class="roads">
+    <line x1="0" y1="246" x2="1000" y2="246"/>
+    <line x1="340" y1="0" x2="340" y2="492"/>
+    <line x1="660" y1="0" x2="660" y2="492"/>
+  </g>
+  <g class="roadlines">
+    <line x1="0" y1="246" x2="1000" y2="246"/>
+    <line x1="340" y1="0" x2="340" y2="492"/>
+    <line x1="660" y1="0" x2="660" y2="492"/>
+  </g>
+
+  ${CITY.districts.map(districtSvg).join('\n  ')}
+</svg>`;
+
+const listSection = d => `    <section id="${d.slug}">
+      <h3>${esc(d.name)} <span class="state">${d.open ? `${d.playrooms.length} playrooms` : 'planned'}</span></h3>
+      <ul>
+${d.playrooms.map(p => `        <li data-room="${p.slug}"><a href="playrooms/${p.slug}/"><span class="t">${esc(p.title)}</span> <span class="d">${esc(p.blurb)}</span><span class="state" hidden></span></a></li>`).join('\n')}
+${d.soon.length ? `        <li class="soon">${d.soon.map(esc).join(' · ')} — coming soon</li>` : ''}
+      </ul>
+    </section>`;
 
 const html = `<!doctype html>
 <html lang="en">
@@ -32,51 +112,120 @@ const html = `<!doctype html>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Runtime City</title>
-<meta name="description" content="Runtime City: learn software engineering concepts by seeing them, breaking them and fixing them. Built for students heading into interviews.">
+<meta name="description" content="Runtime City: learn software engineering concepts by seeing them, breaking them and fixing them. ${CITY.all.length} interactive playrooms, built for students heading into interviews.">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,600;12..96,800&family=IBM+Plex+Sans:wght@400;500&family=JetBrains+Mono:wght@400&display=swap">
 <link rel="stylesheet" href="assets/playroom.css">
 <style>
-body{padding-block:0 72px}
-.wrap{max-width:760px}
-h1{font-family:var(--display);font-weight:800;font-size:clamp(40px,8vw,66px);line-height:.95;letter-spacing:-.035em;margin:34px 0 12px;text-wrap:balance}
-.dek{font-size:18px;color:var(--muted);margin:0 0 14px;max-width:46ch}
-.jump{display:flex;flex-wrap:wrap;gap:2px 18px;font-size:13.5px;margin:0 0 40px;padding-bottom:14px;border-bottom:1px solid var(--hair)}
-.jump a{color:var(--muted);text-decoration:none;border-bottom:1px solid transparent;padding-block:10px}
-.jump a:hover{color:var(--ink);border-bottom-color:var(--accent)}
-section{margin-bottom:40px;scroll-margin-top:24px}
-h2{font-family:var(--mono);font-weight:400;font-size:11px;text-transform:uppercase;letter-spacing:.09em;color:var(--muted);margin:0 0 4px;display:flex;gap:10px;align-items:baseline}
-h2 .state{color:var(--accent)}
-.blurb{margin:0 0 10px;font-size:14px;color:var(--muted)}
-ul{list-style:none;margin:0;padding:0;border-top:1px solid var(--hair)}
-li{border-bottom:1px solid var(--hair)}
-li a{display:flex;align-items:baseline;gap:4px 12px;flex-wrap:wrap;padding:16px 2px;color:var(--ink);text-decoration:none;min-height:52px}
-li a:hover .t{border-bottom:1px solid var(--accent)}
-li .t{font-family:var(--display);font-weight:600;font-size:20px;letter-spacing:-.02em}
-li .d{color:var(--muted);font-size:14px}
-li .state{margin-left:auto;font-family:var(--mono);font-size:11px;text-transform:uppercase;letter-spacing:.06em}
-li .state.done{color:var(--good)}
-li .state.part{color:var(--accent)}
-li.soon{color:var(--muted);padding:14px 2px;font-size:14px}
-.resume{margin:0 0 16px}
-.resume a{display:inline-flex;align-items:center;gap:8px;font-size:14.5px;color:var(--ink);text-decoration:none;
-          border:1px solid var(--accent);border-radius:10px;padding:10px 14px}
-.resume a span{font-family:var(--mono);font-size:12px;color:var(--accent)}
-.resume a:hover{background:rgba(201,112,29,.1)}
-.loop{font-size:14px;color:var(--muted);border-top:1px solid var(--hair);padding-top:22px;max-width:60ch}
+body{padding-block:0 64px}
+.wrap{max-width:1080px}
+
+.hero{padding-block:34px 18px}
+h1{font-family:var(--display);font-weight:800;font-size:clamp(42px,8.5vw,80px);line-height:.92;letter-spacing:-.04em;margin:0 0 14px;text-wrap:balance}
+h1 em{font-style:normal;color:var(--accent)}
+.dek{font-size:clamp(16px,2.2vw,19px);color:var(--muted);margin:0;max-width:44ch}
+.herorow{display:flex;align-items:flex-end;justify-content:space-between;gap:24px;flex-wrap:wrap}
+.enter{display:inline-flex;align-items:center;gap:10px;background:var(--ink);color:var(--surface);text-decoration:none;
+       border-radius:10px;padding:13px 20px;font-weight:500;font-size:15px;white-space:nowrap}
+.enter:hover{filter:brightness(1.15)}
+.enter .sub{font-family:var(--mono);font-size:11px;opacity:.7}
+
+/* the map */
+.mapwrap{margin:8px -8px 0;position:relative}
+.citymap{display:block;width:100%;height:auto}
+.roads line{stroke:var(--hair);stroke-width:26}
+.roadlines line{stroke:var(--ground);stroke-width:2;stroke-dasharray:14 16}
+.ground{fill:var(--surface);stroke:var(--hair);stroke-width:1.5}
+.district.planned .ground{fill:none;stroke-dasharray:6 6}
+.dname{font-family:var(--display);font-weight:700;font-size:15px;fill:var(--ink)}
+.district.planned .dname{fill:var(--muted)}
+.dcount{font-family:var(--mono);font-size:10px;fill:var(--accent);text-anchor:end}
+.district.planned .dcount{fill:var(--muted)}
+.soonlbl{font-family:var(--mono);font-size:11px;fill:var(--muted);text-anchor:middle}
+.tree{fill:var(--good);opacity:.2}
+.water{fill:none;stroke:var(--accent);stroke-width:1.5;opacity:.35}
+.vaultdial{fill:none;stroke:var(--muted);stroke-width:1.5}
+.lane{stroke:var(--muted);stroke-width:2;stroke-dasharray:12 10;opacity:.6}
+
+.bld{cursor:pointer}
+.wall{fill:var(--ground);stroke:var(--ink);stroke-width:1.5;transition:fill .15s}
+.roof{fill:var(--ink)}
+.door{fill:var(--hair)}
+.win{fill:var(--hair);transition:fill .15s}
+.bname{font-family:var(--mono);font-size:8.5px;fill:var(--muted);text-anchor:middle}
+.bld:hover .wall{fill:var(--surface)}
+.bld:hover .win{fill:var(--accent)}
+.bld:hover .bname{fill:var(--ink)}
+.bld:focus-visible .wall{stroke:var(--accent);stroke-width:2.5}
+.bld.done .win{fill:var(--good)}
+.bld.part .win{fill:var(--accent);opacity:.75}
+.bld.done .roof{fill:var(--good)}
+
+.legend{display:flex;flex-wrap:wrap;gap:8px 22px;align-items:center;font-family:var(--mono);font-size:11px;color:var(--muted);
+        padding:14px 2px 0}
+.legend i{display:inline-block;width:9px;height:9px;border-radius:2px;margin-right:6px;vertical-align:-1px}
+.legend .lit{background:var(--good)} .legend .part{background:var(--accent)} .legend .unlit{background:var(--hair)}
+.legend .count{margin-left:auto;color:var(--ink)}
+
+/* the list: phones, and anyone who prefers reading */
+.listing{margin-top:34px}
+.listing > summary{cursor:pointer;font-family:var(--mono);font-size:11px;letter-spacing:.08em;text-transform:uppercase;
+                   color:var(--muted);padding:12px 0;border-top:1px solid var(--hair);list-style:none}
+.listing > summary::marker,.listing > summary::-webkit-details-marker{display:none}
+.listing > summary::before{content:"▸ ";color:var(--accent)}
+.listing[open] > summary::before{content:"▾ "}
+.listing h3{font-family:var(--mono);font-weight:400;font-size:11px;text-transform:uppercase;letter-spacing:.09em;
+            color:var(--muted);margin:22px 0 4px;display:flex;gap:10px;align-items:baseline}
+.listing h3 .state{color:var(--accent)}
+.listing ul{list-style:none;margin:0;padding:0;border-top:1px solid var(--hair)}
+.listing li{border-bottom:1px solid var(--hair)}
+.listing li a{display:flex;align-items:baseline;gap:4px 12px;flex-wrap:wrap;padding:14px 2px;color:var(--ink);text-decoration:none;min-height:52px}
+.listing li a:hover .t{border-bottom:1px solid var(--accent)}
+.listing li .t{font-family:var(--display);font-weight:600;font-size:18px;letter-spacing:-.02em}
+.listing li .d{color:var(--muted);font-size:14px}
+.listing li .state{margin-left:auto;font-family:var(--mono);font-size:11px;text-transform:uppercase;letter-spacing:.06em}
+.listing li .state.done{color:var(--good)} .listing li .state.part{color:var(--accent)}
+.listing li.soon{color:var(--muted);padding:14px 2px;font-size:14px}
+
+.loop{font-size:14px;color:var(--muted);border-top:1px solid var(--hair);margin-top:30px;padding-top:20px;max-width:62ch}
 .loop b{color:var(--ink);font-weight:500}
+
+@media (max-width:760px){
+  .mapwrap,.legend{display:none}      /* the map needs room; phones get the list */
+  .listing{margin-top:18px}
+  .listing > summary{display:none}
+  .hero{padding-block:22px 6px}
+}
 </style>
 </head>
 <body>
+
 <div class="wrap">
-  <h1>Learn by breaking</h1>
-  <p class="dek">Software engineering concepts you can walk into, take apart and put back together. Built for students heading into interviews.</p>
-  <nav class="jump">${CITY.districts.map(d => `<a href="#${d.slug}">${esc(d.name)}</a>`).join('')}</nav>
+  <section class="hero">
+    <div class="herorow">
+      <div>
+        <h1>Learn by <em>breaking</em></h1>
+        <p class="dek">${CITY.all.length} concepts you can walk into, take apart and put back together. Built for students heading into interviews.</p>
+      </div>
+      <a class="enter" id="enter" href="playrooms/${CITY.all[0].slug}/">Start exploring <span class="sub">${esc(CITY.all[0].title)}</span></a>
+    </div>
+  </section>
 
-${open.map(district).join('\n\n')}
+  <div class="mapwrap">${map}</div>
 
-${planned.map(district).join('\n\n')}
+  <div class="legend">
+    <span><i class="lit"></i>finished</span>
+    <span><i class="part"></i>started</span>
+    <span><i class="unlit"></i>not visited</span>
+    <span>click any building to walk in</span>
+    <span class="count" id="explored">0 of ${CITY.all.length} explored</span>
+  </div>
+
+  <details class="listing" id="listing">
+    <summary>Browse every playroom as a list</summary>
+${CITY.districts.map(listSection).join('\n')}
+  </details>
 
   <p class="loop">Every playroom runs the same loop: <b>see it</b> working, <b>break it</b> yourself, <b>fix it</b>, read the <b>same code</b> in C#, Java or TypeScript, then take the <b>interview check</b>.</p>
 </div>
@@ -86,28 +235,41 @@ ${planned.map(district).join('\n\n')}
 <script>
   RuntimeNav.mount({title:'All districts'});
 
-  /* mark what this visitor has already done, and offer to pick it up again */
+  /* light up what this visitor has already done, and point at where to resume */
   (function(){
     const P = RuntimeNav.Progress, L = RuntimeNav.links(null);
-    let resume = null;
+    let done = 0, resume = null;
+
     CITY.all.forEach(room => {
       const p = P.of(room.slug);
       if(!p) return;
-      const li = document.querySelector('li[data-room="' + room.slug + '"] .state');
-      if(li){
-        li.hidden = false;
-        li.className = 'state ' + (p.done ? 'done' : 'part');
-        li.textContent = p.done ? 'finished' : 'step ' + p.step + ' of ' + (p.total || 6);
+      if(p.done) done++;
+      else if(!resume) resume = {room, p};
+
+      const bld = document.querySelector('.bld[data-room="' + room.slug + '"]');
+      if(bld) bld.classList.add(p.done ? 'done' : 'part');
+
+      const state = document.querySelector('li[data-room="' + room.slug + '"] .state');
+      if(state){
+        state.hidden = false;
+        state.className = 'state ' + (p.done ? 'done' : 'part');
+        state.textContent = p.done ? 'finished' : 'step ' + p.step + ' of ' + (p.total || 6);
       }
-      if(!p.done && !resume) resume = {room, p};
     });
+
+    const counter = document.getElementById('explored');
+    if(counter) counter.textContent = done + ' of ' + CITY.all.length + ' explored';
+
     if(resume){
-      const h1 = document.querySelector('h1');
-      h1.insertAdjacentHTML('afterend',
-        '<p class="resume"><a href="' + L.room(resume.room.slug) + '#step-' + resume.p.step + '">' +
-        'Pick up where you left off: ' + resume.room.title +
-        ' <span>step ' + resume.p.step + ' of ' + (resume.p.total || 6) + ' →</span></a></p>');
+      const a = document.getElementById('enter');
+      a.href = L.room(resume.room.slug) + '#step-' + resume.p.step;
+      a.innerHTML = 'Pick up where you left off <span class="sub">' +
+        resume.room.title + ' · step ' + resume.p.step + '</span>';
     }
+
+    /* on a phone the map is hidden, so open the list by default */
+    if(window.matchMedia('(max-width: 760px)').matches)
+      document.getElementById('listing').open = true;
   })();
 </script>
 </body>

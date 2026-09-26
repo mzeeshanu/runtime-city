@@ -4,118 +4,206 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Runtime City</title>
-<meta name="description" content="Runtime City: learn software engineering concepts by seeing them, breaking them and fixing them. Built for students heading into interviews.">
+<meta name="description" content="Runtime City: learn software engineering concepts by seeing them, breaking them and fixing them. 27 interactive playrooms, built for students heading into interviews.">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,600;12..96,800&family=IBM+Plex+Sans:wght@400;500&family=JetBrains+Mono:wght@400&display=swap">
 <link rel="stylesheet" href="assets/playroom.css">
 <style>
-body{padding-block:0 72px}
-.wrap{max-width:760px}
-h1{font-family:var(--display);font-weight:800;font-size:clamp(40px,8vw,66px);line-height:.95;letter-spacing:-.035em;margin:34px 0 12px;text-wrap:balance}
-.dek{font-size:18px;color:var(--muted);margin:0 0 14px;max-width:46ch}
-.jump{display:flex;flex-wrap:wrap;gap:2px 18px;font-size:13.5px;margin:0 0 40px;padding-bottom:14px;border-bottom:1px solid var(--hair)}
-.jump a{color:var(--muted);text-decoration:none;border-bottom:1px solid transparent;padding-block:10px}
-.jump a:hover{color:var(--ink);border-bottom-color:var(--accent)}
-section{margin-bottom:40px;scroll-margin-top:24px}
-h2{font-family:var(--mono);font-weight:400;font-size:11px;text-transform:uppercase;letter-spacing:.09em;color:var(--muted);margin:0 0 4px;display:flex;gap:10px;align-items:baseline}
-h2 .state{color:var(--accent)}
-.blurb{margin:0 0 10px;font-size:14px;color:var(--muted)}
-ul{list-style:none;margin:0;padding:0;border-top:1px solid var(--hair)}
-li{border-bottom:1px solid var(--hair)}
-li a{display:flex;align-items:baseline;gap:4px 12px;flex-wrap:wrap;padding:16px 2px;color:var(--ink);text-decoration:none;min-height:52px}
-li a:hover .t{border-bottom:1px solid var(--accent)}
-li .t{font-family:var(--display);font-weight:600;font-size:20px;letter-spacing:-.02em}
-li .d{color:var(--muted);font-size:14px}
-li .state{margin-left:auto;font-family:var(--mono);font-size:11px;text-transform:uppercase;letter-spacing:.06em}
-li .state.done{color:var(--good)}
-li .state.part{color:var(--accent)}
-li.soon{color:var(--muted);padding:14px 2px;font-size:14px}
-.resume{margin:0 0 16px}
-.resume a{display:inline-flex;align-items:center;gap:8px;font-size:14.5px;color:var(--ink);text-decoration:none;
-          border:1px solid var(--accent);border-radius:10px;padding:10px 14px}
-.resume a span{font-family:var(--mono);font-size:12px;color:var(--accent)}
-.resume a:hover{background:rgba(201,112,29,.1)}
-.loop{font-size:14px;color:var(--muted);border-top:1px solid var(--hair);padding-top:22px;max-width:60ch}
+body{padding-block:0 64px}
+.wrap{max-width:1080px}
+
+.hero{padding-block:34px 18px}
+h1{font-family:var(--display);font-weight:800;font-size:clamp(42px,8.5vw,80px);line-height:.92;letter-spacing:-.04em;margin:0 0 14px;text-wrap:balance}
+h1 em{font-style:normal;color:var(--accent)}
+.dek{font-size:clamp(16px,2.2vw,19px);color:var(--muted);margin:0;max-width:44ch}
+.herorow{display:flex;align-items:flex-end;justify-content:space-between;gap:24px;flex-wrap:wrap}
+.enter{display:inline-flex;align-items:center;gap:10px;background:var(--ink);color:var(--surface);text-decoration:none;
+       border-radius:10px;padding:13px 20px;font-weight:500;font-size:15px;white-space:nowrap}
+.enter:hover{filter:brightness(1.15)}
+.enter .sub{font-family:var(--mono);font-size:11px;opacity:.7}
+
+/* the map */
+.mapwrap{margin:8px -8px 0;position:relative}
+.citymap{display:block;width:100%;height:auto}
+.roads line{stroke:var(--hair);stroke-width:26}
+.roadlines line{stroke:var(--ground);stroke-width:2;stroke-dasharray:14 16}
+.ground{fill:var(--surface);stroke:var(--hair);stroke-width:1.5}
+.district.planned .ground{fill:none;stroke-dasharray:6 6}
+.dname{font-family:var(--display);font-weight:700;font-size:15px;fill:var(--ink)}
+.district.planned .dname{fill:var(--muted)}
+.dcount{font-family:var(--mono);font-size:10px;fill:var(--accent);text-anchor:end}
+.district.planned .dcount{fill:var(--muted)}
+.soonlbl{font-family:var(--mono);font-size:11px;fill:var(--muted);text-anchor:middle}
+.tree{fill:var(--good);opacity:.2}
+.water{fill:none;stroke:var(--accent);stroke-width:1.5;opacity:.35}
+.vaultdial{fill:none;stroke:var(--muted);stroke-width:1.5}
+.lane{stroke:var(--muted);stroke-width:2;stroke-dasharray:12 10;opacity:.6}
+
+.bld{cursor:pointer}
+.wall{fill:var(--ground);stroke:var(--ink);stroke-width:1.5;transition:fill .15s}
+.roof{fill:var(--ink)}
+.door{fill:var(--hair)}
+.win{fill:var(--hair);transition:fill .15s}
+.bname{font-family:var(--mono);font-size:8.5px;fill:var(--muted);text-anchor:middle}
+.bld:hover .wall{fill:var(--surface)}
+.bld:hover .win{fill:var(--accent)}
+.bld:hover .bname{fill:var(--ink)}
+.bld:focus-visible .wall{stroke:var(--accent);stroke-width:2.5}
+.bld.done .win{fill:var(--good)}
+.bld.part .win{fill:var(--accent);opacity:.75}
+.bld.done .roof{fill:var(--good)}
+
+.legend{display:flex;flex-wrap:wrap;gap:8px 22px;align-items:center;font-family:var(--mono);font-size:11px;color:var(--muted);
+        padding:14px 2px 0}
+.legend i{display:inline-block;width:9px;height:9px;border-radius:2px;margin-right:6px;vertical-align:-1px}
+.legend .lit{background:var(--good)} .legend .part{background:var(--accent)} .legend .unlit{background:var(--hair)}
+.legend .count{margin-left:auto;color:var(--ink)}
+
+/* the list: phones, and anyone who prefers reading */
+.listing{margin-top:34px}
+.listing > summary{cursor:pointer;font-family:var(--mono);font-size:11px;letter-spacing:.08em;text-transform:uppercase;
+                   color:var(--muted);padding:12px 0;border-top:1px solid var(--hair);list-style:none}
+.listing > summary::marker,.listing > summary::-webkit-details-marker{display:none}
+.listing > summary::before{content:"▸ ";color:var(--accent)}
+.listing[open] > summary::before{content:"▾ "}
+.listing h3{font-family:var(--mono);font-weight:400;font-size:11px;text-transform:uppercase;letter-spacing:.09em;
+            color:var(--muted);margin:22px 0 4px;display:flex;gap:10px;align-items:baseline}
+.listing h3 .state{color:var(--accent)}
+.listing ul{list-style:none;margin:0;padding:0;border-top:1px solid var(--hair)}
+.listing li{border-bottom:1px solid var(--hair)}
+.listing li a{display:flex;align-items:baseline;gap:4px 12px;flex-wrap:wrap;padding:14px 2px;color:var(--ink);text-decoration:none;min-height:52px}
+.listing li a:hover .t{border-bottom:1px solid var(--accent)}
+.listing li .t{font-family:var(--display);font-weight:600;font-size:18px;letter-spacing:-.02em}
+.listing li .d{color:var(--muted);font-size:14px}
+.listing li .state{margin-left:auto;font-family:var(--mono);font-size:11px;text-transform:uppercase;letter-spacing:.06em}
+.listing li .state.done{color:var(--good)} .listing li .state.part{color:var(--accent)}
+.listing li.soon{color:var(--muted);padding:14px 2px;font-size:14px}
+
+.loop{font-size:14px;color:var(--muted);border-top:1px solid var(--hair);margin-top:30px;padding-top:20px;max-width:62ch}
 .loop b{color:var(--ink);font-weight:500}
+
+@media (max-width:760px){
+  .mapwrap,.legend{display:none}      /* the map needs room; phones get the list */
+  .listing{margin-top:18px}
+  .listing > summary{display:none}
+  .hero{padding-block:22px 6px}
+}
 </style>
 </head>
 <body>
+
 <div class="wrap">
-  <h1>Learn by breaking</h1>
-  <p class="dek">Software engineering concepts you can walk into, take apart and put back together. Built for students heading into interviews.</p>
-  <nav class="jump"><a href="#pattern-park">Pattern Park</a><a href="#memory-harbour">Memory Harbour</a><a href="#solid-quarter">SOLID Quarter</a><a href="#network-highway">Network Highway</a><a href="#database-vault">Database Vault</a><a href="#concurrency-crossing">Concurrency Crossing</a></nav>
-
-  <section id="pattern-park">
-    <h2>Pattern Park <span class="state">5 playrooms</span></h2>
-    <p class="blurb">The design patterns interviewers ask about.</p>
-    <ul>
-    <li data-room="dependency-injection"><a href="playrooms/dependency-injection/"><span class="t">Dependency Injection</span> <span class="d">weld an engine in, then cut a socket</span><span class="state" hidden></span></a></li>
-    <li data-room="factory-method"><a href="playrooms/factory-method/"><span class="t">Factory Method</span> <span class="d">grow a switch until it breaks, then cut a hole</span><span class="state" hidden></span></a></li>
-    <li data-room="strategy"><a href="playrooms/strategy/"><span class="t">Strategy</span> <span class="d">drown a method in flags, then hand the algorithm in</span><span class="state" hidden></span></a></li>
-    <li data-room="observer"><a href="playrooms/observer/"><span class="t">Observer</span> <span class="d">wire every listener by name, then let them subscribe</span><span class="state" hidden></span></a></li>
-    <li data-room="singleton"><a href="playrooms/singleton/"><span class="t">Singleton</span> <span class="d">one instance, a thread race, and poisoned tests</span><span class="state" hidden></span></a></li>
-    </ul>
+  <section class="hero">
+    <div class="herorow">
+      <div>
+        <h1>Learn by <em>breaking</em></h1>
+        <p class="dek">27 concepts you can walk into, take apart and put back together. Built for students heading into interviews.</p>
+      </div>
+      <a class="enter" id="enter" href="playrooms/dependency-injection/">Start exploring <span class="sub">Dependency Injection</span></a>
+    </div>
   </section>
 
-  <section id="memory-harbour">
-    <h2>Memory Harbour <span class="state">5 playrooms</span></h2>
-    <p class="blurb">Where your objects actually live.</p>
-    <ul>
-    <li data-room="stack-and-heap"><a href="playrooms/stack-and-heap/"><span class="t">Stack and Heap</span> <span class="d">two names, one object, and what the collector takes</span><span class="state" hidden></span></a></li>
-    <li data-room="garbage-collection"><a href="playrooms/garbage-collection/"><span class="t">Garbage Collection</span> <span class="d">drop a reference, then find out nothing was freed</span><span class="state" hidden></span></a></li>
-    <li data-room="boxing"><a href="playrooms/boxing/"><span class="t">Boxing</span> <span class="d">a number becomes an object, a million times</span><span class="state" hidden></span></a></li>
-    <li data-room="pointers-and-null"><a href="playrooms/pointers-and-null/"><span class="t">Pointers and Null</span> <span class="d">point at nothing, crash, then fix it in the type</span><span class="state" hidden></span></a></li>
-    <li data-room="caching"><a href="playrooms/caching/"><span class="t">Caching</span> <span class="d">fast answers, stale answers, and the stampede</span><span class="state" hidden></span></a></li>
-    </ul>
-  </section>
+  <div class="mapwrap">
+<svg class="citymap" viewBox="0 0 1000 492" role="img" aria-label="A map of Runtime City: six districts, each building is a playroom">
+  <defs>
+    <pattern id="mgrid" width="28" height="28" patternUnits="userSpaceOnUse"><path d="M28 0H0V28" fill="none" stroke="var(--grid)" stroke-width="1"/></pattern>
+  </defs>
+  <rect width="1000" height="492" fill="url(#mgrid)" opacity=".5"/>
 
-  <section id="solid-quarter">
-    <h2>SOLID Quarter <span class="state">5 playrooms</span></h2>
-    <p class="blurb">Five principles, five buildings that crack when you break them.</p>
-    <ul>
-    <li data-room="single-responsibility"><a href="playrooms/single-responsibility/"><span class="t">Single Responsibility</span> <span class="d">four departments, one file, and the crack down the middle</span><span class="state" hidden></span></a></li>
-    <li data-room="open-closed"><a href="playrooms/open-closed/"><span class="t">Open/Closed</span> <span class="d">stop editing the engine to add a promotion</span><span class="state" hidden></span></a></li>
-    <li data-room="liskov-substitution"><a href="playrooms/liskov-substitution/"><span class="t">Liskov Substitution</span> <span class="d">a square that makes a correct test fail</span><span class="state" hidden></span></a></li>
-    <li data-room="interface-segregation"><a href="playrooms/interface-segregation/"><span class="t">Interface Segregation</span> <span class="d">a printer forced to promise it can fax</span><span class="state" hidden></span></a></li>
-    <li data-room="dependency-inversion"><a href="playrooms/dependency-inversion/"><span class="t">Dependency Inversion</span> <span class="d">flip the arrow between your rules and your database</span><span class="state" hidden></span></a></li>
-    </ul>
-  </section>
+  <g class="roads">
+    <line x1="0" y1="246" x2="1000" y2="246"/>
+    <line x1="340" y1="0" x2="340" y2="492"/>
+    <line x1="660" y1="0" x2="660" y2="492"/>
+  </g>
+  <g class="roadlines">
+    <line x1="0" y1="246" x2="1000" y2="246"/>
+    <line x1="340" y1="0" x2="340" y2="492"/>
+    <line x1="660" y1="0" x2="660" y2="492"/>
+  </g>
 
-  <section id="network-highway">
-    <h2>Network Highway <span class="state">4 playrooms</span></h2>
-    <p class="blurb">What happens when you type a URL.</p>
-    <ul>
-    <li data-room="dns"><a href="playrooms/dns/"><span class="t">DNS</span> <span class="d">a name becomes an address, and a TTL decides your outage</span><span class="state" hidden></span></a></li>
-    <li data-room="tcp"><a href="playrooms/tcp/"><span class="t">TCP</span> <span class="d">pay for a handshake, then lose one packet</span><span class="state" hidden></span></a></li>
-    <li data-room="http"><a href="playrooms/http/"><span class="t">HTTP</span> <span class="d">verbs that promise things and codes that mean things</span><span class="state" hidden></span></a></li>
-    <li data-room="tls"><a href="playrooms/tls/"><span class="t">TLS</span> <span class="d">your password on the wire, then the padlock</span><span class="state" hidden></span></a></li>
-    </ul>
-  </section>
+  <g class="district open" data-district="pattern-park"><rect class="ground" x="40" y="44" width="280" height="180" rx="10"/><circle class="tree" cx="74" cy="190" r="13"/><circle class="tree" cx="290" cy="184" r="10"/><text class="dname" x="54" y="68">Pattern Park</text><text class="dcount" x="306" y="68">5 playrooms</text><a class="bld" href="playrooms/dependency-injection/" data-room="dependency-injection" aria-label="Dependency Injection — weld an engine in, then cut a socket"><title>Dependency Injection · weld an engine in, then cut a socket</title><rect class="wall" x="57.0" y="128" width="41.2" height="74" rx="3"/><rect class="roof" x="54.0" y="123" width="47.2" height="6" rx="2"/><rect class="win" x="66.0" y="142" width="9" height="9" rx="1.5"/><rect class="win" x="81.2" y="142" width="9" height="9" rx="1.5"/><rect class="win" x="66.0" y="158" width="9" height="9" rx="1.5"/><rect class="win" x="81.2" y="158" width="9" height="9" rx="1.5"/><rect class="win" x="66.0" y="174" width="9" height="9" rx="1.5"/><rect class="win" x="81.2" y="174" width="9" height="9" rx="1.5"/><rect class="door" x="71.6" y="188" width="12" height="14" rx="1"/><text class="bname" x="77.6" y="218">Dependency</text></a><a class="bld" href="playrooms/factory-method/" data-room="factory-method" aria-label="Factory Method — grow a switch until it breaks, then cut a hole"><title>Factory Method · grow a switch until it breaks, then cut a hole</title><rect class="wall" x="106.2" y="106" width="41.2" height="96" rx="3"/><rect class="roof" x="103.2" y="101" width="47.2" height="6" rx="2"/><rect class="win" x="115.2" y="120" width="9" height="9" rx="1.5"/><rect class="win" x="130.4" y="120" width="9" height="9" rx="1.5"/><rect class="win" x="115.2" y="136" width="9" height="9" rx="1.5"/><rect class="win" x="130.4" y="136" width="9" height="9" rx="1.5"/><rect class="win" x="115.2" y="152" width="9" height="9" rx="1.5"/><rect class="win" x="130.4" y="152" width="9" height="9" rx="1.5"/><rect class="win" x="115.2" y="168" width="9" height="9" rx="1.5"/><rect class="win" x="130.4" y="168" width="9" height="9" rx="1.5"/><rect class="door" x="120.8" y="188" width="12" height="14" rx="1"/><text class="bname" x="126.8" y="218">Factory</text></a><a class="bld" href="playrooms/strategy/" data-room="strategy" aria-label="Strategy — drown a method in flags, then hand the algorithm in"><title>Strategy · drown a method in flags, then hand the algorithm in</title><rect class="wall" x="155.4" y="140" width="41.2" height="62" rx="3"/><rect class="roof" x="152.4" y="135" width="47.2" height="6" rx="2"/><rect class="win" x="164.4" y="154" width="9" height="9" rx="1.5"/><rect class="win" x="179.6" y="154" width="9" height="9" rx="1.5"/><rect class="win" x="164.4" y="170" width="9" height="9" rx="1.5"/><rect class="win" x="179.6" y="170" width="9" height="9" rx="1.5"/><rect class="door" x="170.0" y="188" width="12" height="14" rx="1"/><text class="bname" x="176.0" y="218">Strategy</text></a><a class="bld" href="playrooms/observer/" data-room="observer" aria-label="Observer — wire every listener by name, then let them subscribe"><title>Observer · wire every listener by name, then let them subscribe</title><rect class="wall" x="204.6" y="114" width="41.2" height="88" rx="3"/><rect class="roof" x="201.6" y="109" width="47.2" height="6" rx="2"/><rect class="win" x="213.6" y="128" width="9" height="9" rx="1.5"/><rect class="win" x="228.8" y="128" width="9" height="9" rx="1.5"/><rect class="win" x="213.6" y="144" width="9" height="9" rx="1.5"/><rect class="win" x="228.8" y="144" width="9" height="9" rx="1.5"/><rect class="win" x="213.6" y="160" width="9" height="9" rx="1.5"/><rect class="win" x="228.8" y="160" width="9" height="9" rx="1.5"/><rect class="win" x="213.6" y="176" width="9" height="9" rx="1.5"/><rect class="win" x="228.8" y="176" width="9" height="9" rx="1.5"/><rect class="door" x="219.2" y="188" width="12" height="14" rx="1"/><text class="bname" x="225.2" y="218">Observer</text></a><a class="bld" href="playrooms/singleton/" data-room="singleton" aria-label="Singleton — one instance, a thread race, and poisoned tests"><title>Singleton · one instance, a thread race, and poisoned tests</title><rect class="wall" x="253.8" y="132" width="41.2" height="70" rx="3"/><rect class="roof" x="250.8" y="127" width="47.2" height="6" rx="2"/><rect class="win" x="262.8" y="146" width="9" height="9" rx="1.5"/><rect class="win" x="278.0" y="146" width="9" height="9" rx="1.5"/><rect class="win" x="262.8" y="162" width="9" height="9" rx="1.5"/><rect class="win" x="278.0" y="162" width="9" height="9" rx="1.5"/><rect class="win" x="262.8" y="178" width="9" height="9" rx="1.5"/><rect class="win" x="278.0" y="178" width="9" height="9" rx="1.5"/><rect class="door" x="268.4" y="188" width="12" height="14" rx="1"/><text class="bname" x="274.4" y="218">Singleton</text></a></g>
+  <g class="district open" data-district="memory-harbour"><rect class="ground" x="680" y="44" width="280" height="180" rx="10"/><path class="water" d="M690 210 q 18 -8 36 0 t 36 0 t 36 0 t 36 0 t 36 0 t 36 0 t 36 0"/><path class="water" d="M690 218 q 18 -8 36 0 t 36 0 t 36 0 t 36 0 t 36 0 t 36 0 t 36 0"/><text class="dname" x="694" y="68">Memory Harbour</text><text class="dcount" x="946" y="68">5 playrooms</text><a class="bld" href="playrooms/stack-and-heap/" data-room="stack-and-heap" aria-label="Stack and Heap — two names, one object, and what the collector takes"><title>Stack and Heap · two names, one object, and what the collector takes</title><rect class="wall" x="697.0" y="128" width="41.2" height="74" rx="3"/><rect class="roof" x="694.0" y="123" width="47.2" height="6" rx="2"/><rect class="win" x="706.0" y="142" width="9" height="9" rx="1.5"/><rect class="win" x="721.2" y="142" width="9" height="9" rx="1.5"/><rect class="win" x="706.0" y="158" width="9" height="9" rx="1.5"/><rect class="win" x="721.2" y="158" width="9" height="9" rx="1.5"/><rect class="win" x="706.0" y="174" width="9" height="9" rx="1.5"/><rect class="win" x="721.2" y="174" width="9" height="9" rx="1.5"/><rect class="door" x="711.6" y="188" width="12" height="14" rx="1"/><text class="bname" x="717.6" y="218">Stack</text></a><a class="bld" href="playrooms/garbage-collection/" data-room="garbage-collection" aria-label="Garbage Collection — drop a reference, then find out nothing was freed"><title>Garbage Collection · drop a reference, then find out nothing was freed</title><rect class="wall" x="746.2" y="106" width="41.2" height="96" rx="3"/><rect class="roof" x="743.2" y="101" width="47.2" height="6" rx="2"/><rect class="win" x="755.2" y="120" width="9" height="9" rx="1.5"/><rect class="win" x="770.4" y="120" width="9" height="9" rx="1.5"/><rect class="win" x="755.2" y="136" width="9" height="9" rx="1.5"/><rect class="win" x="770.4" y="136" width="9" height="9" rx="1.5"/><rect class="win" x="755.2" y="152" width="9" height="9" rx="1.5"/><rect class="win" x="770.4" y="152" width="9" height="9" rx="1.5"/><rect class="win" x="755.2" y="168" width="9" height="9" rx="1.5"/><rect class="win" x="770.4" y="168" width="9" height="9" rx="1.5"/><rect class="door" x="760.8" y="188" width="12" height="14" rx="1"/><text class="bname" x="766.8" y="218">Garbage</text></a><a class="bld" href="playrooms/boxing/" data-room="boxing" aria-label="Boxing — a number becomes an object, a million times"><title>Boxing · a number becomes an object, a million times</title><rect class="wall" x="795.4" y="140" width="41.2" height="62" rx="3"/><rect class="roof" x="792.4" y="135" width="47.2" height="6" rx="2"/><rect class="win" x="804.4" y="154" width="9" height="9" rx="1.5"/><rect class="win" x="819.6" y="154" width="9" height="9" rx="1.5"/><rect class="win" x="804.4" y="170" width="9" height="9" rx="1.5"/><rect class="win" x="819.6" y="170" width="9" height="9" rx="1.5"/><rect class="door" x="810.0" y="188" width="12" height="14" rx="1"/><text class="bname" x="816.0" y="218">Boxing</text></a><a class="bld" href="playrooms/pointers-and-null/" data-room="pointers-and-null" aria-label="Pointers and Null — point at nothing, crash, then fix it in the type"><title>Pointers and Null · point at nothing, crash, then fix it in the type</title><rect class="wall" x="844.6" y="114" width="41.2" height="88" rx="3"/><rect class="roof" x="841.6" y="109" width="47.2" height="6" rx="2"/><rect class="win" x="853.6" y="128" width="9" height="9" rx="1.5"/><rect class="win" x="868.8" y="128" width="9" height="9" rx="1.5"/><rect class="win" x="853.6" y="144" width="9" height="9" rx="1.5"/><rect class="win" x="868.8" y="144" width="9" height="9" rx="1.5"/><rect class="win" x="853.6" y="160" width="9" height="9" rx="1.5"/><rect class="win" x="868.8" y="160" width="9" height="9" rx="1.5"/><rect class="win" x="853.6" y="176" width="9" height="9" rx="1.5"/><rect class="win" x="868.8" y="176" width="9" height="9" rx="1.5"/><rect class="door" x="859.2" y="188" width="12" height="14" rx="1"/><text class="bname" x="865.2" y="218">Pointers</text></a><a class="bld" href="playrooms/caching/" data-room="caching" aria-label="Caching — fast answers, stale answers, and the stampede"><title>Caching · fast answers, stale answers, and the stampede</title><rect class="wall" x="893.8" y="132" width="41.2" height="70" rx="3"/><rect class="roof" x="890.8" y="127" width="47.2" height="6" rx="2"/><rect class="win" x="902.8" y="146" width="9" height="9" rx="1.5"/><rect class="win" x="918.0" y="146" width="9" height="9" rx="1.5"/><rect class="win" x="902.8" y="162" width="9" height="9" rx="1.5"/><rect class="win" x="918.0" y="162" width="9" height="9" rx="1.5"/><rect class="win" x="902.8" y="178" width="9" height="9" rx="1.5"/><rect class="win" x="918.0" y="178" width="9" height="9" rx="1.5"/><rect class="door" x="908.4" y="188" width="12" height="14" rx="1"/><text class="bname" x="914.4" y="218">Caching</text></a></g>
+  <g class="district open" data-district="solid-quarter"><rect class="ground" x="360" y="44" width="280" height="180" rx="10"/><text class="dname" x="374" y="68">SOLID Quarter</text><text class="dcount" x="626" y="68">5 playrooms</text><a class="bld" href="playrooms/single-responsibility/" data-room="single-responsibility" aria-label="Single Responsibility — four departments, one file, and the crack down the middle"><title>Single Responsibility · four departments, one file, and the crack down the middle</title><rect class="wall" x="377.0" y="128" width="41.2" height="74" rx="3"/><rect class="roof" x="374.0" y="123" width="47.2" height="6" rx="2"/><rect class="win" x="386.0" y="142" width="9" height="9" rx="1.5"/><rect class="win" x="401.2" y="142" width="9" height="9" rx="1.5"/><rect class="win" x="386.0" y="158" width="9" height="9" rx="1.5"/><rect class="win" x="401.2" y="158" width="9" height="9" rx="1.5"/><rect class="win" x="386.0" y="174" width="9" height="9" rx="1.5"/><rect class="win" x="401.2" y="174" width="9" height="9" rx="1.5"/><rect class="door" x="391.6" y="188" width="12" height="14" rx="1"/><text class="bname" x="397.6" y="218">Single</text></a><a class="bld" href="playrooms/open-closed/" data-room="open-closed" aria-label="Open/Closed — stop editing the engine to add a promotion"><title>Open/Closed · stop editing the engine to add a promotion</title><rect class="wall" x="426.2" y="106" width="41.2" height="96" rx="3"/><rect class="roof" x="423.2" y="101" width="47.2" height="6" rx="2"/><rect class="win" x="435.2" y="120" width="9" height="9" rx="1.5"/><rect class="win" x="450.4" y="120" width="9" height="9" rx="1.5"/><rect class="win" x="435.2" y="136" width="9" height="9" rx="1.5"/><rect class="win" x="450.4" y="136" width="9" height="9" rx="1.5"/><rect class="win" x="435.2" y="152" width="9" height="9" rx="1.5"/><rect class="win" x="450.4" y="152" width="9" height="9" rx="1.5"/><rect class="win" x="435.2" y="168" width="9" height="9" rx="1.5"/><rect class="win" x="450.4" y="168" width="9" height="9" rx="1.5"/><rect class="door" x="440.8" y="188" width="12" height="14" rx="1"/><text class="bname" x="446.8" y="218">Open</text></a><a class="bld" href="playrooms/liskov-substitution/" data-room="liskov-substitution" aria-label="Liskov Substitution — a square that makes a correct test fail"><title>Liskov Substitution · a square that makes a correct test fail</title><rect class="wall" x="475.4" y="140" width="41.2" height="62" rx="3"/><rect class="roof" x="472.4" y="135" width="47.2" height="6" rx="2"/><rect class="win" x="484.4" y="154" width="9" height="9" rx="1.5"/><rect class="win" x="499.6" y="154" width="9" height="9" rx="1.5"/><rect class="win" x="484.4" y="170" width="9" height="9" rx="1.5"/><rect class="win" x="499.6" y="170" width="9" height="9" rx="1.5"/><rect class="door" x="490.0" y="188" width="12" height="14" rx="1"/><text class="bname" x="496.0" y="218">Liskov</text></a><a class="bld" href="playrooms/interface-segregation/" data-room="interface-segregation" aria-label="Interface Segregation — a printer forced to promise it can fax"><title>Interface Segregation · a printer forced to promise it can fax</title><rect class="wall" x="524.6" y="114" width="41.2" height="88" rx="3"/><rect class="roof" x="521.6" y="109" width="47.2" height="6" rx="2"/><rect class="win" x="533.6" y="128" width="9" height="9" rx="1.5"/><rect class="win" x="548.8" y="128" width="9" height="9" rx="1.5"/><rect class="win" x="533.6" y="144" width="9" height="9" rx="1.5"/><rect class="win" x="548.8" y="144" width="9" height="9" rx="1.5"/><rect class="win" x="533.6" y="160" width="9" height="9" rx="1.5"/><rect class="win" x="548.8" y="160" width="9" height="9" rx="1.5"/><rect class="win" x="533.6" y="176" width="9" height="9" rx="1.5"/><rect class="win" x="548.8" y="176" width="9" height="9" rx="1.5"/><rect class="door" x="539.2" y="188" width="12" height="14" rx="1"/><text class="bname" x="545.2" y="218">Interface</text></a><a class="bld" href="playrooms/dependency-inversion/" data-room="dependency-inversion" aria-label="Dependency Inversion — flip the arrow between your rules and your database"><title>Dependency Inversion · flip the arrow between your rules and your database</title><rect class="wall" x="573.8" y="132" width="41.2" height="70" rx="3"/><rect class="roof" x="570.8" y="127" width="47.2" height="6" rx="2"/><rect class="win" x="582.8" y="146" width="9" height="9" rx="1.5"/><rect class="win" x="598.0" y="146" width="9" height="9" rx="1.5"/><rect class="win" x="582.8" y="162" width="9" height="9" rx="1.5"/><rect class="win" x="598.0" y="162" width="9" height="9" rx="1.5"/><rect class="win" x="582.8" y="178" width="9" height="9" rx="1.5"/><rect class="win" x="598.0" y="178" width="9" height="9" rx="1.5"/><rect class="door" x="588.4" y="188" width="12" height="14" rx="1"/><text class="bname" x="594.4" y="218">Dependency</text></a></g>
+  <g class="district open" data-district="network-highway"><rect class="ground" x="680" y="268" width="280" height="180" rx="10"/><line class="lane" x1="692" y1="436" x2="948" y2="436"/><text class="dname" x="694" y="292">Network Highway</text><text class="dcount" x="946" y="292">4 playrooms</text><a class="bld" href="playrooms/dns/" data-room="dns" aria-label="DNS — a name becomes an address, and a TTL decides your outage"><title>DNS · a name becomes an address, and a TTL decides your outage</title><rect class="wall" x="700.8" y="352" width="46" height="74" rx="3"/><rect class="roof" x="697.8" y="347" width="52" height="6" rx="2"/><rect class="win" x="709.8" y="366" width="9" height="9" rx="1.5"/><rect class="win" x="729.8" y="366" width="9" height="9" rx="1.5"/><rect class="win" x="709.8" y="382" width="9" height="9" rx="1.5"/><rect class="win" x="729.8" y="382" width="9" height="9" rx="1.5"/><rect class="win" x="709.8" y="398" width="9" height="9" rx="1.5"/><rect class="win" x="729.8" y="398" width="9" height="9" rx="1.5"/><rect class="door" x="717.8" y="412" width="12" height="14" rx="1"/><text class="bname" x="723.8" y="442">DNS</text></a><a class="bld" href="playrooms/tcp/" data-room="tcp" aria-label="TCP — pay for a handshake, then lose one packet"><title>TCP · pay for a handshake, then lose one packet</title><rect class="wall" x="762.3" y="330" width="46" height="96" rx="3"/><rect class="roof" x="759.3" y="325" width="52" height="6" rx="2"/><rect class="win" x="771.3" y="344" width="9" height="9" rx="1.5"/><rect class="win" x="791.3" y="344" width="9" height="9" rx="1.5"/><rect class="win" x="771.3" y="360" width="9" height="9" rx="1.5"/><rect class="win" x="791.3" y="360" width="9" height="9" rx="1.5"/><rect class="win" x="771.3" y="376" width="9" height="9" rx="1.5"/><rect class="win" x="791.3" y="376" width="9" height="9" rx="1.5"/><rect class="win" x="771.3" y="392" width="9" height="9" rx="1.5"/><rect class="win" x="791.3" y="392" width="9" height="9" rx="1.5"/><rect class="door" x="779.3" y="412" width="12" height="14" rx="1"/><text class="bname" x="785.3" y="442">TCP</text></a><a class="bld" href="playrooms/http/" data-room="http" aria-label="HTTP — verbs that promise things and codes that mean things"><title>HTTP · verbs that promise things and codes that mean things</title><rect class="wall" x="823.8" y="364" width="46" height="62" rx="3"/><rect class="roof" x="820.8" y="359" width="52" height="6" rx="2"/><rect class="win" x="832.8" y="378" width="9" height="9" rx="1.5"/><rect class="win" x="852.8" y="378" width="9" height="9" rx="1.5"/><rect class="win" x="832.8" y="394" width="9" height="9" rx="1.5"/><rect class="win" x="852.8" y="394" width="9" height="9" rx="1.5"/><rect class="door" x="840.8" y="412" width="12" height="14" rx="1"/><text class="bname" x="846.8" y="442">HTTP</text></a><a class="bld" href="playrooms/tls/" data-room="tls" aria-label="TLS — your password on the wire, then the padlock"><title>TLS · your password on the wire, then the padlock</title><rect class="wall" x="885.3" y="338" width="46" height="88" rx="3"/><rect class="roof" x="882.3" y="333" width="52" height="6" rx="2"/><rect class="win" x="894.3" y="352" width="9" height="9" rx="1.5"/><rect class="win" x="914.3" y="352" width="9" height="9" rx="1.5"/><rect class="win" x="894.3" y="368" width="9" height="9" rx="1.5"/><rect class="win" x="914.3" y="368" width="9" height="9" rx="1.5"/><rect class="win" x="894.3" y="384" width="9" height="9" rx="1.5"/><rect class="win" x="914.3" y="384" width="9" height="9" rx="1.5"/><rect class="win" x="894.3" y="400" width="9" height="9" rx="1.5"/><rect class="win" x="914.3" y="400" width="9" height="9" rx="1.5"/><rect class="door" x="902.3" y="412" width="12" height="14" rx="1"/><text class="bname" x="908.3" y="442">TLS</text></a></g>
+  <g class="district open" data-district="database-vault"><rect class="ground" x="360" y="268" width="280" height="180" rx="10"/><circle class="vaultdial" cx="610" cy="302" r="12"/><line class="vaultdial" x1="610" y1="302" x2="618" y2="296"/><text class="dname" x="374" y="292">Database Vault</text><text class="dcount" x="626" y="292">4 playrooms</text><a class="bld" href="playrooms/indexes/" data-room="indexes" aria-label="Indexes — read a million rows, then read four"><title>Indexes · read a million rows, then read four</title><rect class="wall" x="380.8" y="352" width="46" height="74" rx="3"/><rect class="roof" x="377.8" y="347" width="52" height="6" rx="2"/><rect class="win" x="389.8" y="366" width="9" height="9" rx="1.5"/><rect class="win" x="409.8" y="366" width="9" height="9" rx="1.5"/><rect class="win" x="389.8" y="382" width="9" height="9" rx="1.5"/><rect class="win" x="409.8" y="382" width="9" height="9" rx="1.5"/><rect class="win" x="389.8" y="398" width="9" height="9" rx="1.5"/><rect class="win" x="409.8" y="398" width="9" height="9" rx="1.5"/><rect class="door" x="397.8" y="412" width="12" height="14" rx="1"/><text class="bname" x="403.8" y="442">Indexes</text></a><a class="bld" href="playrooms/joins/" data-room="joins" aria-label="Joins — which rows survive, and the accidental 101 queries"><title>Joins · which rows survive, and the accidental 101 queries</title><rect class="wall" x="442.3" y="330" width="46" height="96" rx="3"/><rect class="roof" x="439.3" y="325" width="52" height="6" rx="2"/><rect class="win" x="451.3" y="344" width="9" height="9" rx="1.5"/><rect class="win" x="471.3" y="344" width="9" height="9" rx="1.5"/><rect class="win" x="451.3" y="360" width="9" height="9" rx="1.5"/><rect class="win" x="471.3" y="360" width="9" height="9" rx="1.5"/><rect class="win" x="451.3" y="376" width="9" height="9" rx="1.5"/><rect class="win" x="471.3" y="376" width="9" height="9" rx="1.5"/><rect class="win" x="451.3" y="392" width="9" height="9" rx="1.5"/><rect class="win" x="471.3" y="392" width="9" height="9" rx="1.5"/><rect class="door" x="459.3" y="412" width="12" height="14" rx="1"/><text class="bname" x="465.3" y="442">Joins</text></a><a class="bld" href="playrooms/transactions/" data-room="transactions" aria-label="Transactions — crash halfway and lose £100, then do not"><title>Transactions · crash halfway and lose £100, then do not</title><rect class="wall" x="503.8" y="364" width="46" height="62" rx="3"/><rect class="roof" x="500.8" y="359" width="52" height="6" rx="2"/><rect class="win" x="512.8" y="378" width="9" height="9" rx="1.5"/><rect class="win" x="532.8" y="378" width="9" height="9" rx="1.5"/><rect class="win" x="512.8" y="394" width="9" height="9" rx="1.5"/><rect class="win" x="532.8" y="394" width="9" height="9" rx="1.5"/><rect class="door" x="520.8" y="412" width="12" height="14" rx="1"/><text class="bname" x="526.8" y="442">Transactions</text></a><a class="bld" href="playrooms/isolation-levels/" data-room="isolation-levels" aria-label="Isolation Levels — two sessions, four anomalies, one lost sale"><title>Isolation Levels · two sessions, four anomalies, one lost sale</title><rect class="wall" x="565.3" y="338" width="46" height="88" rx="3"/><rect class="roof" x="562.3" y="333" width="52" height="6" rx="2"/><rect class="win" x="574.3" y="352" width="9" height="9" rx="1.5"/><rect class="win" x="594.3" y="352" width="9" height="9" rx="1.5"/><rect class="win" x="574.3" y="368" width="9" height="9" rx="1.5"/><rect class="win" x="594.3" y="368" width="9" height="9" rx="1.5"/><rect class="win" x="574.3" y="384" width="9" height="9" rx="1.5"/><rect class="win" x="594.3" y="384" width="9" height="9" rx="1.5"/><rect class="win" x="574.3" y="400" width="9" height="9" rx="1.5"/><rect class="win" x="594.3" y="400" width="9" height="9" rx="1.5"/><rect class="door" x="582.3" y="412" width="12" height="14" rx="1"/><text class="bname" x="588.3" y="442">Isolation</text></a></g>
+  <g class="district open" data-district="concurrency-crossing"><rect class="ground" x="40" y="268" width="280" height="180" rx="10"/><text class="dname" x="54" y="292">Concurrency Crossing</text><text class="dcount" x="306" y="292">4 playrooms</text><a class="bld" href="playrooms/threads/" data-room="threads" aria-label="Threads — two threads, one counter, a different answer every run"><title>Threads · two threads, one counter, a different answer every run</title><rect class="wall" x="60.8" y="352" width="46" height="74" rx="3"/><rect class="roof" x="57.8" y="347" width="52" height="6" rx="2"/><rect class="win" x="69.8" y="366" width="9" height="9" rx="1.5"/><rect class="win" x="89.8" y="366" width="9" height="9" rx="1.5"/><rect class="win" x="69.8" y="382" width="9" height="9" rx="1.5"/><rect class="win" x="89.8" y="382" width="9" height="9" rx="1.5"/><rect class="win" x="69.8" y="398" width="9" height="9" rx="1.5"/><rect class="win" x="89.8" y="398" width="9" height="9" rx="1.5"/><rect class="door" x="77.8" y="412" width="12" height="14" rx="1"/><text class="bname" x="83.8" y="442">Threads</text></a><a class="bld" href="playrooms/locks/" data-room="locks" aria-label="Locks — correctness, bought with a queue"><title>Locks · correctness, bought with a queue</title><rect class="wall" x="122.3" y="330" width="46" height="96" rx="3"/><rect class="roof" x="119.3" y="325" width="52" height="6" rx="2"/><rect class="win" x="131.3" y="344" width="9" height="9" rx="1.5"/><rect class="win" x="151.3" y="344" width="9" height="9" rx="1.5"/><rect class="win" x="131.3" y="360" width="9" height="9" rx="1.5"/><rect class="win" x="151.3" y="360" width="9" height="9" rx="1.5"/><rect class="win" x="131.3" y="376" width="9" height="9" rx="1.5"/><rect class="win" x="151.3" y="376" width="9" height="9" rx="1.5"/><rect class="win" x="131.3" y="392" width="9" height="9" rx="1.5"/><rect class="win" x="151.3" y="392" width="9" height="9" rx="1.5"/><rect class="door" x="139.3" y="412" width="12" height="14" rx="1"/><text class="bname" x="145.3" y="442">Locks</text></a><a class="bld" href="playrooms/deadlocks/" data-room="deadlocks" aria-label="Deadlocks — both waiting, both polite, forever"><title>Deadlocks · both waiting, both polite, forever</title><rect class="wall" x="183.8" y="364" width="46" height="62" rx="3"/><rect class="roof" x="180.8" y="359" width="52" height="6" rx="2"/><rect class="win" x="192.8" y="378" width="9" height="9" rx="1.5"/><rect class="win" x="212.8" y="378" width="9" height="9" rx="1.5"/><rect class="win" x="192.8" y="394" width="9" height="9" rx="1.5"/><rect class="win" x="212.8" y="394" width="9" height="9" rx="1.5"/><rect class="door" x="200.8" y="412" width="12" height="14" rx="1"/><text class="bname" x="206.8" y="442">Deadlocks</text></a><a class="bld" href="playrooms/async-await/" data-room="async-await" aria-label="Async / Await — waiting without holding a thread hostage"><title>Async / Await · waiting without holding a thread hostage</title><rect class="wall" x="245.3" y="338" width="46" height="88" rx="3"/><rect class="roof" x="242.3" y="333" width="52" height="6" rx="2"/><rect class="win" x="254.3" y="352" width="9" height="9" rx="1.5"/><rect class="win" x="274.3" y="352" width="9" height="9" rx="1.5"/><rect class="win" x="254.3" y="368" width="9" height="9" rx="1.5"/><rect class="win" x="274.3" y="368" width="9" height="9" rx="1.5"/><rect class="win" x="254.3" y="384" width="9" height="9" rx="1.5"/><rect class="win" x="274.3" y="384" width="9" height="9" rx="1.5"/><rect class="win" x="254.3" y="400" width="9" height="9" rx="1.5"/><rect class="win" x="274.3" y="400" width="9" height="9" rx="1.5"/><rect class="door" x="262.3" y="412" width="12" height="14" rx="1"/><text class="bname" x="268.3" y="442">Async</text></a></g>
+</svg></div>
 
-  <section id="database-vault">
-    <h2>Database Vault <span class="state">4 playrooms</span></h2>
-    <p class="blurb">Indexes, joins and the promises a transaction makes.</p>
-    <ul>
-    <li data-room="indexes"><a href="playrooms/indexes/"><span class="t">Indexes</span> <span class="d">read a million rows, then read four</span><span class="state" hidden></span></a></li>
-    <li data-room="joins"><a href="playrooms/joins/"><span class="t">Joins</span> <span class="d">which rows survive, and the accidental 101 queries</span><span class="state" hidden></span></a></li>
-    <li data-room="transactions"><a href="playrooms/transactions/"><span class="t">Transactions</span> <span class="d">crash halfway and lose £100, then do not</span><span class="state" hidden></span></a></li>
-    <li data-room="isolation-levels"><a href="playrooms/isolation-levels/"><span class="t">Isolation Levels</span> <span class="d">two sessions, four anomalies, one lost sale</span><span class="state" hidden></span></a></li>
-    </ul>
-  </section>
+  <div class="legend">
+    <span><i class="lit"></i>finished</span>
+    <span><i class="part"></i>started</span>
+    <span><i class="unlit"></i>not visited</span>
+    <span>click any building to walk in</span>
+    <span class="count" id="explored">0 of 27 explored</span>
+  </div>
 
-  <section id="concurrency-crossing">
-    <h2>Concurrency Crossing <span class="state">4 playrooms</span></h2>
-    <p class="blurb">Two things at once, and what goes wrong.</p>
-    <ul>
-    <li data-room="threads"><a href="playrooms/threads/"><span class="t">Threads</span> <span class="d">two threads, one counter, a different answer every run</span><span class="state" hidden></span></a></li>
-    <li data-room="locks"><a href="playrooms/locks/"><span class="t">Locks</span> <span class="d">correctness, bought with a queue</span><span class="state" hidden></span></a></li>
-    <li data-room="deadlocks"><a href="playrooms/deadlocks/"><span class="t">Deadlocks</span> <span class="d">both waiting, both polite, forever</span><span class="state" hidden></span></a></li>
-    <li data-room="async-await"><a href="playrooms/async-await/"><span class="t">Async / Await</span> <span class="d">waiting without holding a thread hostage</span><span class="state" hidden></span></a></li>
-    </ul>
-  </section>
+  <details class="listing" id="listing">
+    <summary>Browse every playroom as a list</summary>
+    <section id="pattern-park">
+      <h3>Pattern Park <span class="state">5 playrooms</span></h3>
+      <ul>
+        <li data-room="dependency-injection"><a href="playrooms/dependency-injection/"><span class="t">Dependency Injection</span> <span class="d">weld an engine in, then cut a socket</span><span class="state" hidden></span></a></li>
+        <li data-room="factory-method"><a href="playrooms/factory-method/"><span class="t">Factory Method</span> <span class="d">grow a switch until it breaks, then cut a hole</span><span class="state" hidden></span></a></li>
+        <li data-room="strategy"><a href="playrooms/strategy/"><span class="t">Strategy</span> <span class="d">drown a method in flags, then hand the algorithm in</span><span class="state" hidden></span></a></li>
+        <li data-room="observer"><a href="playrooms/observer/"><span class="t">Observer</span> <span class="d">wire every listener by name, then let them subscribe</span><span class="state" hidden></span></a></li>
+        <li data-room="singleton"><a href="playrooms/singleton/"><span class="t">Singleton</span> <span class="d">one instance, a thread race, and poisoned tests</span><span class="state" hidden></span></a></li>
 
+      </ul>
+    </section>
+    <section id="memory-harbour">
+      <h3>Memory Harbour <span class="state">5 playrooms</span></h3>
+      <ul>
+        <li data-room="stack-and-heap"><a href="playrooms/stack-and-heap/"><span class="t">Stack and Heap</span> <span class="d">two names, one object, and what the collector takes</span><span class="state" hidden></span></a></li>
+        <li data-room="garbage-collection"><a href="playrooms/garbage-collection/"><span class="t">Garbage Collection</span> <span class="d">drop a reference, then find out nothing was freed</span><span class="state" hidden></span></a></li>
+        <li data-room="boxing"><a href="playrooms/boxing/"><span class="t">Boxing</span> <span class="d">a number becomes an object, a million times</span><span class="state" hidden></span></a></li>
+        <li data-room="pointers-and-null"><a href="playrooms/pointers-and-null/"><span class="t">Pointers and Null</span> <span class="d">point at nothing, crash, then fix it in the type</span><span class="state" hidden></span></a></li>
+        <li data-room="caching"><a href="playrooms/caching/"><span class="t">Caching</span> <span class="d">fast answers, stale answers, and the stampede</span><span class="state" hidden></span></a></li>
 
+      </ul>
+    </section>
+    <section id="solid-quarter">
+      <h3>SOLID Quarter <span class="state">5 playrooms</span></h3>
+      <ul>
+        <li data-room="single-responsibility"><a href="playrooms/single-responsibility/"><span class="t">Single Responsibility</span> <span class="d">four departments, one file, and the crack down the middle</span><span class="state" hidden></span></a></li>
+        <li data-room="open-closed"><a href="playrooms/open-closed/"><span class="t">Open/Closed</span> <span class="d">stop editing the engine to add a promotion</span><span class="state" hidden></span></a></li>
+        <li data-room="liskov-substitution"><a href="playrooms/liskov-substitution/"><span class="t">Liskov Substitution</span> <span class="d">a square that makes a correct test fail</span><span class="state" hidden></span></a></li>
+        <li data-room="interface-segregation"><a href="playrooms/interface-segregation/"><span class="t">Interface Segregation</span> <span class="d">a printer forced to promise it can fax</span><span class="state" hidden></span></a></li>
+        <li data-room="dependency-inversion"><a href="playrooms/dependency-inversion/"><span class="t">Dependency Inversion</span> <span class="d">flip the arrow between your rules and your database</span><span class="state" hidden></span></a></li>
+
+      </ul>
+    </section>
+    <section id="network-highway">
+      <h3>Network Highway <span class="state">4 playrooms</span></h3>
+      <ul>
+        <li data-room="dns"><a href="playrooms/dns/"><span class="t">DNS</span> <span class="d">a name becomes an address, and a TTL decides your outage</span><span class="state" hidden></span></a></li>
+        <li data-room="tcp"><a href="playrooms/tcp/"><span class="t">TCP</span> <span class="d">pay for a handshake, then lose one packet</span><span class="state" hidden></span></a></li>
+        <li data-room="http"><a href="playrooms/http/"><span class="t">HTTP</span> <span class="d">verbs that promise things and codes that mean things</span><span class="state" hidden></span></a></li>
+        <li data-room="tls"><a href="playrooms/tls/"><span class="t">TLS</span> <span class="d">your password on the wire, then the padlock</span><span class="state" hidden></span></a></li>
+
+      </ul>
+    </section>
+    <section id="database-vault">
+      <h3>Database Vault <span class="state">4 playrooms</span></h3>
+      <ul>
+        <li data-room="indexes"><a href="playrooms/indexes/"><span class="t">Indexes</span> <span class="d">read a million rows, then read four</span><span class="state" hidden></span></a></li>
+        <li data-room="joins"><a href="playrooms/joins/"><span class="t">Joins</span> <span class="d">which rows survive, and the accidental 101 queries</span><span class="state" hidden></span></a></li>
+        <li data-room="transactions"><a href="playrooms/transactions/"><span class="t">Transactions</span> <span class="d">crash halfway and lose £100, then do not</span><span class="state" hidden></span></a></li>
+        <li data-room="isolation-levels"><a href="playrooms/isolation-levels/"><span class="t">Isolation Levels</span> <span class="d">two sessions, four anomalies, one lost sale</span><span class="state" hidden></span></a></li>
+
+      </ul>
+    </section>
+    <section id="concurrency-crossing">
+      <h3>Concurrency Crossing <span class="state">4 playrooms</span></h3>
+      <ul>
+        <li data-room="threads"><a href="playrooms/threads/"><span class="t">Threads</span> <span class="d">two threads, one counter, a different answer every run</span><span class="state" hidden></span></a></li>
+        <li data-room="locks"><a href="playrooms/locks/"><span class="t">Locks</span> <span class="d">correctness, bought with a queue</span><span class="state" hidden></span></a></li>
+        <li data-room="deadlocks"><a href="playrooms/deadlocks/"><span class="t">Deadlocks</span> <span class="d">both waiting, both polite, forever</span><span class="state" hidden></span></a></li>
+        <li data-room="async-await"><a href="playrooms/async-await/"><span class="t">Async / Await</span> <span class="d">waiting without holding a thread hostage</span><span class="state" hidden></span></a></li>
+
+      </ul>
+    </section>
+  </details>
 
   <p class="loop">Every playroom runs the same loop: <b>see it</b> working, <b>break it</b> yourself, <b>fix it</b>, read the <b>same code</b> in C#, Java or TypeScript, then take the <b>interview check</b>.</p>
 </div>
@@ -125,28 +213,41 @@ li.soon{color:var(--muted);padding:14px 2px;font-size:14px}
 <script>
   RuntimeNav.mount({title:'All districts'});
 
-  /* mark what this visitor has already done, and offer to pick it up again */
+  /* light up what this visitor has already done, and point at where to resume */
   (function(){
     const P = RuntimeNav.Progress, L = RuntimeNav.links(null);
-    let resume = null;
+    let done = 0, resume = null;
+
     CITY.all.forEach(room => {
       const p = P.of(room.slug);
       if(!p) return;
-      const li = document.querySelector('li[data-room="' + room.slug + '"] .state');
-      if(li){
-        li.hidden = false;
-        li.className = 'state ' + (p.done ? 'done' : 'part');
-        li.textContent = p.done ? 'finished' : 'step ' + p.step + ' of ' + (p.total || 6);
+      if(p.done) done++;
+      else if(!resume) resume = {room, p};
+
+      const bld = document.querySelector('.bld[data-room="' + room.slug + '"]');
+      if(bld) bld.classList.add(p.done ? 'done' : 'part');
+
+      const state = document.querySelector('li[data-room="' + room.slug + '"] .state');
+      if(state){
+        state.hidden = false;
+        state.className = 'state ' + (p.done ? 'done' : 'part');
+        state.textContent = p.done ? 'finished' : 'step ' + p.step + ' of ' + (p.total || 6);
       }
-      if(!p.done && !resume) resume = {room, p};
     });
+
+    const counter = document.getElementById('explored');
+    if(counter) counter.textContent = done + ' of ' + CITY.all.length + ' explored';
+
     if(resume){
-      const h1 = document.querySelector('h1');
-      h1.insertAdjacentHTML('afterend',
-        '<p class="resume"><a href="' + L.room(resume.room.slug) + '#step-' + resume.p.step + '">' +
-        'Pick up where you left off: ' + resume.room.title +
-        ' <span>step ' + resume.p.step + ' of ' + (resume.p.total || 6) + ' →</span></a></p>');
+      const a = document.getElementById('enter');
+      a.href = L.room(resume.room.slug) + '#step-' + resume.p.step;
+      a.innerHTML = 'Pick up where you left off <span class="sub">' +
+        resume.room.title + ' · step ' + resume.p.step + '</span>';
     }
+
+    /* on a phone the map is hidden, so open the list by default */
+    if(window.matchMedia('(max-width: 760px)').matches)
+      document.getElementById('listing').open = true;
   })();
 </script>
 </body>
