@@ -10,14 +10,14 @@ const CITY = require('../site/assets/city.js');
 
 const esc = s => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 
-/* each land: where it sits, its tint, and a bit of scenery */
-const LANDS = {
-  'pattern-park':        {x:36,  y:66,  w:300, h:150, tint:'green',  scene:'trees',    sub:'design patterns'},
-  'solid-quarter':       {x:372, y:44,  w:300, h:150, tint:'amber',  scene:'flowers',  sub:'the five principles'},
-  'memory-harbour':      {x:706, y:66,  w:262, h:150, tint:'blue',   scene:'lake',     sub:'where objects live'},
-  'concurrency-crossing':{x:36,  y:300, w:300, h:150, tint:'violet', scene:'carousel', sub:'two things at once'},
-  'database-vault':      {x:372, y:322, w:300, h:150, tint:'amber',  scene:'wheel',    sub:'storing it safely'},
-  'network-highway':     {x:706, y:300, w:262, h:150, tint:'teal',   scene:'balloons', sub:'getting there'}
+/* Each district is a zone on the map; each playroom is a marker inside it. */
+const ZONES = {
+  'pattern-park':        {x:18,  y:34,  w:316, h:248, dot:'var(--accent)',        sub:'design patterns'},
+  'solid-quarter':       {x:344, y:34,  w:316, h:248, dot:'var(--good)',          sub:'the five principles'},
+  'memory-harbour':      {x:670, y:34,  w:316, h:248, dot:'rgb(47,127,208)',      sub:'where objects live'},
+  'concurrency-crossing':{x:18,  y:300, w:316, h:248, dot:'rgb(122,107,181)',     sub:'two things at once'},
+  'database-vault':      {x:344, y:300, w:316, h:248, dot:'var(--accent)',        sub:'storing it safely'},
+  'network-highway':     {x:670, y:300, w:316, h:248, dot:'rgb(47,127,208)',      sub:'getting there'}
 };
 
 /* the same signs as the city map, drawn in a 24×24 box */
@@ -51,72 +51,45 @@ const GLYPH = {
   clock:    '<circle class="gl" cx="12" cy="12" r="8"/><path class="gl a" d="M12 7v5l4 2"/>'
 };
 
-const SCENE = {
-  trees:    (L) => `<circle class="tree" cx="${L.x + 22}" cy="${L.y + L.h - 26}" r="15"/><circle class="tree" cx="${L.x + 44}" cy="${L.y + L.h - 18}" r="10"/><circle class="tree" cx="${L.x + L.w - 24}" cy="${L.y + 26}" r="12"/>`,
-  flowers:  (L) => [0,1,2,3].map(i => `<circle class="flower" cx="${L.x + 20 + i * 13}" cy="${L.y + L.h - 16}" r="3.4"/>`).join('') +
-                   `<circle class="tree" cx="${L.x + L.w - 26}" cy="${L.y + L.h - 24}" r="13"/>`,
-  lake:     (L) => `<ellipse class="lake" cx="${L.x + L.w / 2}" cy="${L.y + L.h - 18}" rx="${L.w / 2 - 26}" ry="13"/>` +
-                   `<path class="ripple" d="M${L.x + 40} ${L.y + L.h - 18}q10 -5 20 0t20 0"/>`,
-  carousel: (L) => `<circle class="ride-ring" cx="${L.x + L.w - 32}" cy="${L.y + 34}" r="14"/><path class="ride-ring" d="M${L.x + L.w - 32} ${L.y + 20}v28M${L.x + L.w - 46} ${L.y + 34}h28"/>`,
-  wheel:    (L) => `<circle class="ride-ring" cx="${L.x + L.w - 30}" cy="${L.y + 36}" r="17"/><circle class="ride-ring" cx="${L.x + L.w - 30}" cy="${L.y + 36}" r="5"/>` +
-                   [0,45,90,135].map(a => {
-                     const r = 17, rad = a * Math.PI / 180, cx = L.x + L.w - 30, cy = L.y + 36;
-                     return `<line class="ride-ring" x1="${(cx - r * Math.cos(rad)).toFixed(1)}" y1="${(cy - r * Math.sin(rad)).toFixed(1)}" x2="${(cx + r * Math.cos(rad)).toFixed(1)}" y2="${(cy + r * Math.sin(rad)).toFixed(1)}"/>`;
-                   }).join(''),
-  balloons: (L) => [0,1,2].map(i => `<circle class="balloon" cx="${L.x + 26 + i * 18}" cy="${L.y + 26 + (i % 2) * 8}" r="7"/>` +
-                   `<path class="string" d="M${L.x + 26 + i * 18} ${L.y + 33 + (i % 2) * 8}v10"/>`).join('')
-};
 
-function ride(p, i, total, L){
-  /* rows of at most three, each row centred in the lawn */
-  const perRow = total > 4 ? Math.ceil(total / 2) : total;
+function ride(p, i, total, Z){
+  /* rows of at most three, each row centred in the zone */
+  const perRow = Math.min(total, 3);
   const rows = Math.ceil(total / perRow);
   const row = Math.floor(i / perRow), col = i % perRow;
   const inThisRow = Math.min(perRow, total - row * perRow);
 
-  const step = 74;
-  const rowWidth = (inThisRow - 1) * step;
-  const cx = L.x + L.w / 2 - rowWidth / 2 + col * step;
-  const cy = L.y + (rows === 1 ? L.h / 2 + 10 : 62 + row * 58);
+  const step = 98;
+  const cx = Z.x + Z.w / 2 - ((inThisRow - 1) * step) / 2 + col * step;
+  const cy = Z.y + (rows === 1 ? 150 : 116 + row * 80);
+  const r = 31;
 
   return `<a class="ride" href="playrooms/${p.slug}/" data-room="${p.slug}" aria-label="${esc(p.title)} — ${esc(p.blurb)}">` +
     `<title>${esc(p.title)} · ${esc(p.blurb)}</title>` +
-    `<circle class="pad" cx="${cx.toFixed(1)}" cy="${cy.toFixed(1)}" r="21"/>` +
-    `<g class="sign" transform="translate(${(cx - 11).toFixed(1)} ${(cy - 11).toFixed(1)}) scale(0.92)">${GLYPH[p.icon] || GLYPH.box}</g>` +
-    `<text class="rname" x="${cx.toFixed(1)}" y="${(cy + 34).toFixed(1)}">${esc(p.short || p.title)}</text>` +
+    `<circle class="pad" cx="${cx.toFixed(1)}" cy="${cy.toFixed(1)}" r="${r}"/>` +
+    `<g class="sign" transform="translate(${(cx - 19).toFixed(1)} ${(cy - 19).toFixed(1)}) scale(1.58)">${GLYPH[p.icon] || GLYPH.box}</g>` +
+    `<text class="rname" x="${cx.toFixed(1)}" y="${(cy + r + 15).toFixed(1)}">${esc(p.short || p.title)}</text>` +
     `</a>`;
 }
 
 function land(d){
-  const L = LANDS[d.slug];
-  if(!L) return '';
-  const rides = d.playrooms.map((p, i) => ride(p, i, Math.max(d.playrooms.length, 1), L)).join('');
-  return `<g class="land tint-${L.tint} ${d.open ? 'open' : 'planned'}" data-district="${d.slug}">` +
-    `<rect class="lawn" x="${L.x}" y="${L.y}" width="${L.w}" height="${L.h}" rx="34"/>` +
-    (SCENE[L.scene] ? SCENE[L.scene](L) : '') +
-    `<text class="lname" x="${L.x + 20}" y="${L.y + 26}">${esc(d.name)}</text>` +
-    `<text class="lsub" x="${L.x + 20}" y="${L.y + 40}">${esc(L.sub)}</text>` +
-    `<text class="lcount" x="${L.x + L.w - 18}" y="${L.y + 26}">${d.open ? d.playrooms.length + ' rides' : 'building'}</text>` +
+  const Z = ZONES[d.slug];
+  if(!Z) return '';
+  const rides = d.playrooms.map((p, i) => ride(p, i, Math.max(d.playrooms.length, 1), Z)).join('');
+  return `<g class="zone ${d.open ? 'open' : 'planned'}" data-district="${d.slug}">` +
+    `<rect class="plot" x="${Z.x}" y="${Z.y}" width="${Z.w}" height="${Z.h}" rx="14"/>` +
+    `<rect class="dot" x="${Z.x + 20}" y="${Z.y + 22}" width="9" height="9" rx="2" fill="${Z.dot}"/>` +
+    `<text class="lname" x="${Z.x + 36}" y="${Z.y + 31}">${esc(d.name)}</text>` +
+    `<text class="lsub" x="${Z.x + 36}" y="${Z.y + 46}">${esc(Z.sub)}</text>` +
+    `<text class="lcount" x="${Z.x + Z.w - 20}" y="${Z.y + 31}">${d.open ? d.playrooms.length : '—'}</text>` +
+    `<line class="rule" x1="${Z.x + 20}" y1="${Z.y + 60}" x2="${Z.x + Z.w - 20}" y2="${Z.y + 60}"/>` +
     rides +
     `</g>`;
 }
 
 const map = `
-<svg class="parkmap" viewBox="0 0 1004 560" role="img" aria-label="A map of Runtime City park: six lands, each ride is a playroom">
-  <rect class="park" x="8" y="8" width="988" height="544" rx="46"/>
-
-  <path class="trail" d="M502 548 C 470 500, 300 500, 190 462 C 96 430, 60 360, 120 300
-                          C 190 232, 120 150, 200 120 C 300 84, 330 150, 420 128
-                          C 520 104, 560 40, 700 70 C 860 104, 950 140, 940 230
-                          C 932 300, 860 300, 840 350 C 820 402, 700 420, 620 452
-                          C 560 476, 540 520, 502 548"/>
-
-  ${CITY.districts.map(land).join('\n  ')}
-
-  <g class="gate">
-    <path class="gatearch" d="M462 548v-20a40 40 0 0 1 80 0v20"/>
-    <text class="gatelbl" x="502" y="540">ENTRANCE</text>
-  </g>
+<svg class="parkmap" viewBox="0 0 1004 570" role="img" aria-label="Runtime City: six districts, each marker is a playroom">
+  ${CITY.districts.map(land).join(String.fromCharCode(10))}
 </svg>`;
 
 const listSection = d => `    <section id="${d.slug}">
@@ -152,52 +125,34 @@ h1 em{font-style:normal;color:var(--accent)}
 .enter:hover{filter:brightness(1.15)}
 .enter .sub{font-family:var(--mono);font-size:11px;opacity:.7}
 
-/* the park */
-.mapwrap{margin:10px -6px 0}
+/* the map */
+.mapwrap{margin:16px -4px 0}
 .parkmap{display:block;width:100%;height:auto}
-.park{fill:var(--surface);stroke:var(--hair);stroke-width:1.5}
-.trail{fill:none;stroke:var(--hair);stroke-width:12;stroke-linecap:round;opacity:.65}
 
-.lawn{fill:var(--lawn,rgba(127,127,127,.08));stroke:var(--lawnline,var(--hair));stroke-width:1.5}
-.tint-green {--lawn:rgba(31,132,105,.13);  --lawnline:rgba(31,132,105,.45)}
-.tint-amber {--lawn:rgba(201,112,29,.13);  --lawnline:rgba(201,112,29,.45)}
-.tint-blue  {--lawn:rgba(47,127,208,.13);  --lawnline:rgba(47,127,208,.45)}
-.tint-violet{--lawn:rgba(122,107,181,.14); --lawnline:rgba(122,107,181,.45)}
-.tint-teal  {--lawn:rgba(31,132,105,.10);  --lawnline:rgba(47,127,208,.35)}
-.land.planned .lawn{fill:none;stroke-dasharray:7 7}
-
-.lname{font-family:var(--display);font-weight:700;font-size:16px;fill:var(--ink)}
+.plot{fill:var(--surface);stroke:var(--hair);stroke-width:1.5}
+.zone.planned .plot{fill:none;stroke-dasharray:6 6}
+.lname{font-family:var(--display);font-weight:700;font-size:15.5px;fill:var(--ink);letter-spacing:-.01em}
 .lsub{font-family:var(--mono);font-size:9.5px;fill:var(--muted)}
-.lcount{font-family:var(--mono);font-size:10px;fill:var(--accent);text-anchor:end}
-
-.tree{fill:var(--good);opacity:.22}
-.flower{fill:var(--accent);opacity:.5}
-.lake{fill:rgba(47,127,208,.22);stroke:rgba(47,127,208,.45);stroke-width:1.5}
-.ripple{fill:none;stroke:rgba(47,127,208,.5);stroke-width:1.5}
-.ride-ring{fill:none;stroke:var(--muted);stroke-width:1.5;opacity:.5}
-.balloon{fill:var(--accent);opacity:.35}
-.string{stroke:var(--muted);stroke-width:1;opacity:.5}
+.lcount{font-family:var(--mono);font-size:12px;fill:var(--muted);text-anchor:end}
+.rule{stroke:var(--hair);stroke-width:1}
 
 .ride{cursor:pointer}
-.pad{fill:var(--ground);stroke:var(--ink);stroke-width:1.8;transition:fill .15s,r .15s}
-.gl{fill:none;stroke:var(--ink);stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round;transition:stroke .15s}
+.pad{fill:var(--ground);stroke:var(--hair);stroke-width:1.8;transition:stroke .15s,fill .15s}
+.gl{fill:none;stroke:var(--ink);stroke-width:1.5;stroke-linecap:round;stroke-linejoin:round;transition:stroke .15s}
 .gl.a{stroke:var(--accent)}
-.rname{font-family:var(--mono);font-size:9px;fill:var(--muted);text-anchor:middle}
-.ride:hover .pad{fill:var(--surface);r:23}
+.rname{font-family:var(--mono);font-size:10px;fill:var(--muted);text-anchor:middle;transition:fill .15s}
+.ride:hover .pad{stroke:var(--ink);fill:var(--surface)}
 .ride:hover .rname{fill:var(--ink)}
 .ride:focus-visible .pad{stroke:var(--accent);stroke-width:3}
-.ride.done .pad{fill:rgba(31,132,105,.2);stroke:var(--good)}
+.ride.done .pad{stroke:var(--good);stroke-width:2.2}
 .ride.done .gl,.ride.done .gl.a{stroke:var(--good)}
 .ride.done .rname{fill:var(--good)}
-.ride.part .pad{stroke:var(--accent);stroke-dasharray:4 3}
+.ride.part .pad{stroke:var(--accent);stroke-width:2.2;stroke-dasharray:5 4}
 .ride.part .rname{fill:var(--accent)}
 
-.gatearch{fill:none;stroke:var(--ink);stroke-width:2.5}
-.gatelbl{font-family:var(--mono);font-size:9px;fill:var(--muted);text-anchor:middle;letter-spacing:.14em}
-
 .legend{display:flex;flex-wrap:wrap;gap:8px 22px;align-items:center;font-family:var(--mono);font-size:11px;color:var(--muted);padding:14px 2px 0}
-.legend i{display:inline-block;width:10px;height:10px;border-radius:50%;margin-right:6px;vertical-align:-1px;border:1.5px solid var(--hair)}
-.legend .lit{background:rgba(31,132,105,.35);border-color:var(--good)}
+.legend i{display:inline-block;width:11px;height:11px;border-radius:50%;margin-right:7px;vertical-align:-1px;border:2px solid var(--hair)}
+.legend .lit{border-color:var(--good)}
 .legend .part{border-color:var(--accent);border-style:dashed}
 .legend .count{margin-left:auto;color:var(--ink)}
 
@@ -236,20 +191,20 @@ h1 em{font-style:normal;color:var(--accent)}
     <div class="herorow">
       <div>
         <h1>Learn by <em>breaking</em></h1>
-        <p class="dek">${CITY.all.length} rides you can walk into, take apart and put back together. Built for students heading into interviews.</p>
+        <p class="dek">${CITY.all.length} concepts you can walk into, take apart and put back together. Built for students heading into interviews.</p>
       </div>
-      <a class="enter" id="enter" href="playrooms/${CITY.all[0].slug}/">Enter the park <span class="sub">${esc(CITY.all[0].title)}</span></a>
+      <a class="enter" id="enter" href="playrooms/${CITY.all[0].slug}/">Start exploring <span class="sub">${esc(CITY.all[0].title)}</span></a>
     </div>
   </section>
 
   <div class="mapwrap">${map}</div>
 
   <div class="legend">
-    <span><i class="lit"></i>ridden</span>
-    <span><i class="part"></i>started</span>
-    <span><i class="unlit"></i>not yet</span>
-    <span>click any ride to queue up</span>
-    <span class="count" id="explored">0 of ${CITY.all.length} ridden</span>
+    <span><i class="lit"></i>finished</span>
+    <span><i class="part"></i>in progress</span>
+    <span><i class="unlit"></i>not started</span>
+    <span>select any marker to open it</span>
+    <span class="count" id="explored">0 of ${CITY.all.length} explored</span>
   </div>
 
   <details class="listing" id="listing">
@@ -257,7 +212,7 @@ h1 em{font-style:normal;color:var(--accent)}
 ${CITY.districts.map(listSection).join('\n')}
   </details>
 
-  <p class="loop">Every ride runs the same loop: <b>see it</b> working, <b>break it</b> yourself, <b>fix it</b>, read the <b>same code</b> in C#, Java or TypeScript, then take the <b>interview check</b>.</p>
+  <p class="loop">Every playroom runs the same loop: <b>see it</b> working, <b>break it</b> yourself, <b>fix it</b>, read the <b>same code</b> in C#, Java or TypeScript, then take the <b>interview check</b>.</p>
 </div>
 
 <script src="assets/city.js"></script>
@@ -287,7 +242,7 @@ ${CITY.districts.map(listSection).join('\n')}
     });
 
     const counter = document.getElementById('explored');
-    if(counter) counter.textContent = done + ' of ' + CITY.all.length + ' ridden';
+    if(counter) counter.textContent = done + ' of ' + CITY.all.length + ' explored';
 
     if(resume){
       const a = document.getElementById('enter');
