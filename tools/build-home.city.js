@@ -126,7 +126,7 @@ const map = `
 const listSection = d => `    <section id="list-${d.slug}">
       <h3>${esc(d.name)} <span class="state">${d.open ? `${d.playrooms.length} playrooms` : 'planned'}</span></h3>
       <ul>
-${d.playrooms.map(p => `        <li data-room="${p.slug}"><a href="playrooms/${p.slug}/"><span class="t">${esc(p.title)}</span> <span class="d">${esc(p.blurb)}</span><span class="state" hidden></span></a></li>`).join('\n')}
+${d.playrooms.map(p => `        <li data-room="${p.slug}"><a href="playrooms/${p.slug}/"><span class="ico" aria-hidden="true"><svg viewBox="0 0 24 24">${GLYPH[p.icon] || GLYPH.box}</svg></span><span class="body"><span class="t">${esc(p.title)}</span><span class="d">${esc(p.blurb)}</span></span><span class="state" hidden></span></a></li>`).join('\n')}
 ${d.soon.length ? `        <li class="soon">${d.soon.map(esc).join(' · ')} — coming soon</li>` : ''}
       </ul>
     </section>`;
@@ -222,10 +222,15 @@ h1 em{font-style:normal;color:var(--accent)}
 .listing h3 .state{color:var(--accent)}
 .listing ul{list-style:none;margin:0;padding:0;border-top:1px solid var(--hair)}
 .listing li{border-bottom:1px solid var(--hair)}
-.listing li a{display:flex;align-items:baseline;gap:4px 12px;flex-wrap:wrap;padding:14px 2px;color:var(--ink);text-decoration:none;min-height:52px}
+.listing li a{display:flex;align-items:center;gap:14px;padding:14px 2px;color:var(--ink);text-decoration:none;min-height:64px}
 .listing li a:hover .t{border-bottom:1px solid var(--accent)}
+.listing li .body{display:flex;flex-direction:column;gap:3px;min-width:0}
+.listing li .ico{flex:0 0 40px;width:40px;height:40px;border:1.5px solid var(--hair);border-radius:50%;display:grid;place-items:center;background:var(--ground)}
+.listing li .ico svg{width:23px;height:23px;overflow:visible}
+.listing li .ico .gl{stroke-width:1.6}
+.listing li a:hover .ico{border-color:var(--ink)}
 .listing li .t{font-family:var(--display);font-weight:600;font-size:18px;letter-spacing:-.02em}
-.listing li .d{color:var(--muted);font-size:14px}
+.listing li .d{color:var(--muted);font-size:13.5px;line-height:1.4}
 .listing li .state{margin-left:auto;font-family:var(--mono);font-size:11px;text-transform:uppercase;letter-spacing:.06em}
 .listing li .state.done{color:var(--good)} .listing li .state.part{color:var(--accent)}
 .listing li.soon{color:var(--muted);padding:14px 2px;font-size:14px}

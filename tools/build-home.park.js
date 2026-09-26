@@ -12,12 +12,12 @@ const esc = s => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(
 
 /* Each district is a zone on the map; each playroom is a marker inside it. */
 const ZONES = {
-  'pattern-park':        {x:18,  y:34,  w:316, h:248, dot:'var(--accent)',        sub:'design patterns'},
-  'solid-quarter':       {x:344, y:34,  w:316, h:248, dot:'var(--good)',          sub:'the five principles'},
-  'memory-harbour':      {x:670, y:34,  w:316, h:248, dot:'rgb(47,127,208)',      sub:'where objects live'},
-  'concurrency-crossing':{x:18,  y:300, w:316, h:248, dot:'rgb(122,107,181)',     sub:'two things at once'},
-  'database-vault':      {x:344, y:300, w:316, h:248, dot:'var(--accent)',        sub:'storing it safely'},
-  'network-highway':     {x:670, y:300, w:316, h:248, dot:'rgb(47,127,208)',      sub:'getting there'}
+  'pattern-park':        {x:18,  y:34,  w:316, h:274, dot:'var(--accent)',        sub:'design patterns'},
+  'solid-quarter':       {x:344, y:34,  w:316, h:274, dot:'var(--good)',          sub:'the five principles'},
+  'memory-harbour':      {x:670, y:34,  w:316, h:274, dot:'rgb(47,127,208)',      sub:'where objects live'},
+  'concurrency-crossing':{x:18,  y:330, w:316, h:274, dot:'rgb(122,107,181)',     sub:'two things at once'},
+  'database-vault':      {x:344, y:330, w:316, h:274, dot:'var(--accent)',        sub:'storing it safely'},
+  'network-highway':     {x:670, y:330, w:316, h:274, dot:'rgb(47,127,208)',      sub:'getting there'}
 };
 
 /* the same signs as the city map, drawn in a 24×24 box */
@@ -31,16 +31,16 @@ function ride(p, i, total, Z){
   const row = Math.floor(i / perRow), col = i % perRow;
   const inThisRow = Math.min(perRow, total - row * perRow);
 
-  const step = 98;
+  const step = 104;
   const cx = Z.x + Z.w / 2 - ((inThisRow - 1) * step) / 2 + col * step;
-  const cy = Z.y + (rows === 1 ? 150 : 116 + row * 80);
-  const r = 31;
+  const cy = Z.y + (rows === 1 ? 166 : 124 + row * 88);
+  const r = 36;
 
   return `<a class="ride" href="playrooms/${p.slug}/" data-room="${p.slug}" aria-label="${esc(p.title)} — ${esc(p.blurb)}">` +
     `<title>${esc(p.title)} · ${esc(p.blurb)}</title>` +
     `<circle class="pad" cx="${cx.toFixed(1)}" cy="${cy.toFixed(1)}" r="${r}"/>` +
-    `<g class="sign" transform="translate(${(cx - 19).toFixed(1)} ${(cy - 19).toFixed(1)}) scale(1.58)">${GLYPH[p.icon] || GLYPH.box}</g>` +
-    `<text class="rname" x="${cx.toFixed(1)}" y="${(cy + r + 15).toFixed(1)}">${esc(p.short || p.title)}</text>` +
+    `<g class="sign" transform="translate(${(cx - 23).toFixed(1)} ${(cy - 23).toFixed(1)}) scale(1.9)">${GLYPH[p.icon] || GLYPH.box}</g>` +
+    `<text class="rname" x="${cx.toFixed(1)}" y="${(cy + r + 17).toFixed(1)}">${esc(p.short || p.title)}</text>` +
     `</a>`;
 }
 
@@ -60,14 +60,14 @@ function land(d){
 }
 
 const map = `
-<svg class="parkmap" viewBox="0 0 1004 570" role="img" aria-label="Runtime City: six districts, each marker is a playroom">
+<svg class="parkmap" viewBox="0 0 1004 622" role="img" aria-label="Runtime City: six districts, each marker is a playroom">
   ${CITY.districts.map(land).join(String.fromCharCode(10))}
 </svg>`;
 
 const listSection = d => `    <section id="list-${d.slug}">
       <h3>${esc(d.name)} <span class="state">${d.open ? `${d.playrooms.length} playrooms` : 'planned'}</span></h3>
       <ul>
-${d.playrooms.map(p => `        <li data-room="${p.slug}"><a href="playrooms/${p.slug}/"><span class="t">${esc(p.title)}</span> <span class="d">${esc(p.blurb)}</span><span class="state" hidden></span></a></li>`).join('\n')}
+${d.playrooms.map(p => `        <li data-room="${p.slug}"><a href="playrooms/${p.slug}/"><span class="ico" aria-hidden="true"><svg viewBox="0 0 24 24">${GLYPH[p.icon] || GLYPH.box}</svg></span><span class="body"><span class="t">${esc(p.title)}</span><span class="d">${esc(p.blurb)}</span></span><span class="state" hidden></span></a></li>`).join('\n')}
 ${d.soon.length ? `        <li class="soon">${d.soon.map(esc).join(' · ')} — coming soon</li>` : ''}
       </ul>
     </section>`;
@@ -109,17 +109,17 @@ h1 em{font-style:normal;color:var(--accent)}
 .rule{stroke:var(--hair);stroke-width:1}
 
 .ride{cursor:pointer}
-.pad{fill:var(--ground);stroke:var(--hair);stroke-width:1.8;transition:stroke .15s,fill .15s}
-.gl{fill:none;stroke:var(--ink);stroke-width:1.5;stroke-linecap:round;stroke-linejoin:round;transition:stroke .15s}
+.pad{fill:var(--ground);stroke:var(--hair);stroke-width:1.6;transition:stroke .15s,fill .15s}
+.gl{fill:none;stroke:var(--ink);stroke-width:1.3;stroke-linecap:round;stroke-linejoin:round;transition:stroke .15s}
 .gl.a{stroke:var(--accent)}
-.rname{font-family:var(--mono);font-size:10px;fill:var(--muted);text-anchor:middle;transition:fill .15s}
+.rname{font-family:var(--mono);font-size:11px;fill:var(--muted);text-anchor:middle;transition:fill .15s}
 .ride:hover .pad{stroke:var(--ink);fill:var(--surface)}
 .ride:hover .rname{fill:var(--ink)}
 .ride:focus-visible .pad{stroke:var(--accent);stroke-width:3}
-.ride.done .pad{stroke:var(--good);stroke-width:2.2}
+.ride.done .pad{stroke:var(--good);stroke-width:2}
 .ride.done .gl,.ride.done .gl.a{stroke:var(--good)}
 .ride.done .rname{fill:var(--good)}
-.ride.part .pad{stroke:var(--accent);stroke-width:2.2;stroke-dasharray:5 4}
+.ride.part .pad{stroke:var(--accent);stroke-width:2;stroke-dasharray:6 5}
 .ride.part .rname{fill:var(--accent)}
 
 .zone.focus .plot,.district.focus .ground{stroke:var(--accent);stroke-width:2.5}
@@ -140,10 +140,15 @@ h1 em{font-style:normal;color:var(--accent)}
 .listing h3 .state{color:var(--accent)}
 .listing ul{list-style:none;margin:0;padding:0;border-top:1px solid var(--hair)}
 .listing li{border-bottom:1px solid var(--hair)}
-.listing li a{display:flex;align-items:baseline;gap:4px 12px;flex-wrap:wrap;padding:14px 2px;color:var(--ink);text-decoration:none;min-height:52px}
+.listing li a{display:flex;align-items:center;gap:14px;padding:14px 2px;color:var(--ink);text-decoration:none;min-height:64px}
 .listing li a:hover .t{border-bottom:1px solid var(--accent)}
+.listing li .body{display:flex;flex-direction:column;gap:3px;min-width:0}
+.listing li .ico{flex:0 0 40px;width:40px;height:40px;border:1.5px solid var(--hair);border-radius:50%;display:grid;place-items:center;background:var(--ground)}
+.listing li .ico svg{width:23px;height:23px;overflow:visible}
+.listing li .ico .gl{stroke-width:1.6}
+.listing li a:hover .ico{border-color:var(--ink)}
 .listing li .t{font-family:var(--display);font-weight:600;font-size:18px;letter-spacing:-.02em}
-.listing li .d{color:var(--muted);font-size:14px}
+.listing li .d{color:var(--muted);font-size:13.5px;line-height:1.4}
 .listing li .state{margin-left:auto;font-family:var(--mono);font-size:11px;text-transform:uppercase;letter-spacing:.06em}
 .listing li .state.done{color:var(--good)} .listing li .state.part{color:var(--accent)}
 .listing li.soon{color:var(--muted);padding:14px 2px;font-size:14px}
