@@ -108,8 +108,14 @@ place that knows the map: the engine reads it for breadcrumbs, the district line
 and the next-playroom hand-off, and the home page is generated from it.
 
 ```bash
-node tools/build-index.js     # rewrites site/index.html from the map
+node tools/build-index.js          # park design (default)
+node tools/build-index.js city     # city-blocks design (fallback)
 ```
+
+Two home-page designs read the same map and can be swapped at any time:
+`tools/build-home.park.js` draws the districts as lands in one park with a
+ride per playroom, and `tools/build-home.city.js` draws them as city blocks
+with a building per playroom.
 
 Adding a playroom: create `site/playrooms/<slug>/index.html`, add it to the
 district's `playrooms` array in `city.js`, then run the command above.
