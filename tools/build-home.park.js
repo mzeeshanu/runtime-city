@@ -48,7 +48,7 @@ function land(d){
   const Z = ZONES[d.slug];
   if(!Z) return '';
   const rides = d.playrooms.map((p, i) => ride(p, i, Math.max(d.playrooms.length, 1), Z)).join('');
-  return `<g class="zone ${d.open ? 'open' : 'planned'}" data-district="${d.slug}">` +
+  return `<g class="zone ${d.open ? 'open' : 'planned'}" id="zone-${d.slug}" data-district="${d.slug}">` +
     `<rect class="plot" x="${Z.x}" y="${Z.y}" width="${Z.w}" height="${Z.h}" rx="14"/>` +
     `<rect class="dot" x="${Z.x + 20}" y="${Z.y + 22}" width="9" height="9" rx="2" fill="${Z.dot}"/>` +
     `<text class="lname" x="${Z.x + 36}" y="${Z.y + 31}">${esc(d.name)}</text>` +
@@ -64,7 +64,7 @@ const map = `
   ${CITY.districts.map(land).join(String.fromCharCode(10))}
 </svg>`;
 
-const listSection = d => `    <section id="${d.slug}">
+const listSection = d => `    <section id="list-${d.slug}">
       <h3>${esc(d.name)} <span class="state">${d.open ? `${d.playrooms.length} playrooms` : 'planned'}</span></h3>
       <ul>
 ${d.playrooms.map(p => `        <li data-room="${p.slug}"><a href="playrooms/${p.slug}/"><span class="t">${esc(p.title)}</span> <span class="d">${esc(p.blurb)}</span><span class="state" hidden></span></a></li>`).join('\n')}
@@ -122,6 +122,9 @@ h1 em{font-style:normal;color:var(--accent)}
 .ride.part .pad{stroke:var(--accent);stroke-width:2.2;stroke-dasharray:5 4}
 .ride.part .rname{fill:var(--accent)}
 
+.zone.focus .plot,.district.focus .ground{stroke:var(--accent);stroke-width:2.5}
+.zone.focus,.district.focus{animation:zonepulse 2.4s ease-out}
+@keyframes zonepulse{0%,22%{opacity:.5}40%,100%{opacity:1}}
 .legend{display:flex;flex-wrap:wrap;gap:8px 22px;align-items:center;font-family:var(--mono);font-size:11px;color:var(--muted);padding:14px 2px 0}
 .legend i{display:inline-block;width:11px;height:11px;border-radius:50%;margin-right:7px;vertical-align:-1px;border:2px solid var(--hair)}
 .legend .lit{border-color:var(--good)}
@@ -221,6 +224,32 @@ ${CITY.districts.map(listSection).join('\n')}
       a.href = L.room(resume.room.slug) + '#step-' + resume.p.step;
       a.innerHTML = 'Pick up where you left off <span class="sub">' + resume.room.title + ' · step ' + resume.p.step + '</span>';
     }
+
+
+  /* Coming back from a playroom: #pattern-park lands you on that zone of the
+     map, not in the list. */
+  (function(){
+    function focusDistrict(slug){
+      if(!slug) return;
+      const zone = document.getElementById("zone-" + slug);
+      const wide = !window.matchMedia("(max-width: 820px)").matches;
+      if(zone && wide){
+        zone.scrollIntoView({block:"center", behavior:"smooth"});
+        document.querySelectorAll(".zone.focus,.district.focus").forEach(z => z.classList.remove("focus"));
+        zone.classList.add("focus");
+        setTimeout(() => zone.classList.remove("focus"), 2600);
+        return;
+      }
+      const list = document.getElementById("listing");
+      const section = document.getElementById("list-" + slug);
+      if(list) list.open = true;
+      if(section) requestAnimationFrame(() => requestAnimationFrame(() =>
+        section.scrollIntoView({block:"start", behavior:"smooth"})));
+    }
+    const fromHash = () => focusDistrict((location.hash || "").replace("#", ""));
+    window.addEventListener("hashchange", fromHash);
+    if(location.hash) setTimeout(fromHash, 60);
+  })();
 
     if(window.matchMedia('(max-width: 820px)').matches)
       document.getElementById('listing').open = true;
