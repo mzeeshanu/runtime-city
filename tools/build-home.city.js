@@ -24,7 +24,7 @@ const LAYOUT = {
   'concurrency-crossing':{x:40,  y:268, w:280, h:180, kind:'blocks'},
   'database-vault':      {x:360, y:268, w:280, h:180, kind:'vault'},
   'network-highway':     {x:680, y:268, w:280, h:180, kind:'road'},
-  'api-avenue':          {x:40,  y:492, w:920, h:180, kind:'road'}
+  'api-avenue':          {x:360, y:492, w:280, h:180, kind:'road'}
 };
 
 /* Each playroom gets a sign on its facade, drawn in a 24×24 box, plus a
