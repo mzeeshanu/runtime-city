@@ -82,15 +82,32 @@ h1 em{font-style:normal;color:var(--accent)}
 .loop{font-size:14px;color:var(--muted);border-top:1px solid var(--hair);margin-top:30px;padding-top:20px;max-width:62ch}
 .loop b{color:var(--ink);font-weight:500}
 
+
+/* Map or list — the visitor picks one, and we remember it */
+.viewpick{display:flex;gap:2px;margin:20px 0 0;padding:3px;border:1px solid var(--hair);border-radius:999px;width:max-content}
+.viewpick button{appearance:none;background:none;border:0;cursor:pointer;font-family:var(--mono);font-size:11px;
+  letter-spacing:.07em;text-transform:uppercase;color:var(--muted);padding:9px 17px;border-radius:999px;
+  display:flex;align-items:center;gap:8px;transition:color .15s,background .15s}
+.viewpick button svg{width:15px;height:15px;fill:none;stroke:currentColor;stroke-width:1.6;stroke-linecap:round;stroke-linejoin:round}
+.viewpick button[aria-pressed="true"]{background:var(--surface);color:var(--ink);box-shadow:inset 0 0 0 1px var(--hair)}
+.viewpick button:hover{color:var(--ink)}
+.viewpick button:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+body[data-view="list"] .mapwrap,body[data-view="list"] .legend{display:none}
+body[data-view="map"] .listing{display:none}
+
 @media (max-width:820px){
-  .mapwrap,.legend{display:none}
+  .mapwrap,.legend,.viewpick{display:none}   /* the map needs room; phones always get the list */
+  body[data-view="map"] .listing{display:block}
   .listing{margin-top:18px}
-  .listing > summary{display:none}
   .hero{padding-block:22px 6px}
 }
 </style>
 </head>
 <body>
+
+<script>/* before anything paints, so the chosen view never flashes the other one */
+(function(){var v="map";try{v=localStorage.getItem("rc-view")==="list"?"list":"map"}catch(e){}
+document.body.setAttribute("data-view",v);})();</script>
 
 <div class="wrap">
   <section class="hero">
@@ -102,6 +119,12 @@ h1 em{font-style:normal;color:var(--accent)}
       <a class="enter" id="enter" href="playrooms/dependency-injection/">Start exploring <span class="sub">Dependency Injection</span></a>
     </div>
   </section>
+
+
+  <div class="viewpick" role="group" aria-label="Choose how to browse">
+    <button type="button" data-pick="map" aria-pressed="true"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="3" width="7.5" height="7.5" rx="1.5"/><rect x="13.5" y="3" width="7.5" height="7.5" rx="1.5"/><rect x="3" y="13.5" width="7.5" height="7.5" rx="1.5"/><rect x="13.5" y="13.5" width="7.5" height="7.5" rx="1.5"/></svg>Map</button>
+    <button type="button" data-pick="list" aria-pressed="false"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 6h16M4 12h16M4 18h16"/></svg>List</button>
+  </div>
 
   <div class="mapwrap">
 <svg class="parkmap" viewBox="0 0 1004 622" role="img" aria-label="Runtime City: six districts, each marker is a playroom">
@@ -120,9 +143,7 @@ h1 em{font-style:normal;color:var(--accent)}
     <span>select any marker to open it</span>
     <span class="count" id="explored">0 of 27 explored</span>
   </div>
-
-  <details class="listing" id="listing">
-    <summary>Browse every playroom as a list</summary>
+  <div class="listing" id="listing">
     <section id="list-pattern-park">
       <h3>Pattern Park <span class="state">5 playrooms</span></h3>
       <ul>
@@ -186,7 +207,7 @@ h1 em{font-style:normal;color:var(--accent)}
 
       </ul>
     </section>
-  </details>
+  </div>
 
   <p class="loop">Every playroom runs the same loop: <b>see it</b> working, <b>break it</b> yourself, <b>fix it</b>, read the <b>same code</b> in C#, Java or TypeScript, then take the <b>interview check</b>.</p>
 </div>
@@ -194,6 +215,24 @@ h1 em{font-style:normal;color:var(--accent)}
 <script src="assets/city.js"></script>
 <script src="assets/nav.js"></script>
 <script>
+
+  /* The Map/List choice, remembered in localStorage under "rc-view". */
+  (function(){
+    const KEY = "rc-view", pick = document.querySelector(".viewpick");
+    if(!pick) return;
+    function apply(view, remember){
+      document.body.setAttribute("data-view", view);
+      pick.querySelectorAll("button").forEach(b =>
+        b.setAttribute("aria-pressed", String(b.dataset.pick === view)));
+      if(remember){ try{ localStorage.setItem(KEY, view); }catch(e){} }
+    }
+    apply(document.body.getAttribute("data-view") || "map", false);
+    pick.addEventListener("click", e => {
+      const b = e.target.closest("button[data-pick]");
+      if(b) apply(b.dataset.pick, true);
+    });
+  })();
+
   RuntimeNav.mount({title:'All districts'});
 
   (function(){
@@ -230,30 +269,34 @@ h1 em{font-style:normal;color:var(--accent)}
   /* Coming back from a playroom: #pattern-park lands you on that zone of the
      map, not in the list. */
   (function(){
+    /* Some embedded browsers ignore smooth scrolling and simply stay put, so
+       if nothing has moved shortly after, jump there instead. */
+    function goTo(el, block){
+      const from = window.scrollY;
+      el.scrollIntoView({block: block, behavior: "smooth"});
+      setTimeout(() => {
+        if(Math.abs(window.scrollY - from) < 4) el.scrollIntoView({block: block});
+      }, 350);
+    }
     function focusDistrict(slug){
       if(!slug) return;
       const zone = document.getElementById("zone-" + slug);
-      const wide = !window.matchMedia("(max-width: 820px)").matches;
-      if(zone && wide){
-        zone.scrollIntoView({block:"center", behavior:"smooth"});
+      const phone = window.matchMedia("(max-width: 820px)").matches;
+      const onMap = !phone && document.body.getAttribute("data-view") !== "list";
+      if(zone && onMap){
+        goTo(zone, "center");
         document.querySelectorAll(".zone.focus,.district.focus").forEach(z => z.classList.remove("focus"));
         zone.classList.add("focus");
         setTimeout(() => zone.classList.remove("focus"), 2600);
         return;
       }
-      const list = document.getElementById("listing");
       const section = document.getElementById("list-" + slug);
-      if(list) list.open = true;
-      if(section) requestAnimationFrame(() => requestAnimationFrame(() =>
-        section.scrollIntoView({block:"start", behavior:"smooth"})));
+      if(section) goTo(section, "start");
     }
     const fromHash = () => focusDistrict((location.hash || "").replace("#", ""));
     window.addEventListener("hashchange", fromHash);
     if(location.hash) setTimeout(fromHash, 60);
   })();
-
-    if(window.matchMedia('(max-width: 820px)').matches)
-      document.getElementById('listing').open = true;
   })();
 </script>
 </body>
