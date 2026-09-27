@@ -9,16 +9,165 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,600;12..96,800&family=IBM+Plex+Sans:wght@400;500&family=JetBrains+Mono:wght@400&display=swap">
 <link rel="stylesheet" href="../../assets/playroom.css">
+<style>
+/* An envelope with two compartments, a contract, a seal, and the hops it crosses. */
+.env{fill:var(--surface);stroke:var(--ink);stroke-width:1.8}
+.flap{fill:none;stroke:var(--hair);stroke-width:1.5}
+.compart{fill:var(--ground);stroke:var(--hair);stroke-width:1.5}
+.compart.head{stroke:var(--accent)}
+.clbl{font:500 11px var(--mono);fill:var(--accent)}
+.clbl.body{fill:var(--muted)}
+.line{font:400 10px var(--mono);fill:var(--muted)}
+.line.key{fill:var(--ink)}
+.stamp{fill:none;stroke:var(--good);stroke-width:2}
+.stamplbl{font:500 9px var(--mono);fill:var(--good);text-anchor:middle}
+.seal{fill:var(--accent);opacity:.9}
+.seallbl{font:500 9px var(--mono);fill:#fff;text-anchor:middle}
+.doc{fill:var(--ground);stroke:var(--hair);stroke-width:1.5}
+.doclbl{font:500 11px var(--mono);fill:var(--ink);text-anchor:middle}
+.gen{stroke:var(--good);stroke-width:2;fill:none;marker-end:url(#gar)}
+.genlbl{font:400 10px var(--mono);fill:var(--good);text-anchor:middle}
+.out{fill:var(--surface);stroke:var(--good);stroke-width:1.5}
+.outlbl{font:400 10px var(--mono);fill:var(--good);text-anchor:middle}
+.fault{fill:var(--surface);stroke:var(--bad);stroke-width:2}
+.faultcode{font:500 12px var(--mono);fill:var(--bad);text-anchor:middle}
+.faultline{font:400 10px var(--mono);fill:var(--muted);text-anchor:middle}
+.httpbar{fill:none;stroke:var(--muted);stroke-width:1.5;stroke-dasharray:4 3}
+.hop{fill:var(--surface);stroke:var(--hair);stroke-width:1.5}
+.hoplbl{font:400 10px var(--mono);fill:var(--muted);text-anchor:middle}
+.leak{fill:var(--bad);opacity:.85}
+.leaklbl{font:400 9px var(--mono);fill:#fff;text-anchor:middle}
+.lock{fill:var(--good);opacity:.9}
+.locklbl{font:400 9px var(--mono);fill:#fff;text-anchor:middle}
+.path{stroke:var(--hair);stroke-width:1.5;fill:none}
+.verdict{font:400 11px var(--mono);text-anchor:middle}
+.scale{fill:none;stroke:var(--hair);stroke-width:1.5}
+.pan{font:400 10px var(--mono);fill:var(--muted)}
+</style>
 </head>
 <body>
 <div id="playroom"></div>
 
 <script src="../../assets/city.js"></script>
 <script src="../../assets/nav.js"></script>
-<script src="../../assets/sequence.js"></script>
 <script src="../../assets/playroom.js"></script>
 <script>
-const LANES = [{name:'Client'}, {name:'SOAP service'}, {name:'Core banking'}];
+/* The envelope is the whole design: a Header for how, a Body for what.
+   Every step opens a different part of it. */
+const STAGE = `
+<svg viewBox="0 0 600 300" role="img" aria-label="A SOAP envelope, with a header compartment and a body compartment">
+  <defs>
+    <pattern id="grid" width="24" height="24" patternUnits="userSpaceOnUse"><path d="M24 0H0V24" class="gridline" fill="none"/></pattern>
+    <marker id="gar" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="6" markerHeight="6" orient="auto">
+      <path d="M0 0 L8 4 L0 8 Z" fill="var(--good)"/></marker>
+  </defs>
+  <rect width="600" height="300" fill="url(#grid)" opacity=".55"/>
+
+  <!-- the envelope -->
+  <g id="envelope">
+    <rect class="env" x="30" y="30" width="330" height="240" rx="6"/>
+    <path class="flap" d="M30 36 L195 130 L360 36"/>
+    <text class="line" x="44" y="24">soap:Envelope</text>
+
+    <g id="headBox">
+      <rect class="compart head" x="48" y="56" width="294" height="76" rx="4"/>
+      <text class="clbl" x="60" y="74">soap:Header — how</text>
+      <text id="h1" class="line" x="60" y="94">wsse:Security · UsernameToken</text>
+      <text id="h2" class="line" x="60" y="112">wsa:MessageID · uuid:8f2a-…</text>
+    </g>
+
+    <g id="bodyBox">
+      <rect class="compart" x="48" y="146" width="294" height="106" rx="4"/>
+      <text class="clbl body" x="60" y="164">soap:Body — what</text>
+      <text class="line key" x="60" y="186">TransferFunds</text>
+      <text class="line" x="60" y="206">from: GB29 NWBK …</text>
+      <text class="line" x="60" y="224">to:   GB94 BARC …</text>
+      <text class="line" x="60" y="242">amount: 90.00 GBP</text>
+    </g>
+
+    <!-- step 1: it travels over HTTP, but does not use it -->
+    <g id="pipe">
+      <rect class="httpbar" x="392" y="128" width="184" height="44" rx="22"/>
+      <text class="hoplbl" x="484" y="146">POST /BankingService.svc</text>
+      <text class="hoplbl" x="484" y="162">HTTP is only the pipe</text>
+      <text id="sizeLbl" class="verdict" x="484" y="206" style="fill:var(--muted)">1,412 bytes of XML</text>
+    </g>
+  </g>
+
+  <!-- step 2: the contract, and what it generates -->
+  <g id="contract">
+    <rect class="doc" x="392" y="46" width="176" height="90" rx="5"/>
+    <text class="doclbl" x="480" y="70">Banking.wsdl</text>
+    <text class="hoplbl" x="480" y="92">operations · types</text>
+    <text class="hoplbl" x="480" y="110">constraints · faults</text>
+    <path class="gen" d="M480 140 L480 172"/>
+    <text class="genlbl" x="480" y="160">generates</text>
+    <rect class="out" x="392" y="180" width="176" height="76" rx="5"/>
+    <text class="outlbl" x="480" y="202">TransferFundsAsync()</text>
+    <text class="outlbl" x="480" y="222">Money · Iban</text>
+    <text class="outlbl" x="480" y="242">InsufficientFundsFault</text>
+  </g>
+
+  <!-- step 3: the fault rides inside the Body, whatever HTTP says -->
+  <g id="faultBox">
+    <rect class="fault" x="392" y="66" width="176" height="150" rx="5"/>
+    <text class="hoplbl" x="480" y="52">HTTP/1.1 500 — always</text>
+    <text id="fCode" class="faultcode" x="480" y="96">soap:Client</text>
+    <text id="fReason" class="faultline" x="480" y="126">InsufficientFunds</text>
+    <text id="fDetail1" class="faultline" x="480" y="152">balance 40.00</text>
+    <text id="fDetail2" class="faultline" x="480" y="172">requested 90.00</text>
+    <text id="fFix" class="faultline" x="480" y="200">fix the request</text>
+  </g>
+
+  <!-- step 4: three hops, and what can read the message at each one -->
+  <g id="hops">
+    <rect class="hop" x="24" y="120" width="104" height="58" rx="6"/><text class="hoplbl" x="76" y="154">client</text>
+    <rect class="hop" x="248" y="120" width="104" height="58" rx="6"/><text class="hoplbl" x="300" y="154">gateway</text>
+    <rect class="hop" x="472" y="120" width="104" height="58" rx="6"/><text class="hoplbl" x="524" y="154">service</text>
+    <path class="path" d="M128 149 L248 149"/>
+    <path class="path" d="M352 149 L472 149"/>
+    <g id="leaks">
+      <rect class="leak" x="258" y="86" width="84" height="20" rx="3"/><text class="leaklbl" x="300" y="100">reads it all</text>
+      <rect class="leak" x="482" y="86" width="84" height="20" rx="3"/><text class="leaklbl" x="524" y="100">reads it all</text>
+      <text class="verdict" x="300" y="214" style="fill:var(--bad)">TLS protects the hop, not the message</text>
+      <text class="verdict" x="300" y="236" style="fill:var(--bad)">and no protocol-level undo</text>
+    </g>
+    <g id="locks">
+      <rect class="lock" x="252" y="86" width="96" height="20" rx="3"/><text class="locklbl" x="300" y="100">routes, cannot read</text>
+      <rect class="lock" x="478" y="86" width="92" height="20" rx="3"/><text class="locklbl" x="524" y="100">client's signature</text>
+      <text class="verdict" x="300" y="214" style="fill:var(--good)">signed and encrypted end to end</text>
+      <text class="verdict" x="300" y="236" style="fill:var(--good)">one coordinator · both commit, or neither</text>
+    </g>
+  </g>
+
+  <!-- step 5: the trade, on a balance -->
+  <g id="scales">
+    <line class="scale" x1="300" y1="40" x2="300" y2="86"/>
+    <line class="scale" x1="140" y1="86" x2="460" y2="86"/>
+    <line class="scale" x1="140" y1="86" x2="140" y2="106"/>
+    <line class="scale" x1="460" y1="86" x2="460" y2="106"/>
+    <rect class="compart" x="46" y="106" width="188" height="150" rx="5"/>
+    <text class="clbl body" x="60" y="126">what it costs</text>
+    <text class="pan" x="60" y="150">~12× the bytes</text>
+    <text class="pan" x="60" y="172">no caching — all POST</text>
+    <text class="pan" x="60" y="194">browsers do not speak it</text>
+    <text class="pan" x="60" y="216">tooling or nothing</text>
+    <rect class="compart head" x="366" y="106" width="188" height="150" rx="5"/>
+    <text class="clbl" x="380" y="126">what it buys</text>
+    <text class="pan" x="380" y="150">a generated client</text>
+    <text class="pan" x="380" y="172">typed faults with detail</text>
+    <text class="pan" x="380" y="194">message-level signing</text>
+    <text class="pan" x="380" y="216">a real commit across services</text>
+    <text class="verdict" x="300" y="286" style="fill:var(--muted)">a bad trade for a public API · the reason it still moves money</text>
+  </g>
+
+  <!-- the wax seal, once the envelope is signed -->
+  <g id="seal">
+    <circle class="seal" cx="342" cy="252" r="22"/>
+    <text class="seallbl" x="342" y="249">WS</text>
+    <text class="seallbl" x="342" y="261">SEC</text>
+  </g>
+</svg>`;
 
 const NOTES = {
   1:'<b>Every message is an Envelope with a Header and a Body.</b> The Body carries the call; the Header carries everything about the call — security, addressing, transactions — which is the whole design in one shape.',
@@ -175,7 +324,7 @@ const P = Playroom({
   title:'SOAP',
   dek:'A strict envelope, a contract a machine can read, typed faults — and the guarantees that keep it running inside banks.',
   steps:['The envelope','The contract','Faults','WS-* and transactions','The trade','Interview check'],
-  stage:Sequence.stage({lanes:LANES, height:320}),
+  stage:STAGE,
 
   state:{fault:'Client', ws:'tls', sent:false},
 
@@ -218,61 +367,50 @@ const P = Playroom({
   note: S => NOTES[S.step],
 
   onStage(S){
-    const s = S.step;
-    let lanes = LANES.map(l => ({...l}));
-    let messages = [], caption = '';
+    const s = S.step, id = n => document.getElementById(n);
+    const show = (n, on) => { const e = id(n); if(e) e.style.display = on ? '' : 'none'; };
+
+    show('envelope', s === 1 || s === 2 || s === 3);
+    show('pipe',     s === 1);
+    show('contract', s === 2);
+    show('faultBox', s === 3);
+    show('hops',     s === 4);
+    show('scales',   s === 5);
+    show('seal',     s === 4 && S.ws === 'ws');
 
     if(s === 1){
-      messages = S.sent ? [
-        {from:0, to:1, label:'POST /BankingService.svc · SOAPAction: TransferFunds'},
-        {from:1, to:1, label:'validate the Body against the schema', kind:'ok'},
-        {from:1, to:2, label:'move the money', kind:'ok'},
-        {from:1, to:0, label:'200 OK · <TransferFundsResponse> receipt', kind:'cached'}
-      ] : [];
-      caption = 'Envelope → Header (how) → Body (what)';
-    } else if(s === 2){
-      messages = [
-        {from:0, to:1, label:'GET /BankingService.svc?wsdl', kind:'ok'},
-        {from:1, to:0, label:'the contract: operations, types, constraints', kind:'cached'},
-        {from:0, to:0, label:'generate a typed client — before writing any code', kind:'cached'},
-        {from:0, to:1, label:'TransferFundsAsync(from, to, Money)', kind:'ok'}
-      ];
-      caption = 'the contract comes first, and the client is generated from it';
-    } else if(s === 3){
-      const f = FAULTS[S.fault];
-      messages = [
-        {from:0, to:1, label:'TransferFunds · 90.00 GBP'},
-        {from:1, to: S.fault === 'Server' ? 2 : 1, label: S.fault === 'Server' ? 'call core banking' : 'check the balance', kind: S.fault === 'Server' ? 'slow' : 'ok'},
-        ...(S.fault === 'Server' ? [{from:2, to:1, label:'timeout', kind:'bad'}] : []),
-        {from:1, to:0, label:`500 · ${f.code}`, kind: S.fault === 'Server' ? 'bad' : 'slow'},
-        {from:0, to:0, label:f.fix, kind: S.fault === 'Server' ? 'slow' : 'bad'}
-      ];
-      caption = 'the transport failed the same way every time · the Fault says what really happened';
-    } else if(s === 4){
-      lanes = [{name:'Client'}, {name:'Gateway'}, {name:'Service + core'}];
-      messages = S.ws === 'tls'
-        ? [{from:0, to:1, label:'TLS · encrypted to the gateway'},
-           {from:1, to:1, label:'decrypts the whole message to route it', kind:'bad'},
-           {from:1, to:2, label:'TLS again · re-encrypted, but now re-signed by the gateway', kind:'bad'},
-           {from:2, to:2, label:'transfer ok, ledger write fails', kind:'bad'},
-           {from:2, to:0, label:'no protocol-level undo — you write the compensation', kind:'bad'}]
-        : [{from:0, to:1, label:'body signed by the client · account number encrypted', kind:'secret'},
-           {from:1, to:1, label:'routes it without being able to read it', kind:'ok'},
-           {from:1, to:2, label:'signature still the client’s, all the way through', kind:'secret'},
-           {from:2, to:2, label:'prepare · both services vote', kind:'ok'},
-           {from:2, to:0, label:'commit — or neither of them did anything', kind:'cached'}];
-      caption = S.ws === 'tls' ? 'transport security protects hops · this message crossed three' : 'message security travels with the message · the coordinator owns the outcome';
-    } else if(s === 5){
-      messages = [
-        {from:0, to:1, label:'1,412 bytes of XML', kind:'slow'},
-        {from:1, to:0, label:'1,180 bytes back · nothing cacheable', kind:'slow'},
-        {from:0, to:0, label:'typed fault · end-to-end signature · atomic commit', kind:'cached'},
-        {from:0, to:0, label:'worth it when those three are the requirement, and only then', kind:'ok'}
-      ];
-      caption = 'a bad trade for a public API · a good one for moving money';
+      id('sizeLbl').textContent = S.sent ? '1,412 bytes sent · 1,180 back' : '1,412 bytes of XML';
+      id('sizeLbl').style.fill = S.sent ? 'var(--accent)' : 'var(--muted)';
     }
 
-    Sequence.draw({lanes, messages, caption});
+    /* step 3: the transport says 500 every time — the Body says what happened */
+    if(s === 3){
+      const f = FAULTS[S.fault];
+      id('fCode').textContent = f.code;
+      const detail = {
+        'Client':        ['balance 40.00', 'requested 90.00'],
+        'Server':        ['downstream timeout', 'core banking unavailable'],
+        'MustUnderstand':['{wsse}Security', 'was not understood']
+      }[S.fault];
+      id('fReason').textContent = f.reason.split(':')[0];
+      id('fDetail1').textContent = detail[0];
+      id('fDetail2').textContent = detail[1];
+      id('fFix').textContent = S.fault === 'Server' ? 'retry with backoff'
+        : S.fault === 'Client' ? 'fix the request' : 'the contract disagrees';
+      const colour = S.fault === 'Server' ? 'var(--bad)' : 'var(--accent)';
+      id('fCode').style.fill = colour;
+      id('faultBox').querySelector('.fault').setAttribute('stroke', colour);
+      /* the Header is what MustUnderstand is arguing about */
+      id('headBox').querySelector('.compart').setAttribute('stroke',
+        S.fault === 'MustUnderstand' ? 'var(--bad)' : 'var(--accent)');
+    } else if(id('headBox')){
+      id('headBox').querySelector('.compart').setAttribute('stroke', 'var(--accent)');
+    }
+
+    if(s === 4){
+      show('leaks', S.ws === 'tls');
+      show('locks', S.ws !== 'tls');
+    }
   },
 
   onStep(S, n){

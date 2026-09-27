@@ -9,16 +9,137 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,600;12..96,800&family=IBM+Plex+Sans:wght@400;500&family=JetBrains+Mono:wght@400&display=swap">
 <link rel="stylesheet" href="../../assets/playroom.css">
+<style>
+/* A filing cabinet of resources, and a counter in front of it. */
+.panel{fill:var(--surface);stroke:var(--hair);stroke-width:1.5}
+.drawer{fill:var(--ground);stroke:var(--hair);stroke-width:1.5;transition:transform .45s cubic-bezier(.2,.9,.3,1.2),stroke .2s}
+.drawer.open{transform:translateX(30px)}
+.pull{stroke:var(--hair);stroke-width:2.5;stroke-linecap:round;transition:transform .45s cubic-bezier(.2,.9,.3,1.2)}
+.pull.open{transform:translateX(30px)}
+.addr{font:400 12px var(--mono);fill:var(--ink);transition:transform .45s cubic-bezier(.2,.9,.3,1.2)}
+.addr.open{transform:translateX(30px)}
+.addr.lit{fill:var(--accent)}
+.box{fill:var(--surface);stroke:var(--ink);stroke-width:1.5}
+.box.ghost{fill:none;stroke:var(--hair);stroke-dasharray:5 4}
+.boxlbl{font:500 11px var(--mono);fill:var(--ink);text-anchor:middle}
+.rpcbar{fill:var(--ground);stroke:var(--bad);stroke-width:1.5}
+.rpclbl{font:400 11px var(--mono);fill:var(--muted)}
+.verb{fill:var(--accent);stroke:none;transition:transform .5s cubic-bezier(.2,.9,.3,1.2),opacity .3s}
+.verblbl{font:500 11px var(--mono);fill:#fff;text-anchor:middle}
+.wire{stroke:var(--hair);stroke-width:1.5;fill:none}
+.wire.hot{stroke:var(--accent)}
+.wire.dead{stroke:var(--bad);stroke-dasharray:5 4}
+.tick{stroke:var(--bad);stroke-width:1.5;opacity:.55}
+.fat{stroke:var(--good);stroke-width:7;stroke-linecap:round}
+.note{fill:var(--accent);opacity:.9}
+.notelbl{font:400 9px var(--mono);fill:#fff;text-anchor:middle}
+.card{fill:var(--ground);stroke:var(--hair);stroke-width:1.5}
+.field{font:400 11px var(--mono);fill:var(--ink)}
+.field.gone{fill:var(--bad);text-decoration:line-through}
+.field.fresh{fill:var(--good)}
+.reads{font:400 10px var(--mono);fill:var(--muted)}
+.reads.broken{fill:var(--bad)}
+.reads.fine{fill:var(--good)}
+</style>
 </head>
 <body>
 <div id="playroom"></div>
 
 <script src="../../assets/city.js"></script>
 <script src="../../assets/nav.js"></script>
-<script src="../../assets/sequence.js"></script>
 <script src="../../assets/playroom.js"></script>
 <script>
-const LANES = [{name:'Client'}, {name:'Load balancer'}, {name:'API server'}];
+/* The scene: a client on the left, and on the right either a wall of
+   one-off RPC endpoints or a cabinet whose drawers have addresses.
+   Each step lights up a different part of it. */
+const STAGE = `
+<svg viewBox="0 0 600 300" role="img" aria-label="A client, and a cabinet of addressable resources">
+  <defs><pattern id="grid" width="24" height="24" patternUnits="userSpaceOnUse"><path d="M24 0H0V24" class="gridline" fill="none"/></pattern></defs>
+  <rect width="600" height="300" fill="url(#grid)" opacity=".55"/>
+
+  <!-- the client, always there -->
+  <g id="client">
+    <rect class="box" x="24" y="120" width="104" height="60" rx="6"/>
+    <text class="boxlbl" x="76" y="155">client</text>
+  </g>
+
+  <!-- step 1a: five one-off endpoints, every one a POST -->
+  <g id="rpcWall">
+    <rect class="panel" x="300" y="34" width="272" height="232" rx="8"/>
+    <text class="tinyl" x="316" y="56">one endpoint per action</text>
+    <g>
+      <rect class="rpcbar" x="316" y="68" width="240" height="30" rx="4"/><text class="rpclbl" x="328" y="88">POST /getOrder?id=42</text>
+      <rect class="rpcbar" x="316" y="106" width="240" height="30" rx="4"/><text class="rpclbl" x="328" y="126">POST /createOrder</text>
+      <rect class="rpcbar" x="316" y="144" width="240" height="30" rx="4"/><text class="rpclbl" x="328" y="164">POST /updateOrderQty</text>
+      <rect class="rpcbar" x="316" y="182" width="240" height="30" rx="4"/><text class="rpclbl" x="328" y="202">POST /cancelOrder</text>
+      <rect class="rpcbar" x="316" y="220" width="240" height="30" rx="4"/><text class="rpclbl" x="328" y="240">POST /listOrdersForUser</text>
+    </g>
+  </g>
+
+  <!-- step 1b onwards: the cabinet -->
+  <g id="cabinet">
+    <rect class="panel" x="300" y="34" width="272" height="232" rx="8"/>
+    <text class="tinyl" x="316" y="56">one cabinet · every drawer has an address</text>
+    <g id="d1"><rect class="drawer" x="316" y="66" width="240" height="56" rx="4"/>
+      <line class="pull" x1="520" y1="94" x2="540" y2="94"/>
+      <text class="addr" x="332" y="99">/orders</text></g>
+    <g id="d2"><rect id="d2box" class="drawer" x="316" y="130" width="240" height="56" rx="4"/>
+      <line id="d2pull" class="pull" x1="520" y1="158" x2="540" y2="158"/>
+      <text id="d2addr" class="addr lit" x="332" y="163">/orders/42</text></g>
+    <g id="d3"><rect class="drawer" x="316" y="194" width="240" height="56" rx="4"/>
+      <line class="pull" x1="520" y1="222" x2="540" y2="222"/>
+      <text class="addr" x="332" y="227">/users/7</text></g>
+  </g>
+
+  <!-- step 2: the method, on a wire to the drawer it addresses -->
+  <g id="verbTok" opacity="0">
+    <line class="wire hot" x1="128" y1="158" x2="300" y2="158"/>
+    <rect class="verb" x="142" y="145" width="102" height="26" rx="13"/>
+    <text id="verbLbl" class="verblbl" x="193" y="163">GET</text>
+  </g>
+
+  <!-- step 3: one cabinet, two clerks, and where the notepad lives -->
+  <g id="servers">
+    <rect class="box" x="300" y="56" width="150" height="72" rx="6"/>
+    <text class="boxlbl" x="375" y="90">server A</text>
+    <rect class="box" x="300" y="172" width="150" height="72" rx="6"/>
+    <text class="boxlbl" x="375" y="206">server B</text>
+    <path id="wireA" class="wire" d="M128 150 C 210 150 220 92 300 92"/>
+    <path id="wireB" class="wire" d="M128 150 C 210 150 220 208 300 208"/>
+    <g id="noteA"><rect class="note" x="392" y="100" width="46" height="18" rx="3"/>
+      <text class="notelbl" x="415" y="113">session</text></g>
+    <g id="noteC"><rect class="note" x="42" y="186" width="46" height="18" rx="3"/>
+      <text class="notelbl" x="65" y="199">token</text></g>
+    <text id="wireBlbl" class="tinyl" x="470" y="212">401</text>
+  </g>
+
+  <!-- step 4: what one screen costs -->
+  <g id="trips">
+    <g id="manyTrips">
+      <line class="tick" x1="140" y1="118" x2="292" y2="118"/><line class="tick" x1="140" y1="126" x2="292" y2="126"/>
+      <line class="tick" x1="140" y1="134" x2="292" y2="134"/><line class="tick" x1="140" y1="142" x2="292" y2="142"/>
+      <line class="tick" x1="140" y1="150" x2="292" y2="150"/><line class="tick" x1="140" y1="158" x2="292" y2="158"/>
+      <line class="tick" x1="140" y1="166" x2="292" y2="166"/><line class="tick" x1="140" y1="174" x2="292" y2="174"/>
+      <line class="tick" x1="140" y1="182" x2="292" y2="182"/>
+      <text class="tiny" x="216" y="204" style="fill:var(--bad)">× 51 round trips</text>
+    </g>
+    <g id="oneTrip">
+      <line class="fat" x1="146" y1="150" x2="288" y2="150"/>
+      <text class="tiny" x="216" y="180" style="fill:var(--good)">1 round trip</text>
+    </g>
+  </g>
+
+  <!-- step 5: the record inside the drawer, and an old client reading it -->
+  <g id="record">
+    <rect class="card" x="352" y="126" width="196" height="122" rx="5"/>
+    <text class="tiny" x="450" y="146">/orders/42</text>
+    <text class="field" x="368" y="170">id: 42</text>
+    <text id="f2" class="field" x="368" y="192">name: "Ada Lovelace"</text>
+    <text id="f3" class="field" x="368" y="214">total: 90.00</text>
+    <text id="f4" class="field fresh" x="368" y="236">currency: "GBP"</text>
+    <text id="readsLbl" class="reads" x="24" y="212">a client built last year reads .name</text>
+  </g>
+</svg>`;
 
 const NOTES = {
   1:'<b>REST names things, not actions.</b> The noun lives in the path and the method says what you are doing to it, so one URL serves five operations instead of five URLs serving one each.',
@@ -219,7 +340,7 @@ const P = Playroom({
   title:'REST',
   dek:'Name the thing, let the method say what you are doing to it, and keep the server forgetting you between requests.',
   steps:['Nouns, not verbs','Collections and items','Stateless','Chatty clients','Versioning','Interview check'],
-  stage:Sequence.stage({lanes:LANES, height:320}),
+  stage:STAGE,
 
   state:{style:'rpc', verb:'GET /orders/42', sticky:true, calls:'n1', change:'break'},
 
@@ -271,64 +392,66 @@ const P = Playroom({
   note: S => NOTES[S.step],
 
   onStage(S){
-    const s = S.step;
-    let lanes = LANES.map((l, i) => ({...l, dim: i === 1}));
-    let messages = [], caption = '';
+    const s = S.step, id = n => document.getElementById(n);
+    const show = (n, on) => { const e = id(n); if(e) e.style.display = on ? '' : 'none'; };
 
-    if(s === 1){
-      messages = S.style === 'rpc'
-        ? [{from:0, to:2, label:'POST /getOrder?id=42', kind:'bad'},
-           {from:2, to:0, label:'200 OK — but it was only a read', kind:'bad'},
-           {from:0, to:0, label:'no cache, no safe retry, no shared meaning', kind:'bad'}]
-        : [{from:0, to:2, label:'GET /orders/42'},
-           {from:2, to:0, label:'200 OK · Cache-Control · ETag', kind:'cached'},
-           {from:0, to:0, label:'anything on the path may cache or retry it', kind:'cached'}];
-      caption = S.style === 'rpc' ? 'the verb is hidden in the path, where nothing can read it' : 'the verb is the method, where everything can read it';
-    } else if(s === 2){
-      const v = VERBS[S.verb], post = S.verb.startsWith('POST');
-      messages = [
-        {from:0, to:2, label:S.verb},
-        {from:2, to:0, label:v.ok, kind:'cached'},
-        {from:0, to:2, label:'the same request again (a retry)', kind:post ? 'bad' : 'slow'},
-        {from:2, to:0, label:post ? '201 Created · order 44 — a second order' : 'the same result as before', kind:post ? 'bad' : 'cached'}
-      ];
-      caption = post ? 'POST creates a member, so a blind retry creates two' : v.safe;
-    } else if(s === 3){
-      lanes = [{name:'Client'}, {name:'Server A'}, {name:'Server B'}];
-      messages = S.sticky
-        ? [{from:0, to:1, label:'POST /login'},
-           {from:1, to:1, label:'remember session s-9f2a in memory', kind:'slow'},
-           {from:1, to:0, label:'200 OK · sid=s-9f2a', kind:'cached'},
-           {from:0, to:2, label:'GET /orders · sid=s-9f2a', kind:'bad'},
-           {from:2, to:0, label:'401 — B never stored that session', kind:'bad'}]
-        : [{from:0, to:1, label:'POST /login'},
-           {from:1, to:0, label:'200 OK · a signed token', kind:'cached'},
-           {from:0, to:2, label:'GET /orders · Authorization: Bearer …'},
-           {from:2, to:2, label:'verify the signature — no lookup', kind:'cached'},
-           {from:2, to:0, label:'200 OK', kind:'cached'}];
-      caption = S.sticky ? 'state on the server ties the client to that server' : 'state in the request means any server will do';
-    } else if(s === 4){
-      messages = S.calls === 'n1'
-        ? [{from:0, to:2, label:'GET /orders?page=1', ms:'60 ms'},
-           {from:2, to:0, label:'200 OK · [41, 42, 43, …] — 50 ids', kind:'cached'},
-           {from:0, to:2, label:'GET /orders/41 … and 49 more', ms:'3,000 ms', kind:'bad'},
-           {from:2, to:0, label:'50 responses you now stitch together', kind:'bad'}]
-        : [{from:0, to:2, label:'GET /orders?page=1&expand=customer', ms:'0 ms'},
-           {from:2, to:2, label:'one query, joined server-side', kind:'ok'},
-           {from:2, to:0, label:'200 OK · 50 orders with their customers', ms:'72 ms', kind:'cached'}];
-      caption = S.calls === 'n1' ? '1 + N requests · the N is chosen by your data, not your code' : 'the server is next to the database — let it do the joining';
-    } else if(s === 5){
-      messages = S.change === 'break'
-        ? [{from:0, to:2, label:'GET /orders/42 (a client built last year)'},
-           {from:2, to:0, label:'200 OK · { "fullName": … }', kind:'bad'},
-           {from:0, to:0, label:'reads .name → undefined · no error, just wrong', kind:'bad'}]
-        : [{from:0, to:2, label:'GET /orders/42 (a client built last year)'},
-           {from:2, to:0, label:'200 OK · { "name": …, "fullName": …, "currency": … }', kind:'cached'},
-           {from:0, to:0, label:'reads .name → still there · new clients read the rest', kind:'cached'}];
-      caption = S.change === 'break' ? 'a rename is a breaking change dressed up as a tidy-up' : 'add, deprecate, measure, then remove';
+    show('rpcWall', s === 1 && S.style === 'rpc');
+    show('cabinet', !(s === 1 && S.style === 'rpc') && s !== 3);
+    show('verbTok', s === 2);
+    show('servers', s === 3);
+    show('trips',   s === 4);
+    show('record',  s === 5);
+
+    /* step 2: the method travels to the drawer it names, and the drawer
+       opens for a read, or stays shut for a write to the collection */
+    const tok = id('verbTok');
+    if(s === 2){
+      const collection = S.verb.endsWith('/orders');
+      id('verbLbl').textContent = S.verb.split(' ')[0];
+      tok.setAttribute('opacity', '1');
+      tok.setAttribute('transform', `translate(0 ${collection ? -64 : 0})`);
+      id('d2addr').classList.toggle('lit', !collection);
+      const open = !collection && S.verb.startsWith('GET');
+      ['d2box','d2pull','d2addr'].forEach(n => id(n).classList.toggle('open', open));
+      id('d2box').setAttribute('stroke', S.verb.startsWith('DELETE') ? 'var(--bad)' : 'var(--hair)');
+    } else {
+      tok.setAttribute('opacity', '0');
+      tok.setAttribute('transform', 'translate(0 0)');
+      ['d2box','d2pull','d2addr'].forEach(n => id(n) && id(n).classList.remove('open'));
+      if(id('d2box')) id('d2box').setAttribute('stroke', 'var(--hair)');
     }
 
-    Sequence.draw({lanes, messages, caption});
+    /* step 3: the notepad is either kept by one server, or carried by the client */
+    if(s === 3){
+      id('noteA').style.display = S.sticky ? '' : 'none';
+      id('noteC').style.display = S.sticky ? 'none' : '';
+      id('wireBlbl').style.display = S.sticky ? '' : 'none';
+      id('wireA').setAttribute('class', 'wire hot');
+      id('wireB').setAttribute('class', S.sticky ? 'wire dead' : 'wire hot');
+    }
+
+    /* step 4: one fat trip, or fifty-one thin ones */
+    if(s === 4){
+      id('manyTrips').style.display = S.calls === 'n1' ? '' : 'none';
+      id('oneTrip').style.display   = S.calls === 'n1' ? 'none' : '';
+    }
+
+    /* step 5: the record in the drawer, seen by a client that never changed */
+    if(s === 5){
+      const broke = S.change === 'break';
+      id('f2').textContent = broke ? 'fullName: "Ada Lovelace"' : 'name: "Ada Lovelace"';
+      id('f2').setAttribute('class', broke ? 'field gone' : 'field');
+      id('f4').style.display = broke ? 'none' : '';
+      id('f3').textContent = broke ? 'total: 90.00' : 'fullName: "Ada Lovelace"';
+      id('readsLbl').textContent = broke
+        ? 'a client built last year reads .name → undefined'
+        : 'a client built last year reads .name → still there';
+      id('readsLbl').setAttribute('class', broke ? 'reads broken' : 'reads fine');
+      ['d2box','d2pull','d2addr'].forEach(n => id(n).classList.add('open'));
+    }
+    /* only the drawer we are reading, so the card has room */
+    show('d1', s !== 5);
+    show('d3', s !== 5);
   },
 
   onStep(S, n){

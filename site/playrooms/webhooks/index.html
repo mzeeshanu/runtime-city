@@ -9,16 +9,130 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,600;12..96,800&family=IBM+Plex+Sans:wght@400;500&family=JetBrains+Mono:wght@400&display=swap">
 <link rel="stylesheet" href="../../assets/playroom.css">
+<style>
+/* Your endpoint as a door someone else knocks on: a bell, a slot, a ledger. */
+.box{fill:var(--surface);stroke:var(--ink);stroke-width:1.5}
+.boxlbl{font:500 11px var(--mono);fill:var(--ink);text-anchor:middle}
+.wall{fill:var(--surface);stroke:var(--hair);stroke-width:1.5}
+.slot{fill:var(--ground);stroke:var(--ink);stroke-width:1.5}
+.bell{fill:none;stroke:var(--hair);stroke-width:2;transition:stroke .2s,fill .2s}
+.bell.lit{stroke:var(--accent);fill:var(--accent)}
+.tag{font:400 10px var(--mono);fill:var(--muted);text-anchor:middle}
+.tag.bad{fill:var(--bad)} .tag.good{fill:var(--good)}
+.ask{stroke:var(--muted);stroke-width:1.2;opacity:.55}
+.push{stroke:var(--good);stroke-width:4;stroke-linecap:round}
+.knock{stroke:var(--bad);stroke-width:1.8}
+.knock.ok{stroke:var(--good)}
+.att{font:400 10px var(--mono);fill:var(--bad)}
+.att.ok{fill:var(--good)}
+.parcel{fill:var(--ground);stroke:var(--accent);stroke-width:1.5}
+.parcel.dupe{stroke:var(--bad);stroke-dasharray:4 3}
+.parcellbl{font:400 9px var(--mono);fill:var(--muted);text-anchor:middle}
+.ledger{fill:var(--ground);stroke:var(--hair);stroke-width:1.5}
+.led{font:400 10px var(--mono);fill:var(--ink)}
+.led.dim{fill:var(--muted)}
+.badge{fill:var(--good);opacity:.9}
+.badge.forged{fill:var(--bad)}
+.badgelbl{font:500 9px var(--mono);fill:#fff;text-anchor:middle}
+.stranger{fill:var(--surface);stroke:var(--bad);stroke-width:1.5;stroke-dasharray:4 3}
+.clock{fill:none;stroke:var(--hair);stroke-width:2}
+.hand{stroke:var(--bad);stroke-width:2.5;stroke-linecap:round;transition:transform .4s ease;transform-origin:center}
+.hand.fast{stroke:var(--good)}
+.queue{fill:var(--ground);stroke:var(--good);stroke-width:1.5}
+.verdict{font:400 11px var(--mono);text-anchor:middle}
+</style>
 </head>
 <body>
 <div id="playroom"></div>
 
 <script src="../../assets/city.js"></script>
 <script src="../../assets/nav.js"></script>
-<script src="../../assets/sequence.js"></script>
 <script src="../../assets/playroom.js"></script>
 <script>
-const LANES = [{name:'Payment provider'}, {name:'Your endpoint'}, {name:'Your queue + DB'}];
+/* Your endpoint, drawn as a door: they come to it, and everything hard
+   about webhooks is a question about who is allowed through and how often. */
+const STAGE = `
+<svg viewBox="0 0 600 300" role="img" aria-label="Your endpoint drawn as a door that a payment provider knocks on">
+  <defs><pattern id="grid" width="24" height="24" patternUnits="userSpaceOnUse"><path d="M24 0H0V24" class="gridline" fill="none"/></pattern></defs>
+  <rect width="600" height="300" fill="url(#grid)" opacity=".55"/>
+
+  <g id="provider">
+    <rect class="box" x="20" y="122" width="126" height="58" rx="6"/>
+    <text class="boxlbl" x="83" y="147">payment</text>
+    <text class="boxlbl" x="83" y="164">provider</text>
+  </g>
+
+  <!-- your endpoint: a bell to ring, a slot to post through -->
+  <g id="door">
+    <rect class="wall" x="388" y="40" width="192" height="220" rx="6"/>
+    <text class="tag" x="484" y="32">your endpoint</text>
+    <circle id="bellRing" class="bell" cx="484" cy="86" r="15"/>
+    <text class="tag" x="484" y="118">POST /hooks/payments</text>
+    <rect id="slotRect" class="slot" x="412" y="140" width="144" height="16" rx="8"/>
+  </g>
+
+  <!-- step 1: you ask, forever — or they come to you -->
+  <g id="poll">
+    <line class="ask" x1="380" y1="96" x2="156" y2="130"/><line class="ask" x1="380" y1="108" x2="156" y2="136"/>
+    <line class="ask" x1="380" y1="120" x2="156" y2="142"/><line class="ask" x1="380" y1="132" x2="156" y2="148"/>
+    <line class="ask" x1="380" y1="144" x2="156" y2="154"/><line class="ask" x1="380" y1="156" x2="156" y2="160"/>
+    <line class="ask" x1="380" y1="168" x2="156" y2="166"/><line class="ask" x1="380" y1="180" x2="156" y2="172"/>
+    <text class="tag bad" x="268" y="208">1,440 requests a day</text>
+    <text class="tag bad" x="268" y="226">and still up to 60s behind</text>
+  </g>
+  <g id="push">
+    <line class="push" x1="156" y1="140" x2="378" y2="94"/>
+    <text class="tag good" x="268" y="188">one call, about a second after it happened</text>
+  </g>
+
+  <!-- step 2: they will come back, and back, and back -->
+  <g id="attempts">
+    <line id="k1" class="knock" x1="156" y1="128" x2="378" y2="86"/>
+    <text id="a1" class="att" x="196" y="104">1 · 0s · refused</text>
+    <text id="a2" class="att" x="196" y="128">2 · +30s · refused</text>
+    <text id="a3" class="att" x="196" y="152">3 · +2m · 500</text>
+    <text id="a4" class="att" x="196" y="176">4 · +10m · 200 OK</text>
+    <text id="aNote" class="verdict" x="268" y="226" style="fill:var(--muted)">backoff · then a dead-letter queue</text>
+  </g>
+
+  <!-- step 3: the same event, posted twice -->
+  <g id="dupes">
+    <g id="parcel1"><rect class="parcel" x="196" y="96" width="92" height="30" rx="3"/>
+      <text class="parcellbl" x="242" y="115">evt_8f2a19</text></g>
+    <g id="parcel2"><rect id="p2box" class="parcel dupe" x="196" y="150" width="92" height="30" rx="3"/>
+      <text class="parcellbl" x="242" y="169">evt_8f2a19</text></g>
+    <rect class="ledger" x="404" y="176" width="160" height="72" rx="4"/>
+    <text class="led dim" x="416" y="196">handled_events</text>
+    <text id="led1" class="led" x="416" y="218">evt_8f2a19</text>
+    <text id="led2" class="led" x="416" y="238">—</text>
+    <text id="dupeVerdict" class="verdict" x="242" y="220" style="fill:var(--bad)">two parcels shipped</text>
+  </g>
+
+  <!-- step 4: check the ID before you open the door -->
+  <g id="idcheck">
+    <rect class="stranger" x="20" y="196" width="126" height="48" rx="6"/>
+    <text class="tag" x="83" y="218">anyone</text>
+    <text class="tag" x="83" y="234">with curl</text>
+    <line id="wReal" class="knock ok" x1="152" y1="146" x2="378" y2="120"/>
+    <line id="wFake" class="knock" x1="152" y1="212" x2="378" y2="168"/>
+    <g id="sigBadge"><rect class="badge" x="206" y="112" width="112" height="18" rx="3"/>
+      <text class="badgelbl" x="262" y="125">HMAC · timestamp</text></g>
+    <text id="realVerdict" class="tag good" x="300" y="106">verified</text>
+    <text id="fakeVerdict" class="tag bad" x="300" y="200">"amount": 900000</text>
+    <text id="doorVerdict" class="verdict" x="484" y="212">401 at the door</text>
+  </g>
+
+  <!-- step 5: answer now, work later -->
+  <g id="fast">
+    <circle class="clock" cx="250" cy="150" r="34"/>
+    <line id="clockHand" class="hand" x1="250" y1="150" x2="250" y2="124"/>
+    <text id="clockLbl" class="verdict" x="250" y="210">16 s</text>
+    <rect id="queueBox" class="queue" x="404" y="176" width="160" height="56" rx="4"/>
+    <text class="tag" x="484" y="198">durable queue</text>
+    <text class="tag" x="484" y="216">the worker takes its time</text>
+    <text id="fastVerdict" class="verdict" x="250" y="246" style="fill:var(--bad)">their timeout fires · retried while still working</text>
+  </g>
+</svg>`;
 
 const NOTES = {
   1:'<b>A webhook inverts the call.</b> Instead of asking every minute whether anything happened, you publish a URL and they call you when it does — so you learn in a second, and only when there is news.',
@@ -212,7 +326,7 @@ const P = Playroom({
   title:'Webhooks',
   dek:'They call you when something happens — so now you own an endpoint that must survive duplicates, strangers and being slow.',
   steps:['They call you','Retries','Duplicates','Proving it was them','Answer fast','Interview check'],
-  stage:Sequence.stage({lanes:LANES, height:320}),
+  stage:STAGE,
 
   state:{mode:'poll', attempt:1, idem:false, signed:false, async:false},
 
@@ -264,71 +378,71 @@ const P = Playroom({
   note: S => NOTES[S.step],
 
   onStage(S){
-    const s = S.step;
-    let lanes = LANES.map((l, i) => ({...l, dim: s < 5 && i === 2}));
-    let messages = [], caption = '';
+    const s = S.step, id = n => document.getElementById(n);
+    const show = (n, on) => { const e = id(n); if(e) e.style.display = on ? '' : 'none'; };
 
-    if(s === 1){
-      messages = S.mode === 'poll'
-        ? [{from:1, to:0, label:'GET /v1/charges?since=…', kind:'slow'},
-           {from:0, to:1, label:'200 OK · []', kind:'slow'},
-           {from:1, to:0, label:'GET /v1/charges?since=…', kind:'slow'},
-           {from:0, to:0, label:'the charge succeeds here', kind:'ok'},
-           {from:1, to:0, label:'GET … · up to 60s later', kind:'bad'},
-           {from:0, to:1, label:'200 OK · [charge]', kind:'cached'}]
-        : [{from:0, to:0, label:'the charge succeeds', kind:'ok'},
-           {from:0, to:1, label:'POST /hooks/payments · charge.succeeded', ms:'~1s', kind:'cached'},
-           {from:1, to:0, label:'200 OK', kind:'cached'}];
-      caption = S.mode === 'poll' ? 'you ask 1,440 times to hear 12 things' : 'one call, when there is something to say';
-    } else if(s === 2){
-      lanes = [{name:'Payment provider'}, {name:'Your endpoint'}, {name:'Dead letters'}];
-      messages = ATTEMPTS.slice(0, S.attempt).map(a =>
-        a.ok ? {from:0, to:1, label:`attempt ${a.n} · ${a.at} · 200 OK`, ms:a.at, kind:'cached'}
-             : {from:0, to:1, label:`attempt ${a.n} · ${a.at} · ${a.r}`, ms:a.at, kind:'bad'});
-      if(S.attempt >= 4) messages.push({from:1, to:1, label:'handled — ten minutes after the money moved', kind:'slow'});
-      else messages.push({from:0, to:2, label:'if every attempt fails: dead-letter queue, replayed by hand', kind:'slow'});
-      caption = 'retries with exponential backoff · often for hours';
-    } else if(s === 3){
-      messages = S.idem
-        ? [{from:0, to:1, label:'charge.succeeded · evt_8f2a19'},
-           {from:1, to:2, label:'INSERT evt_8f2a19 → new · ship the order', kind:'ok'},
-           {from:0, to:1, label:'the same event again (their retry)', kind:'slow'},
-           {from:1, to:2, label:'INSERT evt_8f2a19 → conflict · do nothing', kind:'cached'},
-           {from:1, to:0, label:'200 OK · one parcel', kind:'cached'}]
-        : [{from:0, to:1, label:'charge.succeeded · evt_8f2a19'},
-           {from:1, to:2, label:'ship the order', kind:'ok'},
-           {from:1, to:0, label:'…200 OK, but 6 seconds too late', kind:'bad'},
-           {from:0, to:1, label:'the same event again (their retry)', kind:'bad'},
-           {from:1, to:2, label:'ship the order — again', kind:'bad'}];
-      caption = S.idem ? 'at-least-once delivery, exactly-once effect' : 'a timeout is not a failure — the work may already be done';
-    } else if(s === 4){
-      lanes = [{name:'Payment provider'}, {name:'Your endpoint'}, {name:'Anyone else'}];
-      messages = S.signed
-        ? [{from:0, to:1, label:'POST · Webhook-Signature: v1,k3nT8s…', kind:'secret'},
-           {from:1, to:1, label:'HMAC(secret, timestamp + raw body) matches', kind:'ok'},
-           {from:1, to:0, label:'200 OK', kind:'cached'},
-           {from:2, to:1, label:'POST · "amount": 900000, no signature', kind:'bad'},
-           {from:1, to:2, label:'401', kind:'ok'}]
-        : [{from:0, to:1, label:'POST · charge.succeeded · 9000', kind:'ok'},
-           {from:1, to:0, label:'200 OK', kind:'cached'},
-           {from:2, to:1, label:'POST · charge.succeeded · 900000', kind:'bad'},
-           {from:1, to:2, label:'200 OK — and the goods are shipped', kind:'bad'}];
-      caption = S.signed ? 'the shared secret proves the sender and the bytes' : 'a public URL that gives things away on request';
-    } else if(s === 5){
-      messages = S.async
-        ? [{from:0, to:1, label:'POST /hooks/payments'},
-           {from:1, to:2, label:'verify · enqueue durably', kind:'ok'},
-           {from:1, to:0, label:'200 OK', ms:'12 ms', kind:'cached'},
-           {from:2, to:2, label:'the worker takes 16s — and nobody is waiting', kind:'ok'}]
-        : [{from:0, to:1, label:'POST /hooks/payments'},
-           {from:1, to:2, label:'VAT + email + report, inline', ms:'16 s', kind:'bad'},
-           {from:0, to:1, label:'their 10s timeout fires · retry #2', kind:'bad'},
-           {from:0, to:1, label:'retry #3 — three copies now running at once', kind:'bad'},
-           {from:1, to:0, label:'200 OK, eventually, three times', kind:'bad'}];
-      caption = S.async ? 'acknowledge what you have stored, then work' : 'slow looks exactly like failed, and failure multiplies the load';
+    show('poll',     s === 1 && S.mode === 'poll');
+    show('push',     s === 1 && S.mode !== 'poll');
+    show('attempts', s === 2);
+    show('dupes',    s === 3);
+    show('idcheck',  s === 4);
+    show('fast',     s === 5);
+
+    /* the bell is lit whenever somebody is actually calling you */
+    id('bellRing').classList.toggle('lit', s !== 1 || S.mode !== 'poll');
+
+    /* step 2: the attempts pile up, and only the last one gets in */
+    if(s === 2){
+      [1,2,3,4].forEach(n => {
+        const e = id('a' + n);
+        e.style.display = S.attempt >= n ? '' : 'none';
+        e.setAttribute('class', n === 4 ? 'att ok' : 'att');
+      });
+      const done = S.attempt >= 4;
+      id('k1').setAttribute('class', done ? 'knock ok' : 'knock');
+      id('aNote').textContent = done
+        ? 'delivered ten minutes after the money moved'
+        : 'backoff · then a dead-letter queue';
+      id('aNote').style.fill = done ? 'var(--good)' : 'var(--muted)';
     }
 
-    Sequence.draw({lanes, messages, caption});
+    /* step 3: the second parcel either gets shipped, or loses to a unique key */
+    if(s === 3){
+      id('p2box').setAttribute('class', S.idem ? 'parcel dupe' : 'parcel');
+      id('led1').textContent = 'evt_8f2a19';
+      id('led2').textContent = S.idem ? 'evt_8f2a19 → conflict' : 'evt_8f2a19';
+      id('led2').setAttribute('class', S.idem ? 'led dim' : 'led');
+      id('dupeVerdict').textContent = S.idem ? 'one fulfilment' : 'two parcels shipped';
+      id('dupeVerdict').style.fill = S.idem ? 'var(--good)' : 'var(--bad)';
+    }
+
+    /* step 4: the forged knock either walks in or is turned away */
+    if(s === 4){
+      show('sigBadge', S.signed);
+      id('wFake').setAttribute('class', S.signed ? 'knock' : 'knock ok');
+      id('realVerdict').textContent = S.signed ? 'verified' : 'trusted, unchecked';
+      id('realVerdict').setAttribute('class', S.signed ? 'tag good' : 'tag');
+      id('fakeVerdict').textContent = S.signed ? '"amount": 900000 · no signature' : '"amount": 900000';
+      id('doorVerdict').textContent = S.signed ? '401 at the door' : 'goods shipped';
+      id('doorVerdict').style.fill = S.signed ? 'var(--good)' : 'var(--bad)';
+      id('slotRect').setAttribute('stroke', S.signed ? 'var(--good)' : 'var(--bad)');
+    } else if(id('slotRect')){
+      id('slotRect').setAttribute('stroke', 'var(--ink)');
+    }
+
+    /* step 5: how long they wait at the door */
+    if(s === 5){
+      const hand = id('clockHand');
+      hand.setAttribute('class', S.async ? 'hand fast' : 'hand');
+      hand.setAttribute('transform', 'rotate(' + (S.async ? 12 : 260) + ' 250 150)');
+      id('clockLbl').textContent = S.async ? '12 ms' : '16 s';
+      id('clockLbl').style.fill = S.async ? 'var(--good)' : 'var(--bad)';
+      show('queueBox', S.async);
+      id('fastVerdict').textContent = S.async
+        ? 'acknowledged as soon as it is durably stored'
+        : 'their timeout fires · retried while still working';
+      id('fastVerdict').style.fill = S.async ? 'var(--good)' : 'var(--bad)';
+    }
   },
 
   onStep(S, n){

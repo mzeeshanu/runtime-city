@@ -9,16 +9,147 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,600;12..96,800&family=IBM+Plex+Sans:wght@400;500&family=JetBrains+Mono:wght@400&display=swap">
 <link rel="stylesheet" href="../../assets/playroom.css">
+<style>
+/* The schema, drawn as the graph it is. Picking a field lights a node. */
+.edge{stroke:var(--hair);stroke-width:1.5;fill:none;transition:stroke .25s,stroke-width .25s}
+.edge.on{stroke:var(--accent);stroke-width:2.5}
+.node{fill:var(--surface);stroke:var(--hair);stroke-width:1.5;transition:fill .25s,stroke .25s}
+.node.on{fill:var(--accent);stroke:var(--accent)}
+.node.root{fill:var(--surface);stroke:var(--ink);stroke-width:2}
+.nlbl{font:400 11px var(--mono);fill:var(--muted);transition:fill .25s}
+.nlbl.on{fill:var(--ink)}
+.rootlbl{font:500 12px var(--mono);fill:var(--ink);text-anchor:middle}
+.bar{transition:height .35s ease,y .35s ease}
+.bar.gql{fill:var(--good)}
+.bar.rest{fill:none;stroke:var(--bad);stroke-width:1.5;stroke-dasharray:4 3}
+.barlbl{font:400 10px var(--mono);text-anchor:middle}
+.barlbl.gql{fill:var(--good)} .barlbl.rest{fill:var(--bad)}
+.box{fill:var(--surface);stroke:var(--ink);stroke-width:1.5}
+.boxlbl{font:500 11px var(--mono);fill:var(--ink);text-anchor:middle}
+.hop{stroke:var(--bad);stroke-width:1.5;marker-end:url(#ar)}
+.hop.first{stroke:var(--muted)}
+.hoplbl{font:400 10px var(--mono);fill:var(--muted)}
+.one{stroke:var(--good);stroke-width:5;stroke-linecap:round}
+.db{fill:none;stroke:var(--hair);stroke-width:1.5}
+.dblbl{font:400 10px var(--mono);fill:var(--muted);text-anchor:middle}
+.q{stroke:var(--bad);stroke-width:1.2;opacity:.6}
+.qone{stroke:var(--good);stroke-width:5;stroke-linecap:round}
+.deep{fill:none;stroke:var(--bad);stroke-width:1.5;stroke-dasharray:4 3}
+.meter{fill:var(--ground);stroke:var(--hair);stroke-width:1.5}
+.fill{transition:width .35s ease}
+.capline{stroke:var(--good);stroke-width:2}
+.verdict{font:400 11px var(--mono);text-anchor:middle}
+</style>
 </head>
 <body>
 <div id="playroom"></div>
 
 <script src="../../assets/city.js"></script>
 <script src="../../assets/nav.js"></script>
-<script src="../../assets/sequence.js"></script>
 <script src="../../assets/playroom.js"></script>
 <script>
-const LANES = [{name:'Client'}, {name:'GraphQL server'}, {name:'Database'}];
+/* Where each field sits in the graph, so a chip and a node are the same thing. */
+const NODES = {
+  id:              {x:210, y:44,  r:13, edge:'M82 170 C 140 170 150 44 197 44'},
+  total:           {x:210, y:86,  r:13, edge:'M82 170 C 140 170 150 86 197 86'},
+  createdAt:       {x:210, y:128, r:13, edge:'M82 170 C 140 170 150 128 197 128'},
+  shippingLabel:   {x:210, y:170, r:13, edge:'M82 170 L 197 170'},
+  'customer.name': {x:392, y:216, r:13, edge:'M223 216 L 379 216'},
+  'items.title':   {x:392, y:262, r:13, edge:'M223 262 L 379 262'}
+};
+
+const STAGE = `
+<svg viewBox="0 0 600 300" role="img" aria-label="The schema drawn as a graph, with the fields you picked lit up">
+  <defs>
+    <pattern id="grid" width="24" height="24" patternUnits="userSpaceOnUse"><path d="M24 0H0V24" class="gridline" fill="none"/></pattern>
+    <marker id="ar" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="6" markerHeight="6" orient="auto">
+      <path d="M0 0 L8 4 L0 8 Z" fill="var(--bad)"/></marker>
+  </defs>
+  <rect width="600" height="300" fill="url(#grid)" opacity=".55"/>
+
+  <!-- the schema, as a graph -->
+  <g id="graph">
+    <path id="e-customer" class="edge" d="M82 170 C 140 170 150 216 197 216"/>
+    <path id="e-items"    class="edge" d="M82 170 C 140 170 150 262 197 262"/>
+    <path id="e-id" class="edge" d="M82 170 C 140 170 150 44 197 44"/>
+    <path id="e-total" class="edge" d="M82 170 C 140 170 150 86 197 86"/>
+    <path id="e-createdAt" class="edge" d="M82 170 C 140 170 150 128 197 128"/>
+    <path id="e-shippingLabel" class="edge" d="M82 170 L 197 170"/>
+    <path id="e-customer.name" class="edge" d="M223 216 L 379 216"/>
+    <path id="e-items.title"   class="edge" d="M223 262 L 379 262"/>
+
+    <circle class="node root" cx="56" cy="170" r="26"/>
+    <text class="rootlbl" x="56" y="174">order</text>
+
+    <circle id="n-id" class="node" cx="210" cy="44" r="13"/><text id="l-id" class="nlbl" x="230" y="48">id</text>
+    <circle id="n-total" class="node" cx="210" cy="86" r="13"/><text id="l-total" class="nlbl" x="230" y="90">total</text>
+    <circle id="n-createdAt" class="node" cx="210" cy="128" r="13"/><text id="l-createdAt" class="nlbl" x="230" y="132">createdAt</text>
+    <circle id="n-shippingLabel" class="node" cx="210" cy="170" r="13"/><text id="l-shippingLabel" class="nlbl" x="230" y="174">shippingLabel</text>
+
+    <circle id="n-customer" class="node" cx="210" cy="216" r="13"/><text class="nlbl" x="230" y="220">customer</text>
+    <circle id="n-items" class="node" cx="210" cy="262" r="13"/><text class="nlbl" x="230" y="266">items</text>
+    <circle id="n-customer.name" class="node" cx="392" cy="216" r="13"/><text id="l-customer.name" class="nlbl" x="412" y="220">name</text>
+    <circle id="n-items.title" class="node" cx="392" cy="262" r="13"/><text id="l-items.title" class="nlbl" x="412" y="266">title</text>
+  </g>
+
+  <!-- step 2: what came back, against what a fixed endpoint always sends -->
+  <g id="payload">
+    <line class="edge" x1="470" y1="272" x2="580" y2="272"/>
+    <rect id="restBar" class="bar rest" x="482" y="52" width="34" height="220"/>
+    <text class="barlbl rest" x="499" y="288">REST</text>
+    <text class="barlbl rest" x="499" y="44">4,180</text>
+    <rect id="gqlBar" class="bar gql" x="534" y="252" width="34" height="20" rx="2"/>
+    <text class="barlbl gql" x="551" y="288">query</text>
+    <text id="gqlBytes" class="barlbl gql" x="551" y="244">56</text>
+  </g>
+
+  <!-- step 3: five dependent calls, or one -->
+  <g id="trips">
+    <rect class="box" x="24" y="128" width="96" height="52" rx="6"/><text class="boxlbl" x="72" y="158">client</text>
+    <rect class="box" x="470" y="128" width="106" height="52" rx="6"/><text id="srvLbl" class="boxlbl" x="523" y="158">server</text>
+    <g id="serial">
+      <line class="hop first" x1="124" y1="60"  x2="466" y2="60"/><text class="hoplbl" x="150" y="52">GET /orders/42</text><text class="hoplbl" x="410" y="52">60 ms</text>
+      <line class="hop" x1="124" y1="96"  x2="466" y2="96"/><text class="hoplbl" x="150" y="88">GET /customers/7 — needs the id above</text><text class="hoplbl" x="410" y="88">120 ms</text>
+      <line class="hop" x1="124" y1="204" x2="466" y2="204"/><text class="hoplbl" x="150" y="196">GET /orders/42/items</text><text class="hoplbl" x="410" y="196">180 ms</text>
+      <line class="hop" x1="124" y1="240" x2="466" y2="240"/><text class="hoplbl" x="150" y="232">GET /addresses/91</text><text class="hoplbl" x="410" y="232">240 ms</text>
+      <line class="hop" x1="124" y1="276" x2="466" y2="276"/><text class="hoplbl" x="150" y="268">GET /loyalty/7</text><text class="hoplbl" x="410" y="268">300 ms</text>
+      <text class="verdict" x="300" y="152" style="fill:var(--bad)">each one waits for the last</text>
+    </g>
+    <g id="single">
+      <line class="one" x1="128" y1="154" x2="462" y2="154"/>
+      <text class="verdict" x="295" y="140" style="fill:var(--good)">one query · the walking happens over there</text>
+      <text class="verdict" x="295" y="186" style="fill:var(--good)">70 ms</text>
+    </g>
+  </g>
+
+  <!-- step 4: what the customer edge costs your database -->
+  <g id="fan">
+    <path class="db" d="M506 96 a30 10 0 0 1 60 0 v88 a30 10 0 0 1 -60 0 Z"/>
+    <path class="db" d="M506 96 a30 10 0 0 0 60 0"/>
+    <text class="dblbl" x="536" y="204">database</text>
+    <g id="manyQ">
+      <line class="q" x1="410" y1="216" x2="500" y2="112"/><line class="q" x1="410" y1="216" x2="500" y2="122"/>
+      <line class="q" x1="410" y1="216" x2="500" y2="132"/><line class="q" x1="410" y1="216" x2="500" y2="142"/>
+      <line class="q" x1="410" y1="216" x2="500" y2="152"/><line class="q" x1="410" y1="216" x2="500" y2="162"/>
+      <line class="q" x1="410" y1="216" x2="500" y2="172"/><line class="q" x1="410" y1="216" x2="500" y2="182"/>
+      <text class="verdict" x="450" y="266" style="fill:var(--bad)">51 queries</text>
+    </g>
+    <g id="oneQ">
+      <line class="qone" x1="412" y1="216" x2="500" y2="152"/>
+      <text class="verdict" x="452" y="266" style="fill:var(--good)">2 queries</text>
+    </g>
+  </g>
+
+  <!-- step 5: how deep one request may go, and what it costs -->
+  <g id="depth">
+    <path id="loop" class="deep" d="M392 216 C 470 216 470 40 300 40 C 150 40 92 110 76 146"/>
+    <text id="loopLbl" class="verdict" x="300" y="30" style="fill:var(--bad)">…customer { orders { customer { orders …</text>
+    <rect class="meter" x="40" y="272" width="210" height="16" rx="8"/>
+    <rect id="costFill" class="fill" x="42" y="274" width="206" height="12" rx="6" fill="var(--bad)"/>
+    <line id="cap" class="capline" x1="148" y1="268" x2="148" y2="292"/>
+    <text id="costLbl" class="verdict" x="145" y="262" style="fill:var(--bad)">cost: unbounded</text>
+  </g>
+</svg>`;
 
 const NOTES = {
   1:'<b>One endpoint, one schema, one round trip.</b> The client sends a query describing the shape it wants; the server walks the schema and returns that exact shape.',
@@ -192,7 +323,7 @@ const P = Playroom({
   title:'GraphQL',
   dek:'One endpoint, a typed schema, and a query that returns exactly the shape you asked for — plus the N+1 you did not mean to write.',
   steps:['One endpoint','Pick your fields','One trip, not five','The N+1 you made','Cost and caching','Interview check'],
-  stage:Sequence.stage({lanes:LANES, height:320}),
+  stage:STAGE,
 
   state:{picked:['id','total'], shape:'rest', batched:false, guard:'off'},
 
@@ -243,63 +374,62 @@ const P = Playroom({
   note: S => NOTES[S.step],
 
   onStage(S){
-    const s = S.step;
-    let lanes = LANES.map(l => ({...l}));
-    let messages = [], caption = '';
+    const s = S.step, id = n => document.getElementById(n);
+    const show = (n, on) => { const e = id(n); if(e) e.style.display = on ? '' : 'none'; };
 
-    if(s === 1){
-      messages = [
-        {from:0, to:1, label:'POST /graphql · query { order(id:42){ id total } }'},
-        {from:1, to:1, label:'validate against the schema', kind:'ok'},
-        {from:1, to:2, label:'fetch only what the query named', kind:'ok'},
-        {from:1, to:0, label:'200 OK · { data: { order: { id, total } } }', kind:'cached'}
-      ];
-      caption = 'the URL never changes · the query says what you want';
-    } else if(s === 2){
-      const b = bytes(S);
-      messages = [
-        {from:0, to:1, label:`query with ${S.picked.length} field${S.picked.length === 1 ? '' : 's'}`},
-        {from:1, to:0, label:`${b} bytes back`, kind:'cached'},
-        {from:0, to:0, label:`the REST endpoint would have sent ${REST_BYTES} bytes either way`, kind: b < 200 ? 'cached' : 'slow'}
-      ];
-      caption = 'over-fetching is a property of fixed responses, not of HTTP';
-    } else if(s === 3){
-      messages = S.shape === 'rest'
-        ? [{from:0, to:1, label:'GET /orders/42', ms:'60 ms'},
-           {from:0, to:1, label:'GET /customers/7 — needs the id from the last one', ms:'120 ms', kind:'slow'},
-           {from:0, to:1, label:'GET /orders/42/items', ms:'180 ms', kind:'slow'},
-           {from:0, to:1, label:'GET /addresses/91', ms:'240 ms', kind:'bad'},
-           {from:0, to:1, label:'GET /loyalty/7', ms:'300 ms', kind:'bad'}]
-        : [{from:0, to:1, label:'POST /graphql · one nested query', ms:'0 ms'},
-           {from:1, to:2, label:'orders + customers + items + loyalty', kind:'ok'},
-           {from:2, to:1, label:'rows', kind:'ok'},
-           {from:1, to:0, label:'200 OK · the whole screen', ms:'70 ms', kind:'cached'}];
-      caption = S.shape === 'rest' ? 'requests that depend on each other cannot be parallelised' : 'one round trip over the slow link, several fast ones over the fast link';
-    } else if(s === 4){
-      messages = S.batched
-        ? [{from:0, to:1, label:'query { orders { customer { name } } }'},
-           {from:1, to:2, label:'SELECT * FROM orders LIMIT 50', kind:'ok'},
-           {from:1, to:2, label:'SELECT * FROM customers WHERE id IN (…50 ids…)', kind:'cached'},
-           {from:1, to:0, label:'200 OK · 2 queries', kind:'cached'}]
-        : [{from:0, to:1, label:'query { orders { customer { name } } }'},
-           {from:1, to:2, label:'SELECT * FROM orders LIMIT 50', kind:'ok'},
-           {from:1, to:2, label:'SELECT * FROM customers WHERE id = ? … × 50', kind:'bad'},
-           {from:1, to:0, label:'200 OK · looked like one request', kind:'bad'}];
-      caption = S.batched ? 'a loader collects the ids for one tick, then asks once' : 'the client sent one request; your database saw fifty-one';
-    } else if(s === 5){
-      messages = S.guard === 'off'
-        ? [{from:0, to:1, label:'one POST · nine levels deep', kind:'bad'},
-           {from:1, to:2, label:'thousands of rows, multiplied per level', kind:'bad'},
-           {from:1, to:0, label:'a timeout, and a very busy database', kind:'bad'},
-           {from:0, to:0, label:'no CDN in front: POST bodies are not cacheable', kind:'bad'}]
-        : [{from:0, to:1, label:'GET /graphql?sha256Hash=abc123', kind:'cached'},
-           {from:1, to:1, label:'known query · depth 3 · cost 42', kind:'ok'},
-           {from:1, to:0, label:'200 OK · and a CDN can hold this', kind:'cached'},
-           {from:0, to:0, label:'unknown or too-expensive queries are rejected before they run', kind:'ok'}];
-      caption = S.guard === 'off' ? 'you handed the client your cost model' : 'allow-list the queries, price the fields, cap the depth';
+    show('graph',   s !== 3);
+    show('payload', s === 2);
+    show('trips',   s === 3);
+    show('fan',     s === 4);
+    show('depth',   s === 5);
+
+    /* a chip and a node are the same thing: light the node, light the edge */
+    Object.keys(NODES).forEach(k => {
+      const on = s === 2 ? S.picked.includes(k) : s === 1;
+      const n = id('n-' + k), e = id('e-' + k), l = id('l-' + k);
+      if(n) n.classList.toggle('on', on);
+      if(e) e.classList.toggle('on', on);
+      if(l) l.classList.toggle('on', on);
+    });
+    /* the two edges you cross to reach a child are lit whenever the child is */
+    ['customer','items'].forEach(p => {
+      const child = p === 'customer' ? 'customer.name' : 'items.title';
+      const on = s === 2 ? S.picked.includes(child) : s >= 4;
+      id('n-' + p).classList.toggle('on', on);
+      id('e-' + p).classList.toggle('on', on);
+    });
+
+    if(s === 2){
+      const b = bytes(S), h = Math.max(10, Math.round(220 * b / REST_BYTES));
+      const bar = id('gqlBar');
+      bar.setAttribute('height', h);
+      bar.setAttribute('y', 272 - h);
+      id('gqlBytes').setAttribute('y', 272 - h - 8);
+      id('gqlBytes').textContent = b;
     }
 
-    Sequence.draw({lanes, messages, caption});
+    if(s === 3){
+      show('serial', S.shape === 'rest');
+      show('single', S.shape !== 'rest');
+      id('srvLbl').textContent = S.shape === 'rest' ? 'REST API' : 'GraphQL';
+    }
+
+    if(s === 4){
+      show('manyQ', !S.batched);
+      show('oneQ', S.batched);
+    }
+
+    if(s === 5){
+      const off = S.guard === 'on';
+      show('loop', !off);
+      id('loopLbl').style.display = off ? 'none' : '';
+      id('costFill').setAttribute('width', off ? 62 : 206);
+      id('costFill').setAttribute('fill', off ? 'var(--good)' : 'var(--bad)');
+      id('cap').style.display = off ? '' : 'none';
+      id('costLbl').textContent = off ? 'depth 3 · cost 42 of 1000' : 'depth unlimited · cost unbounded';
+      id('costLbl').setAttribute('x', off ? 110 : 145);
+      id('costLbl').style.fill = off ? 'var(--good)' : 'var(--bad)';
+    }
   },
 
   onStep(S, n){
