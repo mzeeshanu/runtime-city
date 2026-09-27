@@ -1,0 +1,360 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>WebSockets Playroom · Runtime City</title>
+<meta name="description" content="Watch polling waste a thousand requests, upgrade one connection to 101, send frames both ways, then scale it across servers and find out what a dropped connection costs. A playroom from Runtime City.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,600;12..96,800&family=IBM+Plex+Sans:wght@400;500&family=JetBrains+Mono:wght@400&display=swap">
+<link rel="stylesheet" href="../../assets/playroom.css">
+</head>
+<body>
+<div id="playroom"></div>
+
+<script src="../../assets/city.js"></script>
+<script src="../../assets/nav.js"></script>
+<script src="../../assets/sequence.js"></script>
+<script src="../../assets/playroom.js"></script>
+<script>
+const LANES = [{name:'Browser'}, {name:'Load balancer'}, {name:'App server'}];
+
+const NOTES = {
+  1:'<b>Polling trades latency for waste.</b> Poll often and almost every request returns nothing; poll rarely and your data is stale. There is no interval that is good at both.',
+  2:'<b>The upgrade is ordinary HTTP, once.</b> A GET with <code>Upgrade: websocket</code> gets <code>101 Switching Protocols</code>, and from then on the same TCP connection carries frames instead of requests.',
+  3:'<b>Frames are cheap and go both ways.</b> A few bytes of header instead of a kilobyte, no request needed to receive, and the server can speak first.',
+  4:'<b>A connection is state, and state breaks scaling.</b> The socket lives on one server, so broadcasting needs a shared bus, and a deploy drops every client at once.',
+  5:'<b>Most "realtime" needs are one-directional.</b> Server-Sent Events do that over plain HTTP with automatic reconnect, and they survive proxies that mangle upgrades.',
+  6:'<b>Interview tip:</b> the answer that stands out explains the connection as state — sticky routing, a pub/sub bus, heartbeats and resume — not the handshake.'
+};
+
+const RATES = {
+  '1s':  {label:'every 1s',  reqs:3600, useful:12, stale:'up to 1s'},
+  '5s':  {label:'every 5s',  reqs:720,  useful:12, stale:'up to 5s'},
+  '30s': {label:'every 30s', reqs:120,  useful:12, stale:'up to 30s'}
+};
+
+function files(S){
+  const L = S.lang, s = S.step, pick = o => o[L];
+
+  if(s === 1){
+    const r = RATES[S.rate];
+    return [{n:'poll.ts', lines:[
+      [`setInterval(async () => {`],
+      [`  const res = await fetch("/api/prices", {`],
+      ['    headers: { "If-None-Match": etag }'],
+      ['  });'],
+      ['  if (res.status === 304) return;          // nothing changed. again.', r.reqs > 500 ? 'bad' : ''],
+      ['  apply(await res.json());'],
+      [`}, ${S.rate === '1s' ? '1000' : S.rate === '5s' ? '5000' : '30000'});`],[''],
+      [`// ${r.reqs} requests an hour, of which ${r.useful} carried news.`, r.reqs > 500 ? 'bad' : ''],
+      [`// Every one pays headers, auth and a TLS record. Multiply by your users.`, r.reqs > 500 ? 'bad' : ''],
+      ['//'],
+      ['// And it is still up to ' + r.stale + ' out of date.','bad']]}];
+  }
+
+  if(s === 2) return [{n:'upgrade.http', lines:[
+    ['GET /ws HTTP/1.1                        # an ordinary HTTP request...','hl'],
+    ['Host: runtimecity.com'],
+    ['Upgrade: websocket','hl'],
+    ['Connection: Upgrade','hl'],
+    ['Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ=='],
+    ['Sec-WebSocket-Version: 13'],
+    ['Origin: https://runtimecity.com          # check this — no same-origin policy here','bad'],[''],
+    ['HTTP/1.1 101 Switching Protocols        # ...answered exactly once','hl'],
+    ['Upgrade: websocket'],
+    ['Connection: Upgrade'],
+    ['Sec-WebSocket-Accept: s3pPLMBiTxaQ9kYGzzhZRbK+xOo='],[''],
+    ['# From here it is the same TCP connection, carrying frames.'],
+    ['# No more headers, no more status codes, no more requests.','hl']]}];
+
+  if(s === 3) return pick({
+    cs:[{n:'Hub.cs', lines:[
+      ['app.Map("/ws", async ctx => {'],
+      ['    using var socket = await ctx.WebSockets.AcceptWebSocketAsync();'],
+      ['    Clients.Add(socket);'],[''],
+      ['    var buf = new byte[4096];'],
+      ['    while (socket.State == WebSocketState.Open) {'],
+      ['        var r = await socket.ReceiveAsync(buf, ct);        // client → server','hl'],
+      ['        if (r.MessageType == WebSocketMessageType.Close) break;'],
+      ['        await Broadcast(buf.AsMemory(0, r.Count));          // server → everyone','hl'],
+      ['    }'],
+      ['    Clients.Remove(socket);'],
+      ['});'],[''],
+      ['// Nobody asked for the broadcast. That is the whole point.','hl']]}],
+    java:[{n:'PriceHandler.java', lines:[
+      ['public class PriceHandler extends TextWebSocketHandler {'],
+      ['  private final Set<WebSocketSession> sessions = new CopyOnWriteArraySet<>();'],[''],
+      ['  @Override public void afterConnectionEstablished(WebSocketSession s) {'],
+      ['    sessions.add(s);                       // a connection is now state','hl'],
+      ['  }'],[''],
+      ['  @Override protected void handleTextMessage(WebSocketSession s, TextMessage m) {'],
+      ['    broadcast(m);                          // both directions, same socket','hl'],
+      ['  }'],[''],
+      ['  @Override public void afterConnectionClosed(WebSocketSession s, CloseStatus c) {'],
+      ['    sessions.remove(s);                    // and you must clean it up','hl'],
+      ['  }'],
+      ['}']]}],
+    ts:[{n:'server.ts', lines:[
+      ['const wss = new WebSocketServer({ server });'],[''],
+      ['wss.on("connection", (ws, req) => {'],
+      ['  if (req.headers.origin !== ALLOWED) return ws.close(1008);   // no CORS here','bad'],[''],
+      ['  ws.on("message", (data) => handle(JSON.parse(String(data))));  // ← in','hl'],[''],
+      ['  const stop = prices.subscribe(p =>'],
+      ['    ws.send(JSON.stringify(p)));                                  // → out','hl'],[''],
+      ['  ws.on("close", stop);            // always unsubscribe, or you leak','hl'],
+      ['});'],[''],
+      ['// 18 bytes per frame instead of ~1,100 bytes per HTTP request.','hl']]}]
+  });
+
+  if(s === 4) return pick({
+    cs:[{n:'Scaling.cs', lines:S.bus ? [
+      ['// The socket is on one server. The event can arrive at any of them.'],
+      ['await redis.SubscribeAsync("prices", (_, msg) =>','hl'],
+      ['    Broadcast(msg));            // every server fans out to ITS clients','hl'],[''],
+      ['builder.Services.AddSignalR()'],
+      ['       .AddStackExchangeRedis(conn);   // the backplane, in one line','hl'],[''],
+      ['// Plus the two things people forget:'],
+      ['//   heartbeats  — a dead TCP connection looks alive for minutes','hl'],
+      ['//   resume      — send a cursor on reconnect, replay what was missed','hl']
+    ] : [
+      ['// Server A holds the socket. Server B receives the price update.'],
+      ['PriceChanged += p => Broadcast(p);     // to the clients on THIS server','bad'],[''],
+      ['// Client connected to A  -> gets it'],
+      ['// Client connected to B  -> silence, forever','bad'],[''],
+      ['// Worse: it looks fine in development, where there is one server.','bad']]}],
+    java:[{n:'Scaling.java', lines:S.bus ? [
+      ['@Bean RedisMessageListenerContainer bus(RedisConnectionFactory f) {'],
+      ['  var c = new RedisMessageListenerContainer();'],
+      ['  c.addMessageListener((msg, p) -> broadcastLocally(msg),','hl'],
+      ['                       new ChannelTopic("prices"));','hl'],
+      ['  return c;'],
+      ['}'],[''],
+      ['// Also: /ws must be sticky at the load balancer, or the upgrade','hl'],
+      ['// lands on a server that knows nothing about this client.','hl']
+    ] : [
+      ['@EventListener public void onPrice(PriceChanged e) {'],
+      ['  sessions.forEach(s -> s.sendMessage(text(e)));   // this JVM only','bad'],
+      ['}'],[''],
+      ['// Two pods, half your users never see an update.','bad']]}],
+    ts:[{n:'scaling.ts', lines:S.bus ? [
+      ['sub.subscribe("prices");'],
+      ['sub.on("message", (_, payload) => {'],
+      ['  for (const ws of localClients) ws.send(payload);    // fan out locally','hl'],
+      ['});'],[''],
+      ['// Heartbeat: a TCP connection through a dead NAT stays "open".'],
+      ['setInterval(() => {'],
+      ['  for (const ws of localClients) {'],
+      ['    if (!ws.isAlive) return ws.terminate();','hl'],
+      ['    ws.isAlive = false; ws.ping();','hl'],
+      ['  }'],
+      ['}, 30_000);']
+    ] : [
+      ['prices.on("change", (p) => {'],
+      ['  for (const ws of localClients) ws.send(JSON.stringify(p));   // this pod','bad'],
+      ['});'],[''],
+      ['// Deploy: every socket on every pod closes at once, and every client','bad'],
+      ['// reconnects in the same second. Add jitter to your backoff.','bad']]}]
+  });
+
+  if(s === 5) return [{n:'choosing.txt', lines:S.pick2 === 'ws' ? [
+    ['WebSocket — full duplex, one connection, binary or text'],
+    ['  good for   chat · collaborative editing · games · trading','hl'],
+    ['  costs      sticky routing, a pub/sub backplane, your own reconnect,','bad'],
+    ['             your own heartbeats, your own message ordering,','bad'],
+    ['             and a protocol you design yourself on top','bad'],[''],
+    ['  Reach for it when the CLIENT also needs to send, constantly.','hl']
+  ] : [
+    ['Server-Sent Events — one direction, plain HTTP, text'],
+    ['  const es = new EventSource("/stream");','hl'],
+    ['  es.onmessage = (e) => apply(JSON.parse(e.data));','hl'],[''],
+    ['  reconnect     automatic, with Last-Event-ID resume built in','hl'],
+    ['  through       any HTTP proxy, any CDN, HTTP/2 multiplexed','hl'],
+    ['  costs         server → client only; one connection per stream on HTTP/1.1','bad'],[''],
+    ['  Notifications, live dashboards, progress bars, price tickers and','hl'],
+    ['  AI token streams are all one-directional. Most of them should be SSE.','hl']]}];
+
+  return [];
+}
+
+const P = Playroom({
+  district:'API Avenue',
+  title:'WebSockets',
+  dek:'One upgrade, one connection, frames in both directions — and a pile of state your load balancer now has to care about.',
+  steps:['Polling','The upgrade','Frames both ways','Two servers','Or just use SSE','Interview check'],
+  stage:Sequence.stage({lanes:LANES, height:320}),
+
+  state:{rate:'5s', upgraded:false, bus:false, pick2:'ws'},
+
+  story(S, api){
+    const fb = api.fb();
+    return {
+      1:`<h2>Asking, over and over</h2><p>Without a push channel you poll, and every interval is the wrong one. Try each and watch the requests-per-hour against how stale the screen is.</p>${fb}`,
+      2:`<h2>One request that never ends</h2><p>The handshake is plain HTTP — a GET asking to upgrade. Answer <code>101</code> and the same TCP connection stops being request/response.</p>${fb}`,
+      3:`<h2>Frames, in both directions</h2><p>No headers, no status codes, no polling. A few bytes of framing, and — the part that matters — the server can speak without being asked.</p>${fb}`,
+      4:`<h2>Now add a second server</h2><p>The socket lives in one process's memory. Everything awkward about WebSockets comes from that one fact.</p>${fb}`,
+      5:`<h2>Do you need both directions?</h2><p>Before you take on all that, check whether the data only flows one way. Very often it does, and there is a much quieter answer.</p>${fb}`,
+      6:`<h2>Interview check</h2>${api.quizHTML()}`
+    }[S.step];
+  },
+
+  controls(S){
+    const s = S.step;
+    if(s === 1) return Object.keys(RATES).map(r =>
+      `<button class="chip" data-r="${r}" aria-pressed="${S.rate === r}"><i style="background:${r === '1s' ? 'var(--bad)' : r === '5s' ? 'var(--accent)' : 'var(--hair)'}"></i>${RATES[r].label}</button>`).join('');
+    if(s === 2) return `<button class="btn primary" data-a="up">Send the upgrade</button>`;
+    if(s === 4) return `<button class="chip" data-bs="0" aria-pressed="${!S.bus}"><i style="background:var(--bad)"></i>In-process only</button>` +
+      `<button class="chip" data-bs="1" aria-pressed="${S.bus}"><i style="background:var(--good)"></i>Sticky + a backplane</button>`;
+    if(s === 5) return `<button class="chip" data-p2="ws" aria-pressed="${S.pick2 === 'ws'}"><i style="background:var(--accent)"></i>WebSocket</button>` +
+      `<button class="chip" data-p2="sse" aria-pressed="${S.pick2 === 'sse'}"><i style="background:var(--good)"></i>Server-Sent Events</button>`;
+    return '';
+  },
+
+  statusLine(S){
+    const s = S.step;
+    if(s === 1){ const r = RATES[S.rate];
+      return `<b>${r.reqs}</b> requests/hour · <b>${r.useful}</b> carried news<span class="warn"> · ${Math.round((1 - r.useful / r.reqs) * 100)}% wasted, and still ${r.stale} stale</span>`; }
+    if(s === 2) return S.upgraded
+      ? `<b>101 Switching Protocols</b><span class="ok"> · one TCP connection, no more requests</span>`
+      : `An ordinary GET with <b>Upgrade: websocket</b><span> · send it and read the response</span>`;
+    if(s === 3) return `<b>~18</b> bytes per frame<span class="ok"> · against ~1,100 bytes per polled request · and the server may speak first</span>`;
+    if(s === 4) return S.bus
+      ? `2 servers · <b>100%</b> of clients get every message<span class="ok"> · sticky upgrade, shared bus, heartbeats, resume</span>`
+      : `2 servers · <b>50%</b> of clients hear nothing<span class="warn"> · and it works perfectly on your laptop</span>`;
+    return S.pick2 === 'ws'
+      ? `full duplex<span class="warn"> · you own reconnect, ordering, heartbeats and routing</span>`
+      : `server → client only<span class="ok"> · plain HTTP, automatic reconnect, resume by Last-Event-ID</span>`;
+  },
+
+  files,
+  note: S => NOTES[S.step],
+
+  onStage(S){
+    const s = S.step;
+    let lanes = LANES.map((l, i) => ({...l, dim: s !== 4 && i === 1}));
+    let messages = [], caption = '';
+
+    if(s === 1){
+      const r = RATES[S.rate];
+      messages = [
+        {from:0, to:2, label:'GET /api/prices · If-None-Match'},
+        {from:2, to:0, label:'304 Not Modified', kind:'slow'},
+        {from:0, to:2, label:'GET /api/prices · again', kind:'slow'},
+        {from:2, to:0, label:'304 Not Modified', kind:'bad'},
+        {from:2, to:2, label:'the price actually changes — but nobody is asking right now', kind:'bad'},
+        {from:0, to:2, label:`GET /api/prices · ${r.stale} late`, kind:'bad'}
+      ];
+      caption = `${r.reqs} requests an hour to learn ${r.useful} things`;
+    } else if(s === 2){
+      messages = S.upgraded ? [
+        {from:0, to:2, label:'GET /ws · Upgrade: websocket'},
+        {from:2, to:2, label:'check Origin — the browser will not do it for you', kind:'slow'},
+        {from:2, to:0, label:'101 Switching Protocols', kind:'cached'},
+        {from:0, to:2, label:'the connection stays open', kind:'ok'}
+      ] : [];
+      caption = 'one handshake over HTTP, then the protocol changes underneath';
+    } else if(s === 3){
+      messages = [
+        {from:0, to:2, label:'{"sub":"BTC-GBP"} · 18 bytes', kind:'ok'},
+        {from:2, to:0, label:'{"px":52140} · 14 bytes', kind:'cached'},
+        {from:2, to:0, label:'{"px":52139} — nobody asked', kind:'cached'},
+        {from:2, to:0, label:'{"px":52144} — still nobody asked', kind:'cached'},
+        {from:0, to:2, label:'ping / pong keeps a dead NAT honest', kind:'slow'}
+      ];
+      caption = 'the server speaks first, and keeps speaking';
+    } else if(s === 4){
+      lanes = [{name:'Client on A'}, {name:'Server A'}, {name:'Server B'}];
+      messages = S.bus
+        ? [{from:2, to:2, label:'price update arrives at B', kind:'ok'},
+           {from:2, to:1, label:'PUBLISH prices — via Redis', kind:'cached'},
+           {from:1, to:0, label:'B’s message reaches A’s client', kind:'cached'},
+           {from:1, to:0, label:'ping every 30s · dead sockets get cut', kind:'ok'},
+           {from:0, to:1, label:'reconnect with a cursor · replay what was missed', kind:'cached'}]
+        : [{from:0, to:1, label:'upgrade lands on A (only because the LB happened to pick it)', kind:'slow'},
+           {from:2, to:2, label:'price update arrives at B', kind:'bad'},
+           {from:2, to:2, label:'B broadcasts to its own clients', kind:'bad'},
+           {from:1, to:0, label:'nothing — A never heard about it', kind:'bad'},
+           {from:0, to:0, label:'deploy: every socket drops at once, everyone reconnects together', kind:'bad'}];
+      caption = S.bus ? 'the socket is local, the events are global — so route the events' : 'a connection is state, and state does not survive a second server';
+    } else if(s === 5){
+      messages = S.pick2 === 'ws'
+        ? [{from:0, to:2, label:'upgrade · frames in both directions', kind:'ok'},
+           {from:0, to:2, label:'the client is genuinely sending too — keystrokes, cursors, moves', kind:'ok'},
+           {from:0, to:0, label:'and you now own reconnect, ordering and heartbeats', kind:'slow'}]
+        : [{from:0, to:2, label:'GET /stream · Accept: text/event-stream'},
+           {from:2, to:0, label:'data: {"px":52140}', kind:'cached'},
+           {from:2, to:0, label:'data: {"px":52144}', kind:'cached'},
+           {from:0, to:2, label:'connection drops — the browser reconnects by itself', kind:'ok'},
+           {from:0, to:2, label:'Last-Event-ID: 4193 — and it resumes', kind:'cached'}];
+      caption = S.pick2 === 'ws' ? 'take it when the client really is a sender' : 'plain HTTP, reconnect and resume for free';
+    }
+
+    Sequence.draw({lanes, messages, caption});
+  },
+
+  onStep(S, n){
+    if(n === 1) S.rate = '5s';
+    if(n === 2) S.upgraded = false;
+    if(n === 4) S.bus = false;
+    if(n === 5) S.pick2 = 'ws';
+  },
+
+  onClick(S, b, api){
+    if(b.dataset.r){
+      S.rate = b.dataset.r;
+      const r = RATES[S.rate];
+      api.tell(S.rate === '30s' ? 'bad' : 'good', S.rate === '1s'
+        ? '<b>3,600 requests an hour, per user, to learn twelve things.</b> ETags make each one small but not free: TCP, TLS records, auth, logging and a rate-limiter entry, every second. At ten thousand users that is 36 million requests an hour of mostly nothing.'
+        : S.rate === '5s'
+        ? '<b>The usual compromise, and it is bad at both jobs.</b> You still send 720 requests an hour of which 708 say "nothing changed", and the screen can still be five seconds behind. Notice there is no interval that fixes both — that is the shape of polling, not a tuning problem.'
+        : '<b>Cheap, and useless for anything live.</b> Half a minute stale is fine for a weather widget and unacceptable for a price, a chat message or a build status. The moment someone asks "can we make it faster?" you are back to the top of this trade.');
+      api.out(`${r.reqs} requests/hour · ${r.useful} useful · ${r.stale} stale`);
+      return;
+    }
+    if(b.dataset.a === 'up'){
+      S.upgraded = true;
+      api.tell('good', '<b>101, and then the rules change.</b> The handshake is deliberately ordinary HTTP so it passes through proxies and shares port 443 — but once it completes, there is no request/response, no status codes and no caching. One thing to carry with you: the same-origin policy does not apply to WebSockets, so the browser will happily let any site open a socket to your server. Check the <code>Origin</code> header yourself, and authenticate after the upgrade.');
+      api.out('GET /ws → 101 Switching Protocols · connection held open');
+      return;
+    }
+    if(b.dataset.bs){
+      S.bus = b.dataset.bs === '1';
+      api.tell(S.bus ? 'good' : 'bad', S.bus
+        ? '<b>Three pieces, and none of them are optional in production.</b> Sticky routing so the upgrade and the connection stay on one server; a pub/sub backplane (Redis, NATS, a broker) so an event arriving anywhere reaches clients everywhere; and heartbeats, because a connection through a dead NAT or a sleeping phone looks perfectly open until you try to write. Add a resume cursor and reconnect with jittered backoff, or your next deploy becomes a self-inflicted thundering herd.'
+        : '<b>This is the bug that only exists in production.</b> On your laptop there is one process, so it works. Add a second server and each one broadcasts only to the clients it happens to hold — half your users sit in silence, and nothing errors. The connection is state, and you have just discovered that stateful servers do not scale by adding more of them.');
+      api.out(S.bus ? 'sticky /ws · Redis backplane · 30s ping · resume by cursor' : 'server A: delivered · server B: silence');
+      return;
+    }
+    if(b.dataset.p2){
+      S.pick2 = b.dataset.p2;
+      api.tell('good', S.pick2 === 'ws'
+        ? '<b>Worth it when the client is genuinely a sender.</b> Chat, collaborative cursors, multiplayer, an order book you type into — there the upstream traffic is constant and full duplex earns its keep. Just go in knowing you are adopting a raw pipe: message framing, ordering, acknowledgement, reconnect and authentication are all now yours to design.'
+        : '<b>Most "realtime" is one-directional, and SSE is the quiet answer.</b> It is plain HTTP, so proxies, CDNs and HTTP/2 all handle it; the browser reconnects automatically and sends <code>Last-Event-ID</code> so the server can replay what was missed — two things you would otherwise hand-roll. The limit is that it is text and server-to-client only, and on HTTP/1.1 each stream holds a connection. For dashboards, notifications, progress and AI token streams, it is the better default.');
+      api.out(S.pick2 === 'ws' ? 'full duplex · you own the protocol' : 'text/event-stream · auto-reconnect · Last-Event-ID resume');
+      return;
+    }
+    return false;
+  },
+
+  reset(S){ Object.assign(S, {rate:'5s', upgraded:false, bus:false, pick2:'ws'}); },
+
+  quiz:[
+    {q:'What actually happens during a WebSocket handshake?',
+     o:['The browser opens a raw TCP socket','An ordinary HTTP GET with Upgrade: websocket is answered with 101 Switching Protocols, and the same TCP connection then carries frames instead of requests'], a:1,
+     w:'Being ordinary HTTP is the point: it shares port 443 and passes through most proxies, which raw TCP would not.'},
+    {q:'Your chat works locally but half the users get no messages in production. Why?',
+     o:['A firewall is blocking frames','The socket lives on one server. Without sticky routing and a pub/sub backplane, an event arriving at server B never reaches clients held by server A'], a:1,
+     w:'This is the single most common WebSocket production bug, and it is invisible in a one-process development setup.'},
+    {q:'When should you use Server-Sent Events instead?',
+     o:['Never, WebSockets are strictly better','When data flows only server to client — SSE is plain HTTP, works through proxies and CDNs, and gives you automatic reconnect with Last-Event-ID resume for free'], a:1,
+     w:'Dashboards, notifications and AI token streaming are all one-directional. Choosing the smaller tool is a good signal.'},
+    {q:'Why check the Origin header on a WebSocket upgrade?',
+     o:['You do not, CORS handles it','Because the same-origin policy does not apply to WebSockets — any site can open a socket to your server, so you must validate Origin and authenticate yourself'], a:1,
+     w:'This is sometimes called cross-site WebSocket hijacking, and cookie-based auth makes it worse: the cookie is sent automatically.'}
+  ],
+  soundbite:'"A WebSocket starts as an ordinary HTTP GET with an Upgrade header, gets a 101 back, and from then on the same TCP connection carries small frames in both directions — so the server can push without being asked, at about eighteen bytes a message instead of a kilobyte per poll. The hard part is not the handshake, it is that a connection is state: it lives on one server, so you need sticky routing, a pub/sub backplane, heartbeats because dead connections look open, and a resume cursor so a deploy does not lose messages. And if the data only flows one way I use Server-Sent Events instead — plain HTTP, with reconnect and resume already built in."'
+});
+</script>
+</body>
+</html>

@@ -1,0 +1,412 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>REST Playroom · Runtime City</title>
+<meta name="description" content="Name things instead of actions, learn what the verbs promise, break statelessness with one in-memory session, and watch a chatty API turn into 51 round trips. A playroom from Runtime City.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,600;12..96,800&family=IBM+Plex+Sans:wght@400;500&family=JetBrains+Mono:wght@400&display=swap">
+<link rel="stylesheet" href="../../assets/playroom.css">
+</head>
+<body>
+<div id="playroom"></div>
+
+<script src="../../assets/city.js"></script>
+<script src="../../assets/nav.js"></script>
+<script src="../../assets/sequence.js"></script>
+<script src="../../assets/playroom.js"></script>
+<script>
+const LANES = [{name:'Client'}, {name:'Load balancer'}, {name:'API server'}];
+
+const NOTES = {
+  1:'<b>REST names things, not actions.</b> The noun lives in the path and the method says what you are doing to it, so one URL serves five operations instead of five URLs serving one each.',
+  2:'<b>A collection and an item behave differently.</b> POST to the collection creates a member; PUT and DELETE address one member and are idempotent, which is what makes a retry safe.',
+  3:'<b>Stateless means the server keeps nothing about you between requests.</b> Every request carries what it needs, so any server can answer it — which is exactly what lets you add a second one.',
+  4:'<b>Fixed response shapes make clients chatty.</b> A list endpoint that returns bare ids forces a call per row, and that is the N+1 problem wearing an HTTP costume.',
+  5:'<b>Adding is free, removing is not.</b> New fields break nobody; renaming or removing one breaks every client that never agreed to change.',
+  6:'<b>Interview tip:</b> most people can define REST. Saying what statelessness costs you, and how you version without a /v2, is what separates the answers.'
+};
+
+const STYLES = {
+  rpc:  {label:'RPC style',  urls:['POST /getOrder?id=42','POST /createOrder','POST /updateOrderQty','POST /cancelOrder','POST /listOrdersForUser?id=7']},
+  rest: {label:'REST style', urls:['GET /orders/42','POST /orders','PATCH /orders/42','DELETE /orders/42','GET /users/7/orders']}
+};
+
+const VERBS = {
+  'GET /orders':       {t:'read the collection', safe:'safe · idempotent',    ok:'200 OK · a page of orders'},
+  'POST /orders':      {t:'create a member',     safe:'neither',              ok:'201 Created · Location: /orders/43'},
+  'GET /orders/42':    {t:'read one member',     safe:'safe · idempotent',    ok:'200 OK · one order'},
+  'PUT /orders/42':    {t:'replace that member', safe:'idempotent, not safe', ok:'200 OK · replaced'},
+  'DELETE /orders/42': {t:'remove that member',  safe:'idempotent, not safe', ok:'204 No Content'}
+};
+
+function files(S){
+  const L = S.lang, s = S.step, pick = o => o[L];
+
+  if(s === 1) return S.style === 'rpc'
+    ? [{n:'routes.http', lines:[
+        ['POST /getOrder?id=42            # the verb is buried in the path','bad'],
+        ['POST /createOrder'],
+        ['POST /updateOrderQty'],
+        ['POST /cancelOrder'],
+        ['POST /listOrdersForUser?id=7'],[''],
+        ['# Five endpoints, one noun. Nothing in between can help:'],
+        ['# no cache knows /getOrder is a read, no proxy may retry it.','bad']]}]
+    : [{n:'routes.http', lines:[
+        ['GET    /orders/42              # one noun, five operations','hl'],
+        ['POST   /orders'],
+        ['PATCH  /orders/42'],
+        ['DELETE /orders/42'],
+        ['GET    /users/7/orders'],[''],
+        ['# Now the method carries the meaning, so caches, proxies and'],
+        ['# client libraries all know what is safe to repeat.','hl']]}];
+
+  if(s === 2) return pick({
+    cs:[{n:'Orders.cs', lines:[
+      ['app.MapGet("/orders", (int page) => Results.Ok(repo.Page(page)));     // 200'],
+      ['app.MapPost("/orders", (NewOrder o) =>'],
+      ['    Results.Created($"/orders/{repo.Add(o)}", o));                    // 201 + Location','hl'],
+      ['app.MapGet("/orders/{id}", (int id) =>'],
+      ['    repo.Find(id) is {} x ? Results.Ok(x) : Results.NotFound());      // 200 or 404'],
+      ['app.MapPut("/orders/{id}", (int id, Order o) => {'],
+      ['    repo.Replace(id, o); return Results.Ok(o); });                    // idempotent','hl'],
+      ['app.MapDelete("/orders/{id}", (int id) => {'],
+      ['    repo.Remove(id); return Results.NoContent(); });                  // 204, twice is fine','hl']]}],
+    java:[{n:'OrderController.java', lines:[
+      ['@GetMapping("/orders")          List<Order> page(@RequestParam int page)'],
+      ['@PostMapping("/orders")         ResponseEntity<Order> create(@RequestBody NewOrder o)'],
+      ['    -> ResponseEntity.created(URI.create("/orders/" + id)).body(order);   // 201','hl'],
+      ['@GetMapping("/orders/{id}")     Order one(@PathVariable long id)'],
+      ['@PutMapping("/orders/{id}")     Order replace(@PathVariable long id,'],
+      ['                                              @RequestBody Order o)','hl'],
+      ['@DeleteMapping("/orders/{id}")  @ResponseStatus(NO_CONTENT)'],
+      ['                                void remove(@PathVariable long id)','hl']]}],
+    ts:[{n:'orders.ts', lines:[
+      ['router.get("/orders", (req, res) => res.json(repo.page(+req.query.page)));'],
+      ['router.post("/orders", (req, res) => {'],
+      ['  const id = repo.add(req.body);'],
+      ['  res.status(201).location(`/orders/${id}`).json(repo.find(id));   // 201 + Location','hl'],
+      ['});'],
+      ['router.get("/orders/:id", (req, res) => {'],
+      ['  const o = repo.find(+req.params.id);'],
+      ['  o ? res.json(o) : res.sendStatus(404);'],
+      ['});'],
+      ['router.put("/orders/:id", (req, res) => res.json(repo.replace(+req.params.id, req.body)));'],
+      ['router.delete("/orders/:id", (req, res) => {'],
+      ['  repo.remove(+req.params.id); res.sendStatus(204);   // idempotent','hl'],
+      ['});']]}]
+  });
+
+  if(s === 3) return pick({
+    cs:[{n:'Session.cs', lines:S.sticky ? [
+      ['// Server A remembers who you are, in its own memory.'],
+      ['static readonly Dictionary<string, User> Sessions = new();   // on THIS server','bad'],[''],
+      ['app.MapPost("/login", (Creds c) => {'],
+      ['    var sid = Guid.NewGuid().ToString();'],
+      ['    Sessions[sid] = Authenticate(c);            // server A only','bad'],
+      ['    return Results.Ok(new { sid });'],
+      ['});'],[''],
+      ['app.MapGet("/orders", (string sid) =>'],
+      ['    Sessions.TryGetValue(sid, out var u)        // server B never saw sid','bad'],
+      ['        ? Results.Ok(repo.For(u)) : Results.Unauthorized());']
+    ] : [
+      ['// Nothing is remembered. The request carries its own proof.'],
+      ['app.MapPost("/login", (Creds c) =>'],
+      ['    Results.Ok(new { token = Jwt.Sign(Authenticate(c)) }));   // signed, not stored','hl'],[''],
+      ['app.MapGet("/orders", (HttpContext ctx) => {'],
+      ['    var user = Jwt.Verify(ctx.Request.Headers.Authorization); // any server can','hl'],
+      ['    return Results.Ok(repo.For(user));'],
+      ['});'],[''],
+      ['// Add ten more servers. None of them need to talk to each other.','hl']]}],
+    java:[{n:'Session.java', lines:S.sticky ? [
+      ['// HttpSession lives in one JVM unless you go and replicate it.'],
+      ['@PostMapping("/login") void login(HttpSession s, @RequestBody Creds c) {'],
+      ['  s.setAttribute("user", authenticate(c));   // in this heap','bad'],
+      ['}'],[''],
+      ['@GetMapping("/orders") List<Order> mine(HttpSession s) {'],
+      ['  var u = s.getAttribute("user");            // null on the other node','bad'],
+      ['  if (u == null) throw new UnauthorizedException();'],
+      ['  return repo.forUser(u);'],
+      ['}']
+    ] : [
+      ['@PostMapping("/login") TokenResponse login(@RequestBody Creds c) {'],
+      ['  return new TokenResponse(jwt.sign(authenticate(c)));   // nothing kept','hl'],
+      ['}'],[''],
+      ['@GetMapping("/orders") List<Order> mine(@AuthenticationPrincipal Jwt token) {'],
+      ['  return repo.forUser(token.getSubject());   // verified per request','hl'],
+      ['}']]}],
+    ts:[{n:'session.ts', lines:S.sticky ? [
+      ['const sessions = new Map<string, User>();     // this process only','bad'],[''],
+      ['app.post("/login", (req, res) => {'],
+      ['  const sid = randomUUID();'],
+      ['  sessions.set(sid, authenticate(req.body));  // pod 1','bad'],
+      ['  res.json({ sid });'],
+      ['});'],[''],
+      ['app.get("/orders", (req, res) => {'],
+      ['  const user = sessions.get(req.header("x-sid")!);   // pod 2: undefined','bad'],
+      ['  user ? res.json(repo.for(user)) : res.sendStatus(401);'],
+      ['});']
+    ] : [
+      ['app.post("/login", (req, res) =>'],
+      ['  res.json({ token: sign(authenticate(req.body)) }));   // signed, not stored','hl'],[''],
+      ['app.get("/orders", (req, res) => {'],
+      ['  const user = verify(req.header("authorization"));     // any pod','hl'],
+      ['  res.json(repo.for(user));'],
+      ['});']]}]
+  });
+
+  if(s === 4) return pick({
+    cs:[{n:'Chatty.cs', lines:S.calls === 'n1' ? [
+      ['// The list endpoint returns ids, so the client fetches each one.'],
+      ['var ids = await http.GetFromJsonAsync<int[]>("/orders?page=1");   // 1 call'],
+      ['foreach (var id in ids)                                           // + 50','bad'],
+      ['    orders.Add(await http.GetFromJsonAsync<Order>($"/orders/{id}"));'],[''],
+      ['// 51 round trips. On a 60 ms link that is three seconds of waiting,','bad'],
+      ['// and almost all of it is latency, not work.','bad']
+    ] : [
+      ['// Let the caller say what it needs, and answer in one response.'],
+      ['var page = await http.GetFromJsonAsync<Page<Order>>('],
+      ['    "/orders?page=1&expand=customer&fields=id,total,customer.name");  // 1 call','hl'],[''],
+      ['// Three fixes, in the order you should reach for them:'],
+      ['//   1. embed what callers always need   (?expand=customer)','hl'],
+      ['//   2. let them narrow it               (?fields=...)'],
+      ['//   3. add a purpose-built endpoint     (/orders/dashboard)']]}],
+    java:[{n:'Chatty.java', lines:S.calls === 'n1' ? [
+      ['List<Long> ids = client.get("/orders?page=1", idList);   // 1'],
+      ['for (Long id : ids)                                      // + 50','bad'],
+      ['    orders.add(client.get("/orders/" + id, Order.class));'],[''],
+      ['// Every hop pays the full round trip again.','bad']
+    ] : [
+      ['Page<Order> page = client.get('],
+      ['    "/orders?page=1&expand=customer&fields=id,total,customer.name",','hl'],
+      ['    ordersPage);                                          // 1 call total','hl']]}],
+    ts:[{n:'chatty.ts', lines:S.calls === 'n1' ? [
+      ['const ids = await api.get("/orders?page=1");           // 1'],
+      ['const orders = await Promise.all(                      // + 50','bad'],
+      ['  ids.map((id: number) => api.get(`/orders/${id}`)));'],[''],
+      ['// Promise.all makes them parallel, not free: you still pay 50 connections,','bad'],
+      ['// 50 auth checks, and 50 chances for one of them to fail.','bad']
+    ] : [
+      ['const page = await api.get(','hl'],
+      ['  "/orders?page=1&expand=customer&fields=id,total,customer.name");  // 1','hl'],[''],
+      ['// This is the itch GraphQL was invented to scratch.','hl']]}]
+  });
+
+  if(s === 5) return [{n:'versioning.http', lines:S.change === 'break' ? [
+    ['# v1 shipped this'],
+    ['{ "id": 42, "name": "Ada Lovelace", "total": 90.00 }'],[''],
+    ['# and then someone renamed a field'],
+    ['{ "id": 42, "fullName": "Ada Lovelace", "total": 90.00 }','bad'],[''],
+    ['# Every client still reading .name now sees undefined, silently.','bad'],
+    ['# You cannot fix this in your own deploy — they all have to ship too.','bad']
+  ] : [
+    ['# v1 shipped this'],
+    ['{ "id": 42, "name": "Ada Lovelace", "total": 90.00 }'],[''],
+    ['# additive change: old clients never notice'],
+    ['{ "id": 42, "name": "Ada Lovelace", "fullName": "Ada Lovelace",','hl'],
+    ['  "total": 90.00, "currency": "GBP" }','hl'],[''],
+    ['# Keep .name populated, document it as deprecated, measure who still'],
+    ['# reads it, and only then remove it. A /v2 is the expensive last resort:','hl'],
+    ['# from that day you run two APIs, forever.','hl']]}];
+
+  return [];
+}
+
+const P = Playroom({
+  district:'API Avenue',
+  title:'REST',
+  dek:'Name the thing, let the method say what you are doing to it, and keep the server forgetting you between requests.',
+  steps:['Nouns, not verbs','Collections and items','Stateless','Chatty clients','Versioning','Interview check'],
+  stage:Sequence.stage({lanes:LANES, height:320}),
+
+  state:{style:'rpc', verb:'GET /orders/42', sticky:true, calls:'n1', change:'break'},
+
+  story(S, api){
+    const fb = api.fb();
+    return {
+      1:`<h2>Name things, not actions</h2><p>An RPC-style API grows a new URL for every operation. REST keeps one noun and lets the HTTP method be the verb. Flip between the two and read the paths.</p>${fb}`,
+      2:`<h2>A collection, and the things in it</h2><p><code>/orders</code> is a collection; <code>/orders/42</code> is one member of it. Which method you send decides the status code, whether a retry is safe, and whether anything may cache the answer.</p>${fb}`,
+      3:`<h2>The server should forget you</h2><p>Statelessness is the constraint everyone quotes and then breaks. Put a session in one server's memory, add a second server, and watch half the requests fail.</p>${fb}`,
+      4:`<h2>One call, or fifty-one</h2><p>A list endpoint that returns bare ids pushes the work onto the client. This is where REST starts to hurt — and where its alternatives came from.</p>${fb}`,
+      5:`<h2>Changing it without breaking them</h2><p>You do not control your clients. Adding a field is invisible to them; renaming one is an outage you cannot deploy your way out of.</p>${fb}`,
+      6:`<h2>Interview check</h2>${api.quizHTML()}`
+    }[S.step];
+  },
+
+  controls(S){
+    const s = S.step;
+    if(s === 1) return ['rpc','rest'].map(k =>
+      `<button class="chip" data-y="${k}" aria-pressed="${S.style === k}"><i style="background:${k === 'rpc' ? 'var(--bad)' : 'var(--good)'}"></i>${STYLES[k].label}</button>`).join('');
+    if(s === 2) return Object.keys(VERBS).map(v =>
+      `<button class="chip" data-vb="${v}" aria-pressed="${S.verb === v}">${v}</button>`).join('');
+    if(s === 3) return `<button class="chip" data-st="1" aria-pressed="${S.sticky}"><i style="background:var(--bad)"></i>Session in memory</button>` +
+      `<button class="chip" data-st="0" aria-pressed="${!S.sticky}"><i style="background:var(--good)"></i>Token on every request</button>`;
+    if(s === 4) return `<button class="chip" data-c="n1" aria-pressed="${S.calls === 'n1'}"><i style="background:var(--bad)"></i>List, then fetch each</button>` +
+      `<button class="chip" data-c="one" aria-pressed="${S.calls === 'one'}"><i style="background:var(--good)"></i>Ask for it in one</button>`;
+    if(s === 5) return `<button class="chip" data-ch="break" aria-pressed="${S.change === 'break'}"><i style="background:var(--bad)"></i>Rename a field</button>` +
+      `<button class="chip" data-ch="add" aria-pressed="${S.change === 'add'}"><i style="background:var(--good)"></i>Add a field</button>`;
+    return '';
+  },
+
+  statusLine(S){
+    const s = S.step;
+    if(s === 1) return S.style === 'rpc'
+      ? `<b>5</b> endpoints for <b>1</b> noun<span class="warn"> · nothing in between can tell a read from a write</span>`
+      : `<b>2</b> paths, <b>5</b> operations<span class="ok"> · the method carries the meaning</span>`;
+    if(s === 2){ const v = VERBS[S.verb]; return `<b>${S.verb}</b> · ${v.t}<span class="${S.verb.startsWith('POST') ? 'warn' : 'ok'}"> · ${v.safe} · ${v.ok}</span>`; }
+    if(s === 3) return S.sticky
+      ? `2 servers · <b>50%</b> of requests get <b>401</b><span class="warn"> · the session exists on only one of them</span>`
+      : `2 servers · <b>100%</b> succeed<span class="ok"> · add ten more, nothing changes</span>`;
+    if(s === 4) return S.calls === 'n1'
+      ? `<b>51</b> round trips · ~<b>3,060 ms</b><span class="warn"> · 50 of them are the same shape</span>`
+      : `<b>1</b> round trip · ~<b>72 ms</b><span class="ok"> · the same data, one response</span>`;
+    return S.change === 'break'
+      ? `<b>name</b> → <b>fullName</b><span class="warn"> · every existing client breaks, silently</span>`
+      : `<b>+ fullName</b>, <b>+ currency</b><span class="ok"> · old clients never notice</span>`;
+  },
+
+  files,
+  note: S => NOTES[S.step],
+
+  onStage(S){
+    const s = S.step;
+    let lanes = LANES.map((l, i) => ({...l, dim: i === 1}));
+    let messages = [], caption = '';
+
+    if(s === 1){
+      messages = S.style === 'rpc'
+        ? [{from:0, to:2, label:'POST /getOrder?id=42', kind:'bad'},
+           {from:2, to:0, label:'200 OK — but it was only a read', kind:'bad'},
+           {from:0, to:0, label:'no cache, no safe retry, no shared meaning', kind:'bad'}]
+        : [{from:0, to:2, label:'GET /orders/42'},
+           {from:2, to:0, label:'200 OK · Cache-Control · ETag', kind:'cached'},
+           {from:0, to:0, label:'anything on the path may cache or retry it', kind:'cached'}];
+      caption = S.style === 'rpc' ? 'the verb is hidden in the path, where nothing can read it' : 'the verb is the method, where everything can read it';
+    } else if(s === 2){
+      const v = VERBS[S.verb], post = S.verb.startsWith('POST');
+      messages = [
+        {from:0, to:2, label:S.verb},
+        {from:2, to:0, label:v.ok, kind:'cached'},
+        {from:0, to:2, label:'the same request again (a retry)', kind:post ? 'bad' : 'slow'},
+        {from:2, to:0, label:post ? '201 Created · order 44 — a second order' : 'the same result as before', kind:post ? 'bad' : 'cached'}
+      ];
+      caption = post ? 'POST creates a member, so a blind retry creates two' : v.safe;
+    } else if(s === 3){
+      lanes = [{name:'Client'}, {name:'Server A'}, {name:'Server B'}];
+      messages = S.sticky
+        ? [{from:0, to:1, label:'POST /login'},
+           {from:1, to:1, label:'remember session s-9f2a in memory', kind:'slow'},
+           {from:1, to:0, label:'200 OK · sid=s-9f2a', kind:'cached'},
+           {from:0, to:2, label:'GET /orders · sid=s-9f2a', kind:'bad'},
+           {from:2, to:0, label:'401 — B never stored that session', kind:'bad'}]
+        : [{from:0, to:1, label:'POST /login'},
+           {from:1, to:0, label:'200 OK · a signed token', kind:'cached'},
+           {from:0, to:2, label:'GET /orders · Authorization: Bearer …'},
+           {from:2, to:2, label:'verify the signature — no lookup', kind:'cached'},
+           {from:2, to:0, label:'200 OK', kind:'cached'}];
+      caption = S.sticky ? 'state on the server ties the client to that server' : 'state in the request means any server will do';
+    } else if(s === 4){
+      messages = S.calls === 'n1'
+        ? [{from:0, to:2, label:'GET /orders?page=1', ms:'60 ms'},
+           {from:2, to:0, label:'200 OK · [41, 42, 43, …] — 50 ids', kind:'cached'},
+           {from:0, to:2, label:'GET /orders/41 … and 49 more', ms:'3,000 ms', kind:'bad'},
+           {from:2, to:0, label:'50 responses you now stitch together', kind:'bad'}]
+        : [{from:0, to:2, label:'GET /orders?page=1&expand=customer', ms:'0 ms'},
+           {from:2, to:2, label:'one query, joined server-side', kind:'ok'},
+           {from:2, to:0, label:'200 OK · 50 orders with their customers', ms:'72 ms', kind:'cached'}];
+      caption = S.calls === 'n1' ? '1 + N requests · the N is chosen by your data, not your code' : 'the server is next to the database — let it do the joining';
+    } else if(s === 5){
+      messages = S.change === 'break'
+        ? [{from:0, to:2, label:'GET /orders/42 (a client built last year)'},
+           {from:2, to:0, label:'200 OK · { "fullName": … }', kind:'bad'},
+           {from:0, to:0, label:'reads .name → undefined · no error, just wrong', kind:'bad'}]
+        : [{from:0, to:2, label:'GET /orders/42 (a client built last year)'},
+           {from:2, to:0, label:'200 OK · { "name": …, "fullName": …, "currency": … }', kind:'cached'},
+           {from:0, to:0, label:'reads .name → still there · new clients read the rest', kind:'cached'}];
+      caption = S.change === 'break' ? 'a rename is a breaking change dressed up as a tidy-up' : 'add, deprecate, measure, then remove';
+    }
+
+    Sequence.draw({lanes, messages, caption});
+  },
+
+  onStep(S, n){
+    if(n === 1) S.style = 'rpc';
+    if(n === 2) S.verb = 'GET /orders/42';
+    if(n === 3) S.sticky = true;
+    if(n === 4) S.calls = 'n1';
+    if(n === 5) S.change = 'break';
+  },
+
+  onClick(S, b, api){
+    if(b.dataset.y){
+      S.style = b.dataset.y;
+      api.tell(S.style === 'rpc' ? 'bad' : 'good', S.style === 'rpc'
+        ? '<b>This works. It just wastes everything HTTP already knew.</b> Because every call is a POST to a made-up path, no cache can serve it, no proxy may retry it, and no client library can guess what is safe. You have built your own protocol on top of one that was already there.'
+        : '<b>One noun, five operations.</b> The method is the verb, so a CDN knows the GET is cacheable, a client may retry the PUT, and a new developer can guess the URL for a customer without opening your docs.');
+      api.out(STYLES[S.style].urls.join('   ·   '));
+      return;
+    }
+    if(b.dataset.vb){
+      S.verb = b.dataset.vb;
+      const v = VERBS[S.verb];
+      api.tell(S.verb.startsWith('POST') ? 'bad' : 'good',
+        S.verb === 'POST /orders'
+          ? '<b>POST goes to the collection and creates a member in it.</b> That is why it is not idempotent: two POSTs make two orders. Return <code>201</code> with a <code>Location</code> header so the caller knows where the new thing lives, and accept an idempotency key if retries matter.'
+          : S.verb.startsWith('DELETE')
+          ? '<b>DELETE is idempotent, which surprises people.</b> The second call finds nothing to delete — but the resource is still gone, which is the same end state, so <code>204</code> is a perfectly good answer. Idempotency is about the result, not about whether work happened.'
+          : S.verb.startsWith('PUT')
+          ? '<b>PUT replaces the whole member.</b> Send it twice and you land in the same state, which is what makes it safe to retry. If you only mean to change one field that is PATCH — and PATCH is only idempotent if you design it that way.'
+          : `<b>${S.verb} is ${v.safe}.</b> It ${v.t} and changes nothing, so it may be cached, prefetched, logged and retried by anything between the client and your server.`);
+      api.out(`${S.verb} → ${v.ok}`);
+      return;
+    }
+    if(b.dataset.st){
+      S.sticky = b.dataset.st === '1';
+      api.tell(S.sticky ? 'bad' : 'good', S.sticky
+        ? '<b>One in-memory session, and your API is no longer stateless.</b> Now you need sticky sessions at the load balancer, or session replication between servers, and a deploy logs everybody out. Notice that you never chose this — it arrived with one convenient dictionary.'
+        : '<b>The request carries its own proof.</b> A signed token is verified with a key every server already holds, so no server needs to remember anyone. That is what makes horizontal scaling boring: add a server, send it traffic, done. The price is that a token stays valid until it expires, so logout and revocation need their own answer.');
+      api.out(S.sticky ? 'server A: 200 · server B: 401 · sticky sessions now required' : 'server A: 200 · server B: 200 · no shared state');
+      return;
+    }
+    if(b.dataset.c){
+      S.calls = b.dataset.c;
+      api.tell(S.calls === 'n1' ? 'bad' : 'good', S.calls === 'n1'
+        ? '<b>51 requests to draw one page.</b> The endpoint is fine in isolation; its shape forced the client into a loop. Firing them in parallel hides the time but not the cost — 50 connections, 50 auth checks, and 50 chances for one to fail.'
+        : '<b>The fix is to let the caller say what it needs.</b> Embedding, sparse fieldsets, or a purpose-built endpoint are all ordinary REST. The moment you find yourself designing a query language for this, you have arrived at the argument for GraphQL.');
+      api.out(S.calls === 'n1' ? '51 requests · ~3,060 ms' : '1 request · ~72 ms');
+      return;
+    }
+    if(b.dataset.ch){
+      S.change = b.dataset.ch;
+      api.tell(S.change === 'break' ? 'bad' : 'good', S.change === 'break'
+        ? '<b>Renaming a field is a breaking change, and a quiet one.</b> JSON clients do not fail loudly on a missing key — they read <code>undefined</code> and carry on, so you hear about it from a support ticket a week later. Your deploy cannot fix it either: every client has to ship.'
+        : '<b>Additive changes are invisible.</b> Old clients ignore fields they do not know, so you can grow a response almost forever. The real versioning skill is removal: keep the old field populated, mark it deprecated, watch who still reads it, and only then delete. A <code>/v2</code> means running two APIs indefinitely.');
+      api.out(S.change === 'break' ? 'clients reading .name → undefined' : 'clients reading .name → unchanged');
+      return;
+    }
+    return false;
+  },
+
+  reset(S){ Object.assign(S, {style:'rpc', verb:'GET /orders/42', sticky:true, calls:'n1', change:'break'}); },
+
+  quiz:[
+    {q:'What does statelessness actually require?',
+     o:['That the server stores no data at all','That no client state is kept on the server between requests — each request carries everything needed to serve it, so any server can answer it'], a:1,
+     w:'The database is still state. What must not live on the server is the conversation: sessions, "the page you asked for last", a half-finished wizard.'},
+    {q:'Is DELETE /orders/42 idempotent?',
+     o:['No — the second call fails','Yes — repeating it leaves the same end state, even though the second call finds nothing left to delete'], a:1,
+     w:'Idempotency is about the resulting state, not about whether work happened. It is exactly why a client may safely retry a DELETE after a timeout.'},
+    {q:'You need to remove a field from a response. What is the safe order?',
+     o:['Remove it and publish release notes','Add the replacement, keep the old field populated, mark it deprecated, measure who still reads it, then remove it'], a:1,
+     w:'And if you cannot measure who reads it, you cannot safely remove it — which is the real reason APIs accumulate fields.'},
+    {q:'A list endpoint returns ids, so the client fetches each row. What is that, and how do you fix it?',
+     o:['Normal REST — leave it','It is N+1 over HTTP: fix it by embedding what callers always need, supporting sparse fieldsets, or adding a purpose-built endpoint'], a:1,
+     w:'Saying "this is the same N+1 you get from an ORM, with round trips instead of queries" connects two topics interviewers usually ask separately.'}
+  ],
+  soundbite:'"REST is a set of constraints, not a file format. Resources get names, the HTTP methods supply the verbs, and the status code says whose problem it is. The constraint people quote and then break is statelessness — the moment a session lives in server memory you need sticky sessions and a deploy logs everyone out, so I keep the proof in the request instead. Its real weakness is fixed response shapes: a list of ids becomes 51 round trips, which is N+1 over HTTP. And I version by adding, never renaming, because I cannot deploy on my clients’ behalf."'
+});
+</script>
+</body>
+</html>

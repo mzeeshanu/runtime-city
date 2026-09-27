@@ -23,7 +23,8 @@ const LAYOUT = {
   'memory-harbour':      {x:680, y:44,  w:280, h:180, kind:'harbour'},
   'concurrency-crossing':{x:40,  y:268, w:280, h:180, kind:'blocks'},
   'database-vault':      {x:360, y:268, w:280, h:180, kind:'vault'},
-  'network-highway':     {x:680, y:268, w:280, h:180, kind:'road'}
+  'network-highway':     {x:680, y:268, w:280, h:180, kind:'road'},
+  'api-avenue':          {x:40,  y:492, w:920, h:180, kind:'road'}
 };
 
 /* Each playroom gets a sign on its facade, drawn in a 24×24 box, plus a
@@ -103,7 +104,7 @@ function districtSvg(d){
 }
 
 const map = `
-<svg class="citymap" viewBox="0 0 1000 492" role="img" aria-label="A map of Runtime City: six districts, each building is a playroom">
+<svg class="citymap" viewBox="0 0 1000 716" role="img" aria-label="A map of Runtime City: seven districts, each building is a playroom">
   <defs>
     <pattern id="mgrid" width="28" height="28" patternUnits="userSpaceOnUse"><path d="M28 0H0V28" fill="none" stroke="var(--grid)" stroke-width="1"/></pattern>
   </defs>

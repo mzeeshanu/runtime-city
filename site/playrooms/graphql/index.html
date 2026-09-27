@@ -1,0 +1,376 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>GraphQL Playroom · Runtime City</title>
+<meta name="description" content="Ask for exactly the fields you want, collapse five round trips into one, then discover the N+1 your resolvers just made and batch it away. A playroom from Runtime City.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,600;12..96,800&family=IBM+Plex+Sans:wght@400;500&family=JetBrains+Mono:wght@400&display=swap">
+<link rel="stylesheet" href="../../assets/playroom.css">
+</head>
+<body>
+<div id="playroom"></div>
+
+<script src="../../assets/city.js"></script>
+<script src="../../assets/nav.js"></script>
+<script src="../../assets/sequence.js"></script>
+<script src="../../assets/playroom.js"></script>
+<script>
+const LANES = [{name:'Client'}, {name:'GraphQL server'}, {name:'Database'}];
+
+const NOTES = {
+  1:'<b>One endpoint, one schema, one round trip.</b> The client sends a query describing the shape it wants; the server walks the schema and returns that exact shape.',
+  2:'<b>You ask for fields, so you get fields.</b> Nothing is returned that you did not name, which is what kills over-fetching — and makes the payload a function of the query, not the endpoint.',
+  3:'<b>The graph is the point.</b> Related data hangs off the type you already have, so a screen that needed five REST calls is one nested query.',
+  4:'<b>Naive resolvers re-create N+1.</b> Each parent field resolves independently, so 50 orders ask for 50 customers. Batching with a loader collapses them into one query per level.',
+  5:'<b>You gave away the cost control.</b> A single query can be arbitrarily deep and wide, and a POST is not HTTP-cacheable, so depth limits, cost analysis and persisted queries stop being optional.',
+  6:'<b>Interview tip:</b> anyone can say "ask for what you need". The strong answer is what you give up — HTTP caching, easy rate limiting, and a predictable worst case.'
+};
+
+const FIELDS = {
+  id:            {size:12,  always:true},
+  total:         {size:16,  always:false},
+  'customer.name':{size:34, always:false},
+  'items.title': {size:120, always:false},
+  createdAt:     {size:30,  always:false},
+  shippingLabel: {size:280, always:false}
+};
+
+const REST_BYTES = 4180;
+
+function queryText(S){
+  const on = Object.keys(FIELDS).filter(f => S.picked.includes(f));
+  const scalars = on.filter(f => !f.includes('.'));
+  const cust = on.includes('customer.name');
+  const items = on.includes('items.title');
+  const lines = [['query OrderPage {'], ['  order(id: 42) {']];
+  scalars.forEach(f => lines.push(['    ' + f, 'hl']));
+  if(cust) lines.push(['    customer { name }', 'hl']);
+  if(items) lines.push(['    items { title }', 'hl']);
+  lines.push(['  }'], ['}']);
+  return lines;
+}
+
+function bytes(S){
+  return S.picked.reduce((n, f) => n + FIELDS[f].size, 0) + 28;
+}
+
+function files(S){
+  const L = S.lang, s = S.step, pick = o => o[L];
+
+  if(s === 1) return [
+    {n:'schema.graphql', lines:[
+      ['type Query {'],
+      ['  order(id: ID!): Order','hl'],
+      ['  orders(page: Int = 1): [Order!]!'],
+      ['}'],[''],
+      ['type Order {'],
+      ['  id: ID!'],
+      ['  total: Float!'],
+      ['  createdAt: DateTime!'],
+      ['  customer: Customer!        # a graph edge, not a foreign key','hl'],
+      ['  items: [LineItem!]!','hl'],
+      ['}'],[''],
+      ['type Customer { id: ID!  name: String!  email: String! }'],
+      ['type LineItem { id: ID!  title: String!  qty: Int! }']]},
+    {n:'request.http', lines:[
+      ['POST /graphql                  # always this one URL','hl'],
+      ['Content-Type: application/json'],[''],
+      ['{ "query": "query { order(id: 42) { id total } }" }']]}];
+
+  if(s === 2) return [
+    {n:'query.graphql', lines:queryText(S)},
+    {n:'response.json', lines:[
+      ['{ "data": { "order": {'],
+      ...S.picked.map(f => [`  "${f.split('.')[0]}": …`, 'hl']),
+      ['} } }'],[''],
+      [`# ${bytes(S)} bytes · the endpoint never changed, only the query did`,'hl']]}];
+
+  if(s === 3) return S.shape === 'rest'
+    ? [{n:'screen.rest.ts', lines:[
+        ['// One screen, five endpoints, five round trips.'],
+        ['const order    = await api.get("/orders/42");              // 1'],
+        ['const customer = await api.get(`/customers/${order.customerId}`);  // 2','bad'],
+        ['const items    = await api.get("/orders/42/items");        // 3','bad'],
+        ['const address  = await api.get(`/addresses/${customer.addressId}`);// 4','bad'],
+        ['const loyalty  = await api.get(`/loyalty/${customer.id}`); // 5','bad'],[''],
+        ['// Each one waits for the one before it: the latency adds up in series.','bad']]}]
+    : [{n:'screen.graphql', lines:[
+        ['query OrderScreen {'],
+        ['  order(id: 42) {'],
+        ['    id total createdAt'],
+        ['    customer {','hl'],
+        ['      name'],
+        ['      address { line1 city postcode }','hl'],
+        ['      loyalty { tier points }','hl'],
+        ['    }'],
+        ['    items { title qty price }','hl'],
+        ['  }'],
+        ['}'],[''],
+        ['# One request. The server does the walking, next to the database.','hl']]}];
+
+  if(s === 4) return pick({
+    cs:[{n:'Resolvers.cs', lines:S.batched ? [
+      ['// One loader per request. Same code shape, one query per level.'],
+      ['public Task<Customer> Customer([Parent] Order o,'],
+      ['                               CustomerBatch loader)      // DataLoader','hl'],
+      ['    => loader.LoadAsync(o.CustomerId);'],[''],
+      ['public class CustomerBatch : BatchDataLoader<int, Customer> {'],
+      ['  protected override async Task<IReadOnlyDictionary<int, Customer>>'],
+      ['      LoadBatchAsync(IReadOnlyList<int> ids, CancellationToken ct)'],
+      ['    => await db.Customers.Where(c => ids.Contains(c.Id))      // 1 query','hl'],
+      ['                         .ToDictionaryAsync(c => c.Id, ct);'],
+      ['}']
+    ] : [
+      ['// Looks innocent. Runs once per parent.'],
+      ['public async Task<Customer> Customer([Parent] Order o)'],
+      ['    => await db.Customers.FindAsync(o.CustomerId);   // once per order','bad'],[''],
+      ['// 50 orders in the list  ->  1 query for the orders','bad'],
+      ['//                        -> 50 queries for the customers','bad'],
+      ['// The query looked like one request. It was 51 database calls.','bad']]}],
+    java:[{n:'Resolvers.java', lines:S.batched ? [
+      ['@SchemaMapping'],
+      ['public CompletableFuture<Customer> customer(Order o, DataLoader<Long, Customer> l) {'],
+      ['  return l.load(o.customerId());                 // batched per request','hl'],
+      ['}'],[''],
+      ['BatchLoader<Long, Customer> byIds = ids ->'],
+      ['    CompletableFuture.supplyAsync(() -> repo.findAllById(ids));   // 1 query','hl']
+    ] : [
+      ['@SchemaMapping'],
+      ['public Customer customer(Order o) {'],
+      ['  return repo.findById(o.customerId());          // once per order','bad'],
+      ['}'],[''],
+      ['// Spring will happily call this 50 times for one query.','bad']]}],
+    ts:[{n:'resolvers.ts', lines:S.batched ? [
+      ['const customerLoader = new DataLoader(async (ids: readonly number[]) => {'],
+      ['  const rows = await db.customers.whereIn("id", ids);      // ONE query','hl'],
+      ['  return ids.map(id => rows.find(r => r.id === id));       // same order back','hl'],
+      ['});'],[''],
+      ['const resolvers = {'],
+      ['  Order: { customer: (o) => ctx.loaders.customer.load(o.customerId) }','hl'],
+      ['};'],[''],
+      ['// Build the loaders per request, or you will cache across users.','hl']
+    ] : [
+      ['const resolvers = {'],
+      ['  Order: {'],
+      ['    customer: (o) => db.customers.findById(o.customerId)   // per order','bad'],
+      ['  }'],
+      ['};'],[''],
+      ['// 1 query for 50 orders, then 50 more for their customers.','bad'],
+      ['// The client sent one request and has no idea.','bad']]}]
+  });
+
+  if(s === 5) return [{n:'guards.ts', lines:S.guard === 'off' ? [
+    ['// No limits. This is a valid query.'],
+    ['query {'],
+    ['  orders {'],
+    ['    customer { orders { customer { orders {           # keep going...','bad'],
+    ['      customer { orders { items { title } } } } } } }','bad'],
+    ['  }'],
+    ['}'],[''],
+    ['// Depth 9, and the result set multiplies at every level.','bad'],
+    ['// One POST, from one client, on one connection.','bad']
+  ] : [
+    ['const server = new ApolloServer({'],
+    ['  schema,'],
+    ['  validationRules: ['],
+    ['    depthLimit(7),                        // no infinite nesting','hl'],
+    ['    costAnalysis({ maximumCost: 1000 })   // price each field','hl'],
+    ['  ],'],
+    ['  persistedQueries: { ttl: null }         // only known queries, by hash','hl'],
+    ['});'],[''],
+    ['// Persisted queries also give you back GET + CDN caching:','hl'],
+    ['//   GET /graphql?sha256Hash=abc123&variables={"id":42}','hl']]}];
+
+  return [];
+}
+
+const P = Playroom({
+  district:'API Avenue',
+  title:'GraphQL',
+  dek:'One endpoint, a typed schema, and a query that returns exactly the shape you asked for — plus the N+1 you did not mean to write.',
+  steps:['One endpoint','Pick your fields','One trip, not five','The N+1 you made','Cost and caching','Interview check'],
+  stage:Sequence.stage({lanes:LANES, height:320}),
+
+  state:{picked:['id','total'], shape:'rest', batched:false, guard:'off'},
+
+  story(S, api){
+    const fb = api.fb();
+    return {
+      1:`<h2>One URL, one schema</h2><p>There is no <code>/orders/42</code> here. Every request is a POST to <code>/graphql</code> carrying a query, and the schema on the right is the contract: every type, every field, every edge between them.</p>${fb}`,
+      2:`<h2>You get what you asked for</h2><p>Toggle fields on and off and watch the response — and its size — follow the query. The endpoint never changes.</p>${fb}`,
+      3:`<h2>Five round trips, or one</h2><p>This is the problem GraphQL was built for. A detail screen in REST walks from order to customer to address to loyalty, each call waiting on the last.</p>${fb}`,
+      4:`<h2>The N+1 you just wrote</h2><p>One request arrived. Now watch the database. Each field resolves on its own, so a list of 50 orders asks for 50 customers — unless you batch.</p>${fb}`,
+      5:`<h2>What you gave up</h2><p>The client now decides how expensive a request is, and a POST body is not something a CDN will cache. Both need answering before this goes public.</p>${fb}`,
+      6:`<h2>Interview check</h2>${api.quizHTML()}`
+    }[S.step];
+  },
+
+  controls(S){
+    const s = S.step;
+    if(s === 2) return Object.keys(FIELDS).map(f =>
+      `<button class="chip" data-f="${f}" aria-pressed="${S.picked.includes(f)}"><i style="background:${S.picked.includes(f) ? 'var(--good)' : 'var(--hair)'}"></i>${f}</button>`).join('');
+    if(s === 3) return `<button class="chip" data-sh="rest" aria-pressed="${S.shape === 'rest'}"><i style="background:var(--bad)"></i>Five REST calls</button>` +
+      `<button class="chip" data-sh="gql" aria-pressed="${S.shape === 'gql'}"><i style="background:var(--good)"></i>One nested query</button>`;
+    if(s === 4) return `<button class="chip" data-b="0" aria-pressed="${!S.batched}"><i style="background:var(--bad)"></i>Plain resolvers</button>` +
+      `<button class="chip" data-b="1" aria-pressed="${S.batched}"><i style="background:var(--good)"></i>Batched with a loader</button>`;
+    if(s === 5) return `<button class="chip" data-g="off" aria-pressed="${S.guard === 'off'}"><i style="background:var(--bad)"></i>No limits</button>` +
+      `<button class="chip" data-g="on" aria-pressed="${S.guard === 'on'}"><i style="background:var(--good)"></i>Depth, cost, persisted</button>`;
+    return '';
+  },
+
+  statusLine(S){
+    const s = S.step;
+    if(s === 1) return `<b>1</b> endpoint · <b>4</b> types · the schema is the contract<span class="ok"> · and the documentation, and the type-checker</span>`;
+    if(s === 2){
+      const b = bytes(S), saved = Math.round(100 - (b / REST_BYTES) * 100);
+      return `<b>${S.picked.length}</b> fields · <b>${b}</b> bytes<span class="ok"> · the REST endpoint returns ${REST_BYTES} bytes whatever you need (${saved}% smaller)</span>`;
+    }
+    if(s === 3) return S.shape === 'rest'
+      ? `<b>5</b> requests, in series · ~<b>300 ms</b><span class="warn"> · each one waits for the id from the last</span>`
+      : `<b>1</b> request · ~<b>70 ms</b><span class="ok"> · the walking happens next to the database</span>`;
+    if(s === 4) return S.batched
+      ? `1 request → <b>3</b> database queries<span class="ok"> · one per level, batched by id</span>`
+      : `1 request → <b>51</b> database queries<span class="warn"> · one per order, and the client cannot see it</span>`;
+    return S.guard === 'off'
+      ? `depth <b>unlimited</b> · cost <b>unlimited</b> · cache <b>none</b><span class="warn"> · one client can decide your load</span>`
+      : `depth <b>≤ 7</b> · cost <b>≤ 1000</b> · persisted queries<span class="ok"> · known queries only, and GET-cacheable again</span>`;
+  },
+
+  files,
+  note: S => NOTES[S.step],
+
+  onStage(S){
+    const s = S.step;
+    let lanes = LANES.map(l => ({...l}));
+    let messages = [], caption = '';
+
+    if(s === 1){
+      messages = [
+        {from:0, to:1, label:'POST /graphql · query { order(id:42){ id total } }'},
+        {from:1, to:1, label:'validate against the schema', kind:'ok'},
+        {from:1, to:2, label:'fetch only what the query named', kind:'ok'},
+        {from:1, to:0, label:'200 OK · { data: { order: { id, total } } }', kind:'cached'}
+      ];
+      caption = 'the URL never changes · the query says what you want';
+    } else if(s === 2){
+      const b = bytes(S);
+      messages = [
+        {from:0, to:1, label:`query with ${S.picked.length} field${S.picked.length === 1 ? '' : 's'}`},
+        {from:1, to:0, label:`${b} bytes back`, kind:'cached'},
+        {from:0, to:0, label:`the REST endpoint would have sent ${REST_BYTES} bytes either way`, kind: b < 200 ? 'cached' : 'slow'}
+      ];
+      caption = 'over-fetching is a property of fixed responses, not of HTTP';
+    } else if(s === 3){
+      messages = S.shape === 'rest'
+        ? [{from:0, to:1, label:'GET /orders/42', ms:'60 ms'},
+           {from:0, to:1, label:'GET /customers/7 — needs the id from the last one', ms:'120 ms', kind:'slow'},
+           {from:0, to:1, label:'GET /orders/42/items', ms:'180 ms', kind:'slow'},
+           {from:0, to:1, label:'GET /addresses/91', ms:'240 ms', kind:'bad'},
+           {from:0, to:1, label:'GET /loyalty/7', ms:'300 ms', kind:'bad'}]
+        : [{from:0, to:1, label:'POST /graphql · one nested query', ms:'0 ms'},
+           {from:1, to:2, label:'orders + customers + items + loyalty', kind:'ok'},
+           {from:2, to:1, label:'rows', kind:'ok'},
+           {from:1, to:0, label:'200 OK · the whole screen', ms:'70 ms', kind:'cached'}];
+      caption = S.shape === 'rest' ? 'requests that depend on each other cannot be parallelised' : 'one round trip over the slow link, several fast ones over the fast link';
+    } else if(s === 4){
+      messages = S.batched
+        ? [{from:0, to:1, label:'query { orders { customer { name } } }'},
+           {from:1, to:2, label:'SELECT * FROM orders LIMIT 50', kind:'ok'},
+           {from:1, to:2, label:'SELECT * FROM customers WHERE id IN (…50 ids…)', kind:'cached'},
+           {from:1, to:0, label:'200 OK · 2 queries', kind:'cached'}]
+        : [{from:0, to:1, label:'query { orders { customer { name } } }'},
+           {from:1, to:2, label:'SELECT * FROM orders LIMIT 50', kind:'ok'},
+           {from:1, to:2, label:'SELECT * FROM customers WHERE id = ? … × 50', kind:'bad'},
+           {from:1, to:0, label:'200 OK · looked like one request', kind:'bad'}];
+      caption = S.batched ? 'a loader collects the ids for one tick, then asks once' : 'the client sent one request; your database saw fifty-one';
+    } else if(s === 5){
+      messages = S.guard === 'off'
+        ? [{from:0, to:1, label:'one POST · nine levels deep', kind:'bad'},
+           {from:1, to:2, label:'thousands of rows, multiplied per level', kind:'bad'},
+           {from:1, to:0, label:'a timeout, and a very busy database', kind:'bad'},
+           {from:0, to:0, label:'no CDN in front: POST bodies are not cacheable', kind:'bad'}]
+        : [{from:0, to:1, label:'GET /graphql?sha256Hash=abc123', kind:'cached'},
+           {from:1, to:1, label:'known query · depth 3 · cost 42', kind:'ok'},
+           {from:1, to:0, label:'200 OK · and a CDN can hold this', kind:'cached'},
+           {from:0, to:0, label:'unknown or too-expensive queries are rejected before they run', kind:'ok'}];
+      caption = S.guard === 'off' ? 'you handed the client your cost model' : 'allow-list the queries, price the fields, cap the depth';
+    }
+
+    Sequence.draw({lanes, messages, caption});
+  },
+
+  onStep(S, n){
+    if(n === 2) S.picked = ['id','total'];
+    if(n === 3) S.shape = 'rest';
+    if(n === 4) S.batched = false;
+    if(n === 5) S.guard = 'off';
+  },
+
+  onClick(S, b, api){
+    if(b.dataset.f){
+      const f = b.dataset.f;
+      if(f === 'id'){
+        api.tell('bad', '<b>Keep <code>id</code>.</b> Almost every client cache — Apollo, Relay, urql — identifies objects by <code>__typename</code> plus id. Query without one and the cache cannot tell two results apart, so it stops normalising and you get stale screens.');
+        return;
+      }
+      S.picked = S.picked.includes(f) ? S.picked.filter(x => x !== f) : S.picked.concat([f]);
+      const size = FIELDS[f].size;
+      api.tell('good', f === 'shippingLabel'
+        ? '<b>One expensive field, and the response quadruples.</b> This is the argument in miniature: the endpoint cannot know whether you wanted the label. Only the caller knows, so only the caller should decide.'
+        : f === 'items.title'
+        ? '<b>Crossing an edge costs more than a scalar.</b> <code>items</code> is a list, so the server resolves it per order — which is exactly where the N+1 in step four comes from.'
+        : `<b>${f} adds about ${size} bytes.</b> Nothing else changed: same URL, same schema, same server. The payload is a function of the query, which is why two screens can share one API without compromising for each other.`);
+      api.out(`${S.picked.length} fields · ${bytes(S)} bytes · REST would send ${REST_BYTES}`);
+      return;
+    }
+    if(b.dataset.sh){
+      S.shape = b.dataset.sh;
+      api.tell(S.shape === 'rest' ? 'bad' : 'good', S.shape === 'rest'
+        ? '<b>These five calls cannot run in parallel.</b> You need the order before you know the customer id, and the customer before you know the address id. That is a waterfall, and on a mobile connection each step costs a full round trip — this is why the pattern hurts most on exactly the devices you care about.'
+        : '<b>The walking moved to where the data is.</b> The client pays one slow round trip; the server pays several fast ones inside the datacentre. Note what did not happen: nobody had to build an <code>/order-screen</code> endpoint, so the next screen does not need a sixth one.');
+      api.out(S.shape === 'rest' ? '5 requests in series · ~300 ms' : '1 request · ~70 ms');
+      return;
+    }
+    if(b.dataset.b){
+      S.batched = b.dataset.b === '1';
+      api.tell(S.batched ? 'good' : 'bad', S.batched
+        ? '<b>A loader batches by tick, not by magic.</b> It collects every id requested during one turn of the event loop and issues a single <code>WHERE id IN (…)</code>, then hands each resolver its own row back. Build the loaders per request — a loader shared between requests is a cache that leaks one user’s data into another’s.'
+        : '<b>GraphQL did not cause this, but it hides it beautifully.</b> Every field resolves on its own, so nothing in the code looks like a loop. Your access logs show one request; your database shows fifty-one queries. Always look at query counts per request, not at request counts.');
+      api.out(S.batched ? '1 request → 2 queries' : '1 request → 51 queries');
+      return;
+    }
+    if(b.dataset.g){
+      S.guard = b.dataset.g;
+      api.tell(S.guard === 'off' ? 'bad' : 'good', S.guard === 'off'
+        ? '<b>Rate limiting by request count means nothing here.</b> One request can be trivial or can traverse your whole graph, and the schema itself tells an attacker exactly how to build the expensive one. With REST you could price each endpoint; here you have to price the query.'
+        : '<b>Three defences, and the third gives something back.</b> Depth limits stop the recursion, cost analysis prices each field before it runs, and persisted queries let the server accept only queries you shipped — which means the client can send them as a GET by hash, and HTTP caching and CDNs work again.');
+      api.out(S.guard === 'off' ? 'any query, any depth, no cache' : 'depth ≤ 7 · cost ≤ 1000 · known queries, cacheable by hash');
+      return;
+    }
+    return false;
+  },
+
+  reset(S){ Object.assign(S, {picked:['id','total'], shape:'rest', batched:false, guard:'off'}); },
+
+  quiz:[
+    {q:'What problem does GraphQL actually solve?',
+     o:['It makes requests faster','Fixed response shapes: clients over-fetch what they do not need and under-fetch what they do, so they make extra round trips. The client describes the shape instead'], a:1,
+     w:'Saying "it is faster" is the weak answer. It removes round trips and bytes — the server-side work is the same or slightly more.'},
+    {q:'You ship GraphQL and your database load goes up. Why?',
+     o:['GraphQL queries are less efficient','Resolvers run per field, so a list of 50 parents fires 50 child queries — N+1. Fix it with per-request DataLoaders that batch ids into one query per level'], a:1,
+     w:'Mentioning that loaders must be per-request, not global, shows you have actually run one: a shared loader caches one user’s rows for the next.'},
+    {q:'Why is rate limiting harder with GraphQL than REST?',
+     o:['It is not, you count requests','One request can be arbitrarily deep and wide, so request counts say nothing. You need query cost analysis and depth limits, and the schema tells a caller how to build the worst case'], a:1,
+     w:'The natural follow-up is caching: POST bodies are not HTTP-cacheable, which persisted queries fix by turning a known query into a GET by hash.'},
+    {q:'When would you not choose GraphQL?',
+     o:['Never, it supersedes REST','When clients are few and stable, when you rely on HTTP and CDN caching, when file upload and streaming dominate, or when the extra server complexity buys nothing'], a:1,
+     w:'Interviewers like a candidate who will decline a technology. A public API with heavy caching is often better served by REST.'}
+  ],
+  soundbite:'"GraphQL is one endpoint and a typed schema, where the client sends a query describing the shape it wants. It fixes over-fetching and the round-trip waterfall you get walking REST resources — the server does the walking, next to the database. The catch is that each field resolves independently, so a list of fifty orders fires fifty customer queries unless you batch with per-request DataLoaders. And you give up HTTP caching and per-endpoint rate limits, so depth limits, cost analysis and persisted queries are part of shipping it, not extras."'
+});
+</script>
+</body>
+</html>

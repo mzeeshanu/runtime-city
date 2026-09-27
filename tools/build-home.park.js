@@ -17,7 +17,9 @@ const ZONES = {
   'memory-harbour':      {x:670, y:34,  w:316, h:274, dot:'rgb(47,127,208)',      sub:'where objects live'},
   'concurrency-crossing':{x:18,  y:330, w:316, h:274, dot:'rgb(122,107,181)',     sub:'two things at once'},
   'database-vault':      {x:344, y:330, w:316, h:274, dot:'var(--accent)',        sub:'storing it safely'},
-  'network-highway':     {x:670, y:330, w:316, h:274, dot:'rgb(47,127,208)',      sub:'getting there'}
+  'network-highway':     {x:670, y:330, w:316, h:274, dot:'rgb(47,127,208)',      sub:'getting there'},
+  /* one wide strip: an avenue reads better as a single row of five */
+  'api-avenue':          {x:18,  y:630, w:968, h:230, dot:'var(--good)',          sub:'talking over the wire', per:5, gap:170, mid:138}
 };
 
 /* the same signs as the city map, drawn in a 24×24 box */
@@ -26,14 +28,14 @@ const GLYPH = require('./glyphs.js');
 
 function ride(p, i, total, Z){
   /* rows of at most three, each row centred in the zone */
-  const perRow = Math.min(total, 3);
+  const perRow = Z.per || Math.min(total, 3);
   const rows = Math.ceil(total / perRow);
   const row = Math.floor(i / perRow), col = i % perRow;
   const inThisRow = Math.min(perRow, total - row * perRow);
 
-  const step = 104;
+  const step = Z.gap || 104;
   const cx = Z.x + Z.w / 2 - ((inThisRow - 1) * step) / 2 + col * step;
-  const cy = Z.y + (rows === 1 ? 166 : 124 + row * 88);
+  const cy = Z.y + (rows === 1 ? (Z.mid || 166) : 124 + row * 88);
   const r = 36;
 
   return `<a class="ride" href="playrooms/${p.slug}/" data-room="${p.slug}" aria-label="${esc(p.title)} — ${esc(p.blurb)}">` +
@@ -60,7 +62,7 @@ function land(d){
 }
 
 const map = `
-<svg class="parkmap" viewBox="0 0 1004 622" role="img" aria-label="Runtime City: six districts, each marker is a playroom">
+<svg class="parkmap" viewBox="0 0 1004 878" role="img" aria-label="Runtime City: seven districts, each marker is a playroom">
   ${CITY.districts.map(land).join(String.fromCharCode(10))}
 </svg>`;
 

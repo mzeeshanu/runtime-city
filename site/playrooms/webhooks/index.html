@@ -1,0 +1,409 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Webhooks Playroom · Runtime City</title>
+<meta name="description" content="Let the other system call you: survive being down, stop charging a customer twice, prove the call really came from them, and answer fast enough not to be retried. A playroom from Runtime City.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,600;12..96,800&family=IBM+Plex+Sans:wght@400;500&family=JetBrains+Mono:wght@400&display=swap">
+<link rel="stylesheet" href="../../assets/playroom.css">
+</head>
+<body>
+<div id="playroom"></div>
+
+<script src="../../assets/city.js"></script>
+<script src="../../assets/nav.js"></script>
+<script src="../../assets/sequence.js"></script>
+<script src="../../assets/playroom.js"></script>
+<script>
+const LANES = [{name:'Payment provider'}, {name:'Your endpoint'}, {name:'Your queue + DB'}];
+
+const NOTES = {
+  1:'<b>A webhook inverts the call.</b> Instead of asking every minute whether anything happened, you publish a URL and they call you when it does — so you learn in a second, and only when there is news.',
+  2:'<b>Your endpoint will be down at some point.</b> Delivery is therefore retried with backoff, which means "exactly once" is not on the menu and a dead-letter queue is part of the design.',
+  3:'<b>Retries make duplicates, and so do timeouts.</b> At-least-once delivery is the contract, so the handler has to be idempotent — usually by remembering the event id.',
+  4:'<b>Anyone can POST to a public URL.</b> A shared signature over the raw body, plus a timestamp, is what turns "someone says you were paid" into proof.',
+  5:'<b>Answer 200 fast, then do the work.</b> Slow handlers get timed out and retried, which multiplies the load exactly when you are already struggling.',
+  6:'<b>Interview tip:</b> say at-least-once, idempotency key, signature over the raw body, and 200-then-queue. Those four phrases are the whole topic.'
+};
+
+const ATTEMPTS = [
+  {n:1, at:'0s',    r:'connection refused', ok:false},
+  {n:2, at:'+30s',  r:'connection refused', ok:false},
+  {n:3, at:'+2m',   r:'500 from your app',  ok:false},
+  {n:4, at:'+10m',  r:'200 OK',             ok:true},
+  {n:5, at:'+1h',   r:'—',                  ok:true}
+];
+
+function files(S){
+  const L = S.lang, s = S.step, pick = o => o[L];
+
+  if(s === 1) return [{n:'the-two-shapes.txt', lines:S.mode === 'poll' ? [
+    ['# You ask, forever'],
+    ['every 60s:  GET /v1/charges?since=<cursor>'],
+    ['            -> 200 OK  []          # nothing','bad'],
+    ['            -> 200 OK  []          # nothing','bad'],
+    ['            -> 200 OK  [charge]    # finally, up to 60s late','bad'],[''],
+    ['1,440 requests a day. You hold the cursor, you handle the paging,'],
+    ['and you are always somewhere between 0 and 60 seconds behind.','bad']
+  ] : [
+    ['# They call you, when there is something to say'],
+    ['POST https://you.example/hooks/payments','hl'],
+    ['Content-Type: application/json'],
+    ['Webhook-Id: evt_8f2a19'],
+    ['Webhook-Timestamp: 1748955600'],
+    ['Webhook-Signature: v1,k3nT8s…'],[''],
+    ['{ "type": "charge.succeeded", "data": { "id": "ch_77", "amount": 9000 } }','hl'],[''],
+    ['One request, about a second after it happened. But now you are a','hl'],
+    ['server in someone else’s critical path, and everything below follows.','hl']]}];
+
+  if(s === 2) return [{n:'delivery-log.txt', lines:[
+    ['attempt   when     result                   next'],
+    ...ATTEMPTS.slice(0, S.attempt).map(a => [
+      `  ${a.n}      ${a.at.padEnd(7)}  ${a.r.padEnd(22)}  ${a.ok ? 'done' : 'retry'}`,
+      a.ok ? 'hl' : 'bad']),
+    [''],
+    ...(S.attempt >= 4 ? [
+      ['# Delivered on the fourth attempt, ten minutes late.','hl'],
+      ['# Your handler must cope with "late" as a normal condition —','hl'],
+      ['# the charge may already have been refunded by the time you hear.','hl']
+    ] : [
+      ['# Exponential backoff, usually with jitter, usually for hours or days.'],
+      ['# After the last attempt it goes to a dead-letter queue, and somebody','bad'],
+      ['# has to replay it by hand. Build the endpoint that can be replayed at.','bad']])]}];
+
+  if(s === 3) return pick({
+    cs:[{n:'Handler.cs', lines:S.idem ? [
+      ['[HttpPost("/hooks/payments")]'],
+      ['public async Task<IResult> Receive(WebhookEvent e) {'],
+      ['    // The id is the whole defence. Insert it, and let the database say no.'],
+      ['    var first = await db.Execute('],
+      ['        "INSERT INTO handled_events (id) VALUES (@id) ON CONFLICT DO NOTHING",','hl'],
+      ['        new { id = e.Id });'],[''],
+      ['    if (first == 0) return Results.Ok();      // already done it','hl'],[''],
+      ['    await FulfilOrder(e.Data);                 // exactly once, in effect','hl'],
+      ['    return Results.Ok();'],
+      ['}'],[''],
+      ['// Same transaction as the work, or a crash in between loses it.','hl']
+    ] : [
+      ['[HttpPost("/hooks/payments")]'],
+      ['public async Task<IResult> Receive(WebhookEvent e) {'],
+      ['    await FulfilOrder(e.Data);      // ship the goods','bad'],
+      ['    return Results.Ok();'],
+      ['}'],[''],
+      ['// Attempt 3 timed out AFTER you shipped. Attempt 4 ships again.','bad'],
+      ['// The customer gets two parcels and one refund request.','bad']]}],
+    java:[{n:'Handler.java', lines:S.idem ? [
+      ['@PostMapping("/hooks/payments")'],
+      ['@Transactional'],
+      ['public ResponseEntity<Void> receive(@RequestBody WebhookEvent e) {'],
+      ['  if (handled.existsById(e.id())) return ResponseEntity.ok().build();','hl'],
+      ['  handled.save(new HandledEvent(e.id()));       // unique key','hl'],
+      ['  fulfil(e.data());                             // same transaction','hl'],
+      ['  return ResponseEntity.ok().build();'],
+      ['}']
+    ] : [
+      ['@PostMapping("/hooks/payments")'],
+      ['public ResponseEntity<Void> receive(@RequestBody WebhookEvent e) {'],
+      ['  fulfil(e.data());                             // every single time','bad'],
+      ['  return ResponseEntity.ok().build();'],
+      ['}']]}],
+    ts:[{n:'handler.ts', lines:S.idem ? [
+      ['app.post("/hooks/payments", async (req, res) => {'],
+      ['  const { rowCount } = await db.query('],
+      ['    "INSERT INTO handled_events(id) VALUES($1) ON CONFLICT DO NOTHING",','hl'],
+      ['    [req.body.id]);'],[''],
+      ['  if (rowCount === 0) return res.sendStatus(200);   // a duplicate','hl'],[''],
+      ['  await fulfil(req.body.data);'],
+      ['  res.sendStatus(200);'],
+      ['});'],[''],
+      ['// Also: do not trust the ORDER. charge.refunded can arrive before','hl'],
+      ['// charge.succeeded, so branch on the state you hold, not on arrival.','hl']
+    ] : [
+      ['app.post("/hooks/payments", async (req, res) => {'],
+      ['  await fulfil(req.body.data);     // twice, when they retry','bad'],
+      ['  res.sendStatus(200);'],
+      ['});']]}]
+  });
+
+  if(s === 4) return pick({
+    cs:[{n:'Verify.cs', lines:S.signed ? [
+      ['// Sign the RAW body. Re-serialising changes the bytes and breaks it.'],
+      ['app.MapPost("/hooks/payments", async (HttpRequest req) => {'],
+      ['    req.EnableBuffering();'],
+      ['    var raw = await new StreamReader(req.Body).ReadToEndAsync();','hl'],[''],
+      ['    var ts = req.Headers["Webhook-Timestamp"];'],
+      ['    if (Math.Abs(Now - long.Parse(ts)) > 300) return Results.BadRequest();  // replay','hl'],[''],
+      ['    var expected = Convert.ToHexString('],
+      ['        HMACSHA256.HashData(secret, Encoding.UTF8.GetBytes($"{ts}.{raw}")));','hl'],[''],
+      ['    if (!CryptographicOperations.FixedTimeEquals(          // not ==','hl'],
+      ['            Bytes(expected), Bytes(req.Headers["Webhook-Signature"])))'],
+      ['        return Results.Unauthorized();'],[''],
+      ['    return Handle(JsonSerializer.Deserialize<WebhookEvent>(raw));'],
+      ['});']
+    ] : [
+      ['app.MapPost("/hooks/payments", (WebhookEvent e) => {'],
+      ['    // No signature check. This URL is public.','bad'],
+      ['    Credit(e.Data.Account, e.Data.Amount);','bad'],
+      ['    return Results.Ok();'],
+      ['});'],[''],
+      ['// curl -d \'{"type":"charge.succeeded","amount":900000}\' https://you…','bad'],
+      ['// Anyone who guesses the path can say they paid you.','bad']]}],
+    java:[{n:'Verify.java', lines:S.signed ? [
+      ['String raw = new String(request.getInputStream().readAllBytes());   // raw','hl'],
+      ['long ts = Long.parseLong(request.getHeader("Webhook-Timestamp"));'],
+      ['if (Math.abs(now() - ts) > 300) return badRequest();                // replay','hl'],[''],
+      ['byte[] mine = hmacSha256(secret, ts + "." + raw);','hl'],
+      ['if (!MessageDigest.isEqual(mine, decode(header)))    // constant time','hl'],
+      ['    return unauthorized();']
+    ] : [
+      ['@PostMapping("/hooks/payments")'],
+      ['void receive(@RequestBody WebhookEvent e) {'],
+      ['  credit(e.account(), e.amount());     // on nothing but trust','bad'],
+      ['}']]}],
+    ts:[{n:'verify.ts', lines:S.signed ? [
+      ['app.post("/hooks/payments",'],
+      ['  express.raw({ type: "application/json" }),        // raw, not parsed','hl'],
+      ['  (req, res) => {'],
+      ['    const ts = req.header("webhook-timestamp")!;'],
+      ['    if (Math.abs(Date.now() / 1000 - +ts) > 300)'],
+      ['      return res.sendStatus(400);                    // stale = replay','hl'],[''],
+      ['    const mine = createHmac("sha256", SECRET)'],
+      ['      .update(`${ts}.${req.body}`).digest();','hl'],[''],
+      ['    if (!timingSafeEqual(mine, sig)) return res.sendStatus(401);   // not ===','hl'],[''],
+      ['    handle(JSON.parse(req.body.toString()));'],
+      ['  });']
+    ] : [
+      ['app.post("/hooks/payments", express.json(), (req, res) => {'],
+      ['  fulfil(req.body);          // whoever sent it','bad'],
+      ['  res.sendStatus(200);'],
+      ['});'],[''],
+      ['// A public URL that grants goods to anyone who POSTs the right shape.','bad']]}]
+  });
+
+  if(s === 5) return [{n:'fast-ack.ts', lines:S.async ? [
+    ['app.post("/hooks/payments", raw, async (req, res) => {'],
+    ['  verify(req);                        // cheap: an HMAC'],
+    ['  await queue.add("payment", req.body);   // durable, not in memory','hl'],
+    ['  res.sendStatus(200);                    // ~12 ms','hl'],
+    ['});'],[''],
+    ['// The work happens in a worker, where it can be slow, retried and'],
+    ['// watched — and where a failure is yours to handle, not a retry storm.','hl'],[''],
+    ['// Acknowledge only what you have durably stored. A 200 after an','hl'],
+    ['// in-memory setTimeout is a lie that loses events on deploy.','hl']
+  ] : [
+    ['app.post("/hooks/payments", raw, async (req, res) => {'],
+    ['  await chargeVat(req.body);          // 4s, third-party API','bad'],
+    ['  await sendEmail(req.body);          // 3s','bad'],
+    ['  await rebuildReport(req.body);      // 9s','bad'],
+    ['  res.sendStatus(200);                // 16s — too late','bad'],
+    ['});'],[''],
+    ['// Their timeout is usually 5-10s. You get retried while still working,','bad'],
+    ['// so the same event runs three times in parallel, each one slower.','bad'],
+    ['// Enough of these and they disable your endpoint entirely.','bad']]}];
+
+  return [];
+}
+
+const P = Playroom({
+  district:'API Avenue',
+  title:'Webhooks',
+  dek:'They call you when something happens — so now you own an endpoint that must survive duplicates, strangers and being slow.',
+  steps:['They call you','Retries','Duplicates','Proving it was them','Answer fast','Interview check'],
+  stage:Sequence.stage({lanes:LANES, height:320}),
+
+  state:{mode:'poll', attempt:1, idem:false, signed:false, async:false},
+
+  story(S, api){
+    const fb = api.fb();
+    return {
+      1:`<h2>Stop asking. Be called.</h2><p>Polling costs you a request a minute and still leaves you a minute behind. A webhook flips it: you hand over a URL, and they POST to it when something happens.</p>${fb}`,
+      2:`<h2>You will be down</h2><p>Deploys, incidents, a bad release. Delivery is retried with backoff — step through the attempts and watch what your endpoint has to live with.</p>${fb}`,
+      3:`<h2>The same event, twice</h2><p>Retries and timeouts both produce duplicates, so delivery is <b>at-least-once</b>. Ship goods without guarding for that and you ship them twice.</p>${fb}`,
+      4:`<h2>Prove it was really them</h2><p>Your endpoint is a public URL that grants things. Anyone can POST to it. A signature over the raw body, plus a timestamp, is the whole defence.</p>${fb}`,
+      5:`<h2>Answer in milliseconds</h2><p>The sender has a timeout, and a slow reply looks exactly like a failure. Do the minimum, acknowledge, then work.</p>${fb}`,
+      6:`<h2>Interview check</h2>${api.quizHTML()}`
+    }[S.step];
+  },
+
+  controls(S){
+    const s = S.step;
+    if(s === 1) return `<button class="chip" data-md="poll" aria-pressed="${S.mode === 'poll'}"><i style="background:var(--accent)"></i>Poll them</button>` +
+      `<button class="chip" data-md="hook" aria-pressed="${S.mode === 'hook'}"><i style="background:var(--good)"></i>Let them call you</button>`;
+    if(s === 2) return `<button class="btn primary" data-a="retry">${S.attempt >= 4 ? 'Delivered — start again' : 'Next attempt'}</button>`;
+    if(s === 3) return `<button class="chip" data-id="0" aria-pressed="${!S.idem}"><i style="background:var(--bad)"></i>Just handle it</button>` +
+      `<button class="chip" data-id="1" aria-pressed="${S.idem}"><i style="background:var(--good)"></i>Remember the event id</button>`;
+    if(s === 4) return `<button class="chip" data-sg="0" aria-pressed="${!S.signed}"><i style="background:var(--bad)"></i>Trust the POST</button>` +
+      `<button class="chip" data-sg="1" aria-pressed="${S.signed}"><i style="background:var(--good)"></i>Verify the signature</button>`;
+    if(s === 5) return `<button class="chip" data-as="0" aria-pressed="${!S.async}"><i style="background:var(--bad)"></i>Do the work inline</button>` +
+      `<button class="chip" data-as="1" aria-pressed="${S.async}"><i style="background:var(--good)"></i>Queue it, then 200</button>`;
+    return '';
+  },
+
+  statusLine(S){
+    const s = S.step;
+    if(s === 1) return S.mode === 'poll'
+      ? `<b>1,440</b> requests/day · up to <b>60s</b> behind<span class="warn"> · and you own the cursor and the paging</span>`
+      : `<b>1</b> request, ~<b>1s</b> after the event<span class="ok"> · and you are now a server in their critical path</span>`;
+    if(s === 2){ const a = ATTEMPTS[S.attempt - 1];
+      return `attempt <b>${a.n}</b> at <b>${a.at}</b> · ${a.r}<span class="${a.ok ? 'ok' : 'warn'}"> · ${a.ok ? 'delivered, ten minutes after it happened' : 'backing off, then trying again'}</span>`; }
+    if(s === 3) return S.idem
+      ? `2 deliveries → <b>1</b> fulfilment<span class="ok"> · the unique key did the work</span>`
+      : `2 deliveries → <b>2</b> parcels<span class="warn"> · one customer, one refund, one apology</span>`;
+    if(s === 4) return S.signed
+      ? `HMAC over <b>timestamp + raw body</b><span class="ok"> · constant-time compare · 5 minute window</span>`
+      : `<b>no verification</b><span class="warn"> · anyone who guesses the path can claim they paid you</span>`;
+    return S.async
+      ? `ack in <b>~12 ms</b><span class="ok"> · the work happens in a worker you control</span>`
+      : `ack in <b>~16 s</b><span class="warn"> · past their timeout · now running three times at once</span>`;
+  },
+
+  files,
+  note: S => NOTES[S.step],
+
+  onStage(S){
+    const s = S.step;
+    let lanes = LANES.map((l, i) => ({...l, dim: s < 5 && i === 2}));
+    let messages = [], caption = '';
+
+    if(s === 1){
+      messages = S.mode === 'poll'
+        ? [{from:1, to:0, label:'GET /v1/charges?since=…', kind:'slow'},
+           {from:0, to:1, label:'200 OK · []', kind:'slow'},
+           {from:1, to:0, label:'GET /v1/charges?since=…', kind:'slow'},
+           {from:0, to:0, label:'the charge succeeds here', kind:'ok'},
+           {from:1, to:0, label:'GET … · up to 60s later', kind:'bad'},
+           {from:0, to:1, label:'200 OK · [charge]', kind:'cached'}]
+        : [{from:0, to:0, label:'the charge succeeds', kind:'ok'},
+           {from:0, to:1, label:'POST /hooks/payments · charge.succeeded', ms:'~1s', kind:'cached'},
+           {from:1, to:0, label:'200 OK', kind:'cached'}];
+      caption = S.mode === 'poll' ? 'you ask 1,440 times to hear 12 things' : 'one call, when there is something to say';
+    } else if(s === 2){
+      lanes = [{name:'Payment provider'}, {name:'Your endpoint'}, {name:'Dead letters'}];
+      messages = ATTEMPTS.slice(0, S.attempt).map(a =>
+        a.ok ? {from:0, to:1, label:`attempt ${a.n} · ${a.at} · 200 OK`, ms:a.at, kind:'cached'}
+             : {from:0, to:1, label:`attempt ${a.n} · ${a.at} · ${a.r}`, ms:a.at, kind:'bad'});
+      if(S.attempt >= 4) messages.push({from:1, to:1, label:'handled — ten minutes after the money moved', kind:'slow'});
+      else messages.push({from:0, to:2, label:'if every attempt fails: dead-letter queue, replayed by hand', kind:'slow'});
+      caption = 'retries with exponential backoff · often for hours';
+    } else if(s === 3){
+      messages = S.idem
+        ? [{from:0, to:1, label:'charge.succeeded · evt_8f2a19'},
+           {from:1, to:2, label:'INSERT evt_8f2a19 → new · ship the order', kind:'ok'},
+           {from:0, to:1, label:'the same event again (their retry)', kind:'slow'},
+           {from:1, to:2, label:'INSERT evt_8f2a19 → conflict · do nothing', kind:'cached'},
+           {from:1, to:0, label:'200 OK · one parcel', kind:'cached'}]
+        : [{from:0, to:1, label:'charge.succeeded · evt_8f2a19'},
+           {from:1, to:2, label:'ship the order', kind:'ok'},
+           {from:1, to:0, label:'…200 OK, but 6 seconds too late', kind:'bad'},
+           {from:0, to:1, label:'the same event again (their retry)', kind:'bad'},
+           {from:1, to:2, label:'ship the order — again', kind:'bad'}];
+      caption = S.idem ? 'at-least-once delivery, exactly-once effect' : 'a timeout is not a failure — the work may already be done';
+    } else if(s === 4){
+      lanes = [{name:'Payment provider'}, {name:'Your endpoint'}, {name:'Anyone else'}];
+      messages = S.signed
+        ? [{from:0, to:1, label:'POST · Webhook-Signature: v1,k3nT8s…', kind:'secret'},
+           {from:1, to:1, label:'HMAC(secret, timestamp + raw body) matches', kind:'ok'},
+           {from:1, to:0, label:'200 OK', kind:'cached'},
+           {from:2, to:1, label:'POST · "amount": 900000, no signature', kind:'bad'},
+           {from:1, to:2, label:'401', kind:'ok'}]
+        : [{from:0, to:1, label:'POST · charge.succeeded · 9000', kind:'ok'},
+           {from:1, to:0, label:'200 OK', kind:'cached'},
+           {from:2, to:1, label:'POST · charge.succeeded · 900000', kind:'bad'},
+           {from:1, to:2, label:'200 OK — and the goods are shipped', kind:'bad'}];
+      caption = S.signed ? 'the shared secret proves the sender and the bytes' : 'a public URL that gives things away on request';
+    } else if(s === 5){
+      messages = S.async
+        ? [{from:0, to:1, label:'POST /hooks/payments'},
+           {from:1, to:2, label:'verify · enqueue durably', kind:'ok'},
+           {from:1, to:0, label:'200 OK', ms:'12 ms', kind:'cached'},
+           {from:2, to:2, label:'the worker takes 16s — and nobody is waiting', kind:'ok'}]
+        : [{from:0, to:1, label:'POST /hooks/payments'},
+           {from:1, to:2, label:'VAT + email + report, inline', ms:'16 s', kind:'bad'},
+           {from:0, to:1, label:'their 10s timeout fires · retry #2', kind:'bad'},
+           {from:0, to:1, label:'retry #3 — three copies now running at once', kind:'bad'},
+           {from:1, to:0, label:'200 OK, eventually, three times', kind:'bad'}];
+      caption = S.async ? 'acknowledge what you have stored, then work' : 'slow looks exactly like failed, and failure multiplies the load';
+    }
+
+    Sequence.draw({lanes, messages, caption});
+  },
+
+  onStep(S, n){
+    if(n === 1) S.mode = 'poll';
+    if(n === 2) S.attempt = 1;
+    if(n === 3) S.idem = false;
+    if(n === 4) S.signed = false;
+    if(n === 5) S.async = false;
+  },
+
+  onClick(S, b, api){
+    if(b.dataset.md){
+      S.mode = b.dataset.md;
+      api.tell(S.mode === 'poll' ? 'bad' : 'good', S.mode === 'poll'
+        ? '<b>Polling is not wrong, it is just expensive and late.</b> You pay 1,440 requests a day per integration to learn a handful of things, and you still carry the cursor, the paging and the "what if I missed a page" logic yourself.'
+        : '<b>One call, about a second after it happened — and a new responsibility.</b> You now run a public HTTPS endpoint inside someone else’s retry logic. Everything in the rest of this playroom is the bill for that. Many teams do both: webhooks for speed, a slow reconciliation poll to catch what was never delivered.');
+      api.out(S.mode === 'poll' ? '1,440 requests/day · up to 60s late' : '1 request · ~1s after the event');
+      return;
+    }
+    if(b.dataset.a === 'retry'){
+      S.attempt = S.attempt >= 4 ? 1 : S.attempt + 1;
+      const a = ATTEMPTS[S.attempt - 1];
+      api.tell(a.ok ? 'good' : 'bad', a.ok
+        ? '<b>Delivered, ten minutes after the money actually moved.</b> That gap is the part people miss: your handler has to treat "late" as normal. The charge might already have been refunded, the order cancelled, the price changed — so branch on the state you hold now, not on the assumption that this event is fresh.'
+        : S.attempt === 1
+        ? '<b>The first attempt found nothing listening.</b> A deploy, a crash, a full connection pool — it does not matter which. What matters is that the provider treats this as normal and will come back.'
+        : '<b>Backoff grows fast: seconds, then minutes, then hours.</b> After the last attempt the event goes to a dead-letter queue and somebody has to replay it by hand — so build the replay path, and an endpoint that can accept an event from three days ago.');
+      api.out(`attempt ${a.n} · ${a.at} · ${a.r}`);
+      return;
+    }
+    if(b.dataset.id){
+      S.idem = b.dataset.id === '1';
+      api.tell(S.idem ? 'good' : 'bad', S.idem
+        ? '<b>Let the database enforce it.</b> A unique key on the event id, inserted in the same transaction as the work, means a duplicate simply loses the race — no locks, no check-then-act gap, no cleverness. Then still return <code>200</code> for the duplicate: an error would only earn you another retry.'
+        : '<b>The dangerous case is not a failure, it is a timeout.</b> You shipped the order and then took too long to answer, so they never saw your 200 and sent it again. From the outside a slow success and a failure are identical, which is exactly why at-least-once is the only contract anyone offers.');
+      api.out(S.idem ? '2 deliveries → 1 fulfilment' : '2 deliveries → 2 parcels shipped');
+      return;
+    }
+    if(b.dataset.sg){
+      S.signed = b.dataset.sg === '1';
+      api.tell(S.signed ? 'good' : 'bad', S.signed
+        ? '<b>Three details that people get wrong.</b> Sign the <b>raw body</b> — parse and re-serialise and the bytes change, so the HMAC will not match. Include the <b>timestamp</b> in the signed string and reject anything older than a few minutes, or a captured request can be replayed forever. And compare in <b>constant time</b>, because a normal <code>==</code> leaks the answer one byte at a time. A secret URL is not a substitute: URLs end up in logs, proxies and browser history.'
+        : '<b>This endpoint gives away goods to anyone who can guess the path.</b> It is a public URL taking a JSON body and acting on it — nothing here proves the sender is your payment provider rather than someone with curl. Allow-listing their IP ranges helps a little, but those change, and it says nothing about whether the body was altered on the way.');
+      api.out(S.signed ? 'signature verified · timestamp within 5 minutes' : 'forged POST accepted · 900000 credited');
+      return;
+    }
+    if(b.dataset.as){
+      S.async = b.dataset.as === '1';
+      api.tell(S.async ? 'good' : 'bad', S.async
+        ? '<b>Verify, store, acknowledge, then work.</b> Twelve milliseconds instead of sixteen seconds, and the slow parts move somewhere you control — where you can retry them, watch them and fix them without a third party deciding your fate. The one rule: only return <code>200</code> once the event is somewhere durable. Acknowledging from an in-memory timer means a deploy silently eats events.'
+        : '<b>Slow is worse than failed, because it multiplies.</b> Their timeout fires while you are still working, so the retry arrives and starts a second copy, then a third — each one slower than the last because they are competing for the same resources. Providers eventually disable endpoints that keep timing out, and then you are down without an alert.');
+      api.out(S.async ? '200 OK in ~12 ms · work queued' : '200 OK in ~16 s · 3 concurrent copies of the same event');
+      return;
+    }
+    return false;
+  },
+
+  reset(S){ Object.assign(S, {mode:'poll', attempt:1, idem:false, signed:false, async:false}); },
+
+  quiz:[
+    {q:'What delivery guarantee do webhooks give you?',
+     o:['Exactly once','At-least-once — retries and timeouts both produce duplicates, so your handler must be idempotent, usually keyed on the event id'], a:1,
+     w:'Exactly-once delivery is not achievable over an unreliable network. Exactly-once *effect* is, and that is what the event id buys you.'},
+    {q:'How do you verify a webhook really came from the sender?',
+     o:['Check the source IP','An HMAC signature over the timestamp plus the raw body, using a shared secret — compared in constant time, and rejected if the timestamp is stale'], a:1,
+     w:'Saying "raw body" is the tell. Re-serialising the parsed JSON changes the bytes, and the signature stops matching — the single most common integration bug.'},
+    {q:'Why sign a timestamp as well as the body?',
+     o:['To know when it was sent','To stop replay: without it, a captured valid request can be resent forever. Rejecting anything older than a few minutes closes the window'], a:1,
+     w:'This is why providers put the timestamp in a header and in the signed string — it has to be covered by the signature, or an attacker just edits it.'},
+    {q:'Your handler does 16 seconds of work, then returns 200. What goes wrong?',
+     o:['Nothing, it completes','The sender times out first and retries, so several copies run at once — return 200 as soon as the event is durably stored, and do the work in a queue'], a:1,
+     w:'The failure mode is a feedback loop: slow handlers cause retries, retries cause more load, more load makes the handler slower.'}
+  ],
+  soundbite:'"A webhook inverts the call — instead of polling, you expose a URL and they POST to it when something happens. That makes you a server in their retry loop, so three things are non-negotiable. Delivery is at-least-once, because a timeout is indistinguishable from a failure, so I make the handler idempotent with a unique key on the event id in the same transaction as the work. The endpoint is public, so I verify an HMAC over the timestamp plus the raw body, in constant time, and reject stale timestamps to stop replay. And I return 200 as soon as the event is durably queued, because a slow handler gets retried while it is still working and ends up running three copies of itself."'
+});
+</script>
+</body>
+</html>

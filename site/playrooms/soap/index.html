@@ -1,0 +1,332 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>SOAP Playroom · Runtime City</title>
+<meta name="description" content="Open the envelope, generate a client from a WSDL, tell a Fault from a 500, and find out what WS-Security and two-phase commit buy that REST never offered. A playroom from Runtime City.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,600;12..96,800&family=IBM+Plex+Sans:wght@400;500&family=JetBrains+Mono:wght@400&display=swap">
+<link rel="stylesheet" href="../../assets/playroom.css">
+</head>
+<body>
+<div id="playroom"></div>
+
+<script src="../../assets/city.js"></script>
+<script src="../../assets/nav.js"></script>
+<script src="../../assets/sequence.js"></script>
+<script src="../../assets/playroom.js"></script>
+<script>
+const LANES = [{name:'Client'}, {name:'SOAP service'}, {name:'Core banking'}];
+
+const NOTES = {
+  1:'<b>Every message is an Envelope with a Header and a Body.</b> The Body carries the call; the Header carries everything about the call — security, addressing, transactions — which is the whole design in one shape.',
+  2:'<b>The WSDL is a machine-readable contract.</b> Point a tool at it and you get typed classes and a client, so a mismatch is a compile error instead of a 2am KeyError.',
+  3:'<b>A Fault is an error in the protocol, not in HTTP.</b> The transport says 500 while the Body carries a typed, structured reason your generated client can actually catch.',
+  4:'<b>WS-* is the part REST never replaced.</b> Message-level signing and encryption survive intermediaries, and a coordinated transaction can span two services — both things TLS and a status code cannot do.',
+  5:'<b>You are paying in bytes and flexibility for guarantees.</b> If you do not need those guarantees it is a bad trade, which is why almost everything public moved on — and why payments and telecom did not.',
+  6:'<b>Interview tip:</b> do not sneer at it. Saying precisely what SOAP gives you that REST does not is a much stronger answer than "it is old".'
+};
+
+const FAULTS = {
+  'Client': {code:'soap:Client', http:'500', reason:'InsufficientFunds: balance 40.00, requested 90.00', fix:'the caller must change something — do not retry unchanged'},
+  'Server': {code:'soap:Server', http:'500', reason:'CoreBankingUnavailable: downstream timeout', fix:'the service failed — retrying later is sensible'},
+  'MustUnderstand': {code:'soap:MustUnderstand', http:'500', reason:'Header {wsse}Security marked mustUnderstand was not understood', fix:'the two ends disagree about the contract itself'}
+};
+
+function files(S){
+  const L = S.lang, s = S.step, pick = o => o[L];
+
+  if(s === 1) return [{n:'request.xml', lines:[
+    ['<soap:Envelope xmlns:soap="http://www.w3.org/2003/05/soap-envelope">','hl'],
+    ['  <soap:Header>','hl'],
+    ['    <wsse:Security soap:mustUnderstand="true">'],
+    ['      <wsse:UsernameToken>…</wsse:UsernameToken>'],
+    ['    </wsse:Security>'],
+    ['    <wsa:MessageID>uuid:8f2a-…</wsa:MessageID>'],
+    ['  </soap:Header>','hl'],
+    ['  <soap:Body>','hl'],
+    ['    <tns:TransferFunds>'],
+    ['      <tns:from>GB29 NWBK 6016 1331 9268 19</tns:from>'],
+    ['      <tns:to>GB94 BARC 2020 1530 0934 59</tns:to>'],
+    ['      <tns:amount currency="GBP">90.00</tns:amount>'],
+    ['    </tns:TransferFunds>'],
+    ['  </soap:Body>','hl'],
+    ['</soap:Envelope>','hl'],[''],
+    ['<!-- POST /BankingService.svc   —  one URL, the operation is in the Body -->'],
+    ['<!-- SOAPAction: "urn:TransferFunds"                                    -->']]}];
+
+  if(s === 2) return pick({
+    cs:[{n:'Banking.wsdl', lines:[
+      ['<xsd:element name="TransferFunds">'],
+      ['  <xsd:complexType><xsd:sequence>'],
+      ['    <xsd:element name="from"   type="tns:Iban"    minOccurs="1"/>','hl'],
+      ['    <xsd:element name="to"     type="tns:Iban"    minOccurs="1"/>','hl'],
+      ['    <xsd:element name="amount" type="tns:Money"   minOccurs="1"/>','hl'],
+      ['  </xsd:sequence></xsd:complexType>'],
+      ['</xsd:element>'],[''],
+      ['<xsd:simpleType name="Iban">'],
+      ['  <xsd:restriction base="xsd:string">'],
+      ['    <xsd:pattern value="[A-Z]{2}[0-9]{2}[A-Z0-9]{1,30}"/>   <!-- checked for you -->','hl'],
+      ['  </xsd:restriction>'],
+      ['</xsd:simpleType>']]},
+     {n:'Client.cs', lines:[
+      ['// dotnet-svcutil https://bank.example/BankingService.svc?wsdl'],
+      ['// -> generated: BankingServiceClient, TransferFunds, Money, Iban','hl'],[''],
+      ['var client = new BankingServiceClient();'],
+      ['var result = await client.TransferFundsAsync(new TransferFunds {'],
+      ['    From   = "GB29NWBK60161331926819",'],
+      ['    To     = "GB94BARC20201530093459",'],
+      ['    Amount = new Money { Currency = "GBP", Value = 90.00m }   // typed','hl'],
+      ['});'],[''],
+      ['// Misspell a field and it does not compile. That is the point.','hl']]}],
+    java:[{n:'Client.java', lines:[
+      ['// wsimport -keep https://bank.example/BankingService?wsdl'],
+      ['// -> generated: BankingService, TransferFunds, Money, TransferFault','hl'],[''],
+      ['BankingService svc = new BankingService_Service().getPort();'],
+      ['Money amount = new Money();'],
+      ['amount.setCurrency("GBP");'],
+      ['amount.setValue(new BigDecimal("90.00"));                  // typed','hl'],[''],
+      ['TransferReceipt r = svc.transferFunds('],
+      ['    "GB29NWBK60161331926819", "GB94BARC20201530093459", amount);'],[''],
+      ['// The WSDL generated the exception type too:'],
+      ['//   catch (InsufficientFundsFault e) { e.getFaultInfo().getBalance(); }','hl']]}],
+    ts:[{n:'client.ts', lines:[
+      ['// npx wsdl-tsclient ./Banking.wsdl -o ./generated'],
+      ['import { createClientAsync } from "./generated/BankingService";'],[''],
+      ['const client = await createClientAsync("https://bank.example/?wsdl");'],
+      ['const [receipt] = await client.TransferFundsAsync({'],
+      ['  from:   "GB29NWBK60161331926819",'],
+      ['  to:     "GB94BARC20201530093459",'],
+      ['  amount: { currency: "GBP", $value: 90.00 }                // typed','hl'],
+      ['});'],[''],
+      ['// In a REST client this same mistake is a runtime 400 you discover','hl'],
+      ['// in production. Here the compiler already knows the shape.','hl']]}]
+  });
+
+  if(s === 3){
+    const f = FAULTS[S.fault];
+    return [{n:'fault.xml', lines:[
+      [`HTTP/1.1 ${f.http} Internal Server Error        <!-- always 500, even for your mistake -->`, S.fault === 'Client' ? 'bad' : ''],
+      ['Content-Type: application/soap+xml'],[''],
+      ['<soap:Envelope>'],
+      ['  <soap:Body>'],
+      ['    <soap:Fault>','hl'],
+      [`      <soap:Code><soap:Value>${f.code}</soap:Value></soap:Code>`,'hl'],
+      [`      <soap:Reason><soap:Text>${f.reason}</soap:Text></soap:Reason>`,'hl'],
+      ['      <soap:Detail>'],
+      ['        <tns:InsufficientFunds>'],
+      ['          <tns:balance currency="GBP">40.00</tns:balance>','hl'],
+      ['          <tns:requested currency="GBP">90.00</tns:requested>','hl'],
+      ['        </tns:InsufficientFunds>'],
+      ['      </soap:Detail>'],
+      ['    </soap:Fault>','hl'],
+      ['  </soap:Body>'],
+      ['</soap:Envelope>'],[''],
+      [`<!-- ${f.fix} -->`]]}];
+  }
+
+  if(s === 4) return S.ws === 'tls'
+    ? [{n:'transport-only.txt', lines:[
+        ['Client  --TLS-->  API gateway  --TLS-->  Service  --TLS-->  Core'],
+        ['                      ^                      ^'],
+        ['                 decrypts here          decrypts here','bad'],[''],
+        ['# TLS protects the hop, not the message. Every intermediary sees','bad'],
+        ['# the full plaintext, and nothing proves who signed it originally.','bad'],[''],
+        ['# And if the transfer succeeds but the ledger write fails,'],
+        ['# there is no protocol-level way to undo the first one.','bad']]}]
+    : [{n:'ws-security.xml', lines:[
+        ['<soap:Header>'],
+        ['  <wsse:Security>'],
+        ['    <xenc:EncryptedData>            <!-- just the account number -->','hl'],
+        ['      <xenc:CipherValue>…</xenc:CipherValue>'],
+        ['    </xenc:EncryptedData>'],
+        ['    <ds:Signature>                  <!-- signed by the ORIGINAL sender -->','hl'],
+        ['      <ds:SignatureValue>…</ds:SignatureValue>'],
+        ['    </ds:Signature>'],
+        ['  </wsse:Security>'],
+        ['  <wscoor:CoordinationContext>      <!-- one transaction, two services -->','hl'],
+        ['    <wscoor:Identifier>uuid:7c31-…</wscoor:Identifier>'],
+        ['  </wscoor:CoordinationContext>'],
+        ['</soap:Header>'],[''],
+        ['<!-- The gateway can route it without being able to read it,','hl'],
+        ['     and both services commit or neither does.             -->','hl']]}];
+
+  if(s === 5) return [{n:'the-trade.txt', lines:[
+    ['                       SOAP                      REST + JSON'],
+    ['  payload         ~1,400 bytes of XML          ~120 bytes'],
+    ['  contract        WSDL, generates clients      OpenAPI, if someone keeps it'],
+    ['  errors          typed Faults with Detail     a status code and hope','hl'],
+    ['  security        message-level, end-to-end    transport-level, per hop','hl'],
+    ['  transactions    WS-AtomicTransaction         sagas you write yourself','hl'],
+    ['  caching         none (everything is POST)    built into HTTP','bad'],
+    ['  browsers        awkward                      native','bad'],
+    ['  who uses it     banks, telecom, insurance    everything else'],[''],
+    ['  Choose it when the guarantees in the middle three rows are the job.','hl'],
+    ['  Choose against it the rest of the time — including, usually, "we','bad'],
+    ['  already have a WSDL somewhere".','bad']]}];
+
+  return [];
+}
+
+const P = Playroom({
+  district:'API Avenue',
+  title:'SOAP',
+  dek:'A strict envelope, a contract a machine can read, typed faults — and the guarantees that keep it running inside banks.',
+  steps:['The envelope','The contract','Faults','WS-* and transactions','The trade','Interview check'],
+  stage:Sequence.stage({lanes:LANES, height:320}),
+
+  state:{fault:'Client', ws:'tls', sent:false},
+
+  story(S, api){
+    const fb = api.fb();
+    return {
+      1:`<h2>Everything is an envelope</h2><p>One URL, one POST, and an XML <code>Envelope</code>. The <code>Body</code> is the call. The <code>Header</code> is where security, addressing and transactions live — and that split is the whole design.</p>${fb}`,
+      2:`<h2>A contract a machine can read</h2><p>The WSDL describes every operation, every type, every constraint. Run a tool over it and you get a typed client, so the shapes are checked before you ever send anything.</p>${fb}`,
+      3:`<h2>Faults, not status codes</h2><p>SOAP carries its own error channel inside the Body. The HTTP status is always 500 — the useful information is the Fault, and it is typed.</p>${fb}`,
+      4:`<h2>What TLS cannot do</h2><p>Here is the part REST has no answer for. Sign and encrypt the message itself, so it survives every hop, and enlist two services in one transaction.</p>${fb}`,
+      5:`<h2>What it costs</h2><p>Nothing here is free. Read the trade honestly, then say out loud when you would take it.</p>${fb}`,
+      6:`<h2>Interview check</h2>${api.quizHTML()}`
+    }[S.step];
+  },
+
+  controls(S){
+    const s = S.step;
+    if(s === 1) return `<button class="btn primary" data-a="send">Send the envelope</button>`;
+    if(s === 3) return Object.keys(FAULTS).map(f =>
+      `<button class="chip" data-ft="${f}" aria-pressed="${S.fault === f}"><i style="background:${f === 'Client' ? 'var(--accent)' : f === 'Server' ? 'var(--bad)' : 'var(--hair)'}"></i>soap:${f}</button>`).join('');
+    if(s === 4) return `<button class="chip" data-w="tls" aria-pressed="${S.ws === 'tls'}"><i style="background:var(--bad)"></i>TLS only</button>` +
+      `<button class="chip" data-w="ws" aria-pressed="${S.ws === 'ws'}"><i style="background:var(--good)"></i>WS-Security + coordination</button>`;
+    return '';
+  },
+
+  statusLine(S){
+    const s = S.step;
+    if(s === 1) return S.sent
+      ? `<b>1,412</b> bytes of XML · <b>1</b> operation<span class="warn"> · the same call in JSON is about 120</span>`
+      : `Header: who and how · Body: what<span> · press send and read the envelope</span>`;
+    if(s === 2) return `<b>1</b> WSDL → typed client, types and exceptions<span class="ok"> · a wrong field name is a compile error</span>`;
+    if(s === 3){ const f = FAULTS[S.fault]; return `<b>HTTP ${f.http}</b> · <b>${f.code}</b><span class="${S.fault === 'Server' ? 'warn' : ''}"> · ${f.fix}</span>`; }
+    if(s === 4) return S.ws === 'tls'
+      ? `<b>3</b> hops · <b>3</b> places the plaintext exists<span class="warn"> · and no way to undo a half-finished transfer</span>`
+      : `signed and encrypted <b>end to end</b><span class="ok"> · one coordinator, two services, both commit or neither</span>`;
+    return `<b>~12×</b> the bytes<span class="warn"> · no caching, no browsers</span><span class="ok"> · typed faults, message security, real transactions</span>`;
+  },
+
+  files,
+  note: S => NOTES[S.step],
+
+  onStage(S){
+    const s = S.step;
+    let lanes = LANES.map(l => ({...l}));
+    let messages = [], caption = '';
+
+    if(s === 1){
+      messages = S.sent ? [
+        {from:0, to:1, label:'POST /BankingService.svc · SOAPAction: TransferFunds'},
+        {from:1, to:1, label:'validate the Body against the schema', kind:'ok'},
+        {from:1, to:2, label:'move the money', kind:'ok'},
+        {from:1, to:0, label:'200 OK · <TransferFundsResponse> receipt', kind:'cached'}
+      ] : [];
+      caption = 'Envelope → Header (how) → Body (what)';
+    } else if(s === 2){
+      messages = [
+        {from:0, to:1, label:'GET /BankingService.svc?wsdl', kind:'ok'},
+        {from:1, to:0, label:'the contract: operations, types, constraints', kind:'cached'},
+        {from:0, to:0, label:'generate a typed client — before writing any code', kind:'cached'},
+        {from:0, to:1, label:'TransferFundsAsync(from, to, Money)', kind:'ok'}
+      ];
+      caption = 'the contract comes first, and the client is generated from it';
+    } else if(s === 3){
+      const f = FAULTS[S.fault];
+      messages = [
+        {from:0, to:1, label:'TransferFunds · 90.00 GBP'},
+        {from:1, to: S.fault === 'Server' ? 2 : 1, label: S.fault === 'Server' ? 'call core banking' : 'check the balance', kind: S.fault === 'Server' ? 'slow' : 'ok'},
+        ...(S.fault === 'Server' ? [{from:2, to:1, label:'timeout', kind:'bad'}] : []),
+        {from:1, to:0, label:`500 · ${f.code}`, kind: S.fault === 'Server' ? 'bad' : 'slow'},
+        {from:0, to:0, label:f.fix, kind: S.fault === 'Server' ? 'slow' : 'bad'}
+      ];
+      caption = 'the transport failed the same way every time · the Fault says what really happened';
+    } else if(s === 4){
+      lanes = [{name:'Client'}, {name:'Gateway'}, {name:'Service + core'}];
+      messages = S.ws === 'tls'
+        ? [{from:0, to:1, label:'TLS · encrypted to the gateway'},
+           {from:1, to:1, label:'decrypts the whole message to route it', kind:'bad'},
+           {from:1, to:2, label:'TLS again · re-encrypted, but now re-signed by the gateway', kind:'bad'},
+           {from:2, to:2, label:'transfer ok, ledger write fails', kind:'bad'},
+           {from:2, to:0, label:'no protocol-level undo — you write the compensation', kind:'bad'}]
+        : [{from:0, to:1, label:'body signed by the client · account number encrypted', kind:'secret'},
+           {from:1, to:1, label:'routes it without being able to read it', kind:'ok'},
+           {from:1, to:2, label:'signature still the client’s, all the way through', kind:'secret'},
+           {from:2, to:2, label:'prepare · both services vote', kind:'ok'},
+           {from:2, to:0, label:'commit — or neither of them did anything', kind:'cached'}];
+      caption = S.ws === 'tls' ? 'transport security protects hops · this message crossed three' : 'message security travels with the message · the coordinator owns the outcome';
+    } else if(s === 5){
+      messages = [
+        {from:0, to:1, label:'1,412 bytes of XML', kind:'slow'},
+        {from:1, to:0, label:'1,180 bytes back · nothing cacheable', kind:'slow'},
+        {from:0, to:0, label:'typed fault · end-to-end signature · atomic commit', kind:'cached'},
+        {from:0, to:0, label:'worth it when those three are the requirement, and only then', kind:'ok'}
+      ];
+      caption = 'a bad trade for a public API · a good one for moving money';
+    }
+
+    Sequence.draw({lanes, messages, caption});
+  },
+
+  onStep(S, n){
+    if(n === 1) S.sent = false;
+    if(n === 3) S.fault = 'Client';
+    if(n === 4) S.ws = 'tls';
+  },
+
+  onClick(S, b, api){
+    if(b.dataset.ft){
+      S.fault = b.dataset.ft;
+      api.tell(S.fault === 'Server' ? 'bad' : 'good', {
+        'Client':'<b><code>soap:Client</code> means you sent something wrong</b> — the rough equivalent of a 4xx. Do not retry it unchanged. Note what the Detail carries: a typed <code>InsufficientFunds</code> with the actual balance, which the generated client turns into a catchable exception rather than a string you have to parse.',
+        'Server':'<b><code>soap:Server</code> means the service failed</b> — a 5xx in spirit. This one is worth retrying with backoff. The HTTP status was 500 for the client fault too, which is exactly why SOAP needed its own error channel: the transport could not tell the two apart.',
+        'MustUnderstand':'<b>This one is the contract arguing with itself.</b> A header marked <code>mustUnderstand="true"</code> is a demand: process this or refuse the message. The receiver did not recognise it, so it refused rather than quietly ignoring a security header — which is the correct, and very SOAP, answer.'
+      }[S.fault]);
+      api.out(`500 · ${FAULTS[S.fault].code} · ${FAULTS[S.fault].reason}`);
+      return;
+    }
+    if(b.dataset.w){
+      S.ws = b.dataset.w;
+      api.tell(S.ws === 'tls' ? 'bad' : 'good', S.ws === 'tls'
+        ? '<b>TLS secures a hop, not a message.</b> Every gateway, proxy and service mesh sidecar in the path holds the full plaintext, and once the gateway forwards it, nothing proves the client sent it rather than the gateway. For a payment crossing three organisations that is not a detail. And if the second service fails after the first succeeded, HTTP offers you nothing — you write the compensation yourself.'
+        : '<b>The security travels with the message.</b> You can encrypt just the account number, leaving the rest readable for routing, and the signature stays the original sender’s across every hop — so an auditor can prove who authorised it years later. <code>WS-AtomicTransaction</code> adds a coordinator running two-phase commit across services: both commit or neither does. Expensive, and blocking if the coordinator dies, which is exactly why the rest of the industry chose sagas instead.');
+      api.out(S.ws === 'tls' ? 'plaintext at 3 hops · no atomic outcome' : 'signed end-to-end · field-level encryption · 2PC across services');
+      return;
+    }
+    if(b.dataset.a === 'send'){
+      S.sent = true;
+      api.tell('good', '<b>One URL, and the operation is inside the Body.</b> That is the first thing to notice: SOAP does not use HTTP as a protocol, it uses it as a pipe — which is why it also runs over SMTP or a message queue unchanged. It also means no caching, no meaningful status codes, and no browser ever calling it directly.');
+      api.out('POST /BankingService.svc → 200 OK · 1,412 bytes sent · 1,180 received');
+      return;
+    }
+    return false;
+  },
+
+  reset(S){ Object.assign(S, {fault:'Client', ws:'tls', sent:false}); },
+
+  quiz:[
+    {q:'What does SOAP give you that REST does not?',
+     o:['Nothing, it is just older','A machine-readable contract that generates typed clients, typed faults with structured detail, message-level security that survives intermediaries, and coordinated transactions across services'], a:1,
+     w:'Naming message-level security and WS-AtomicTransaction specifically is what makes this answer land — they are the two things TLS and a status code genuinely cannot do.'},
+    {q:'Why does SOAP need its own Fault element when HTTP already has status codes?',
+     o:['It does not, it is redundant','Because SOAP treats HTTP as a transport, not a protocol — it can run over SMTP or a queue instead. The Fault carries the typed, structured error regardless of what is underneath'], a:1,
+     w:'In practice every SOAP fault comes back as HTTP 500, so the status tells you nothing about whether it was your mistake or theirs.'},
+    {q:'What is the difference between TLS and WS-Security?',
+     o:['They are the same thing','TLS protects one hop and every intermediary sees the plaintext; WS-Security signs and encrypts the message itself, so it stays protected and attributable across every hop'], a:1,
+     w:'The practical version: with TLS your API gateway can read and alter everything. With WS-Security it can route a message it cannot open.'},
+    {q:'When would you choose SOAP today?',
+     o:['Never','When you are integrating with a system that already speaks it, or when you genuinely need generated contracts, signed non-repudiable messages or distributed transactions — banking, telecom, insurance, government'], a:1,
+     w:'"Never" is the answer of someone who has not integrated with a bank. The honest version names the guarantees, then says you would not pick it for a public API.'}
+  ],
+  soundbite:'"SOAP is a protocol, not a style: every message is an XML Envelope with a Header for how and a Body for what, and it uses HTTP as a pipe rather than a protocol — which is why it works over a queue too, and why every fault comes back as a 500. What you get for the verbosity is a WSDL that generates typed clients, typed faults with structured detail, WS-Security that signs and encrypts the message itself so it survives intermediaries, and WS-AtomicTransaction for a real commit across services. You lose caching, browsers and simplicity. For a public API that is a bad trade; for moving money between banks it is why it is still there."'
+});
+</script>
+</body>
+</html>

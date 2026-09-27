@@ -85,6 +85,20 @@
           {slug:'async-await', icon:'clock', short:'Async', title:'Async / Await', blurb:'waiting without holding a thread hostage'}
         ],
         soon: []
+      },
+      {
+        name: 'API Avenue',
+        slug: 'api-avenue',
+        blurb: 'How two programs talk over the wire.',
+        open: true,
+        playrooms: [
+          {slug:'rest', icon:'rest', short:'REST',             title:'REST',       blurb:'nouns not verbs, and the statelessness you keep breaking'},
+          {slug:'graphql', icon:'graphql', short:'GraphQL',    title:'GraphQL',    blurb:'ask for the fields you want, then meet the N+1 you made'},
+          {slug:'soap', icon:'soap', short:'SOAP',             title:'SOAP',       blurb:'a strict envelope, a contract, and why banks still run it'},
+          {slug:'websockets', icon:'websocket', short:'Sockets', title:'WebSockets', blurb:'stop asking every second and let the server speak'},
+          {slug:'webhooks', icon:'webhook', short:'Webhooks',  title:'Webhooks',   blurb:'they call you — now prove it was them, and that it only counted once'}
+        ],
+        soon: []
       }
     ]
   };

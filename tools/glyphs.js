@@ -7,6 +7,21 @@
    Keep them readable at about 38px: few strokes, no fine detail.
 */
 module.exports = {
+  /* API Avenue */
+  rest:     '<rect class="gl" x="3" y="4.5" width="18" height="15" rx="2.5"/>' +
+            '<path class="gl a" d="M9 16 12 8M14 16 17 8"/><circle class="gl a" cx="6.5" cy="12" r="1.2"/>',   // /orders/42 — a path to a resource
+  graphql:  '<circle class="gl" cx="12" cy="12" r="2.6"/>' +
+            '<path class="gl" d="M12 9.4V5.6M10.1 13.7 6.9 15.8M13.9 13.7l3.2 2.1"/>' +
+            '<circle class="gl a" cx="12" cy="4" r="2"/><circle class="gl a" cx="5.4" cy="16.9" r="2"/>' +
+            '<circle class="gl" cx="18.6" cy="16.9" r="2"/>',                                                  // one graph, you pick the nodes
+  soap:     '<rect class="gl" x="4" y="3" width="16" height="18" rx="2.5"/>' +
+            '<path class="gl a" d="M10 9.5 7.5 12.5 10 15.5M14 9.5l2.5 3-2.5 3"/>',                            // a strict xml envelope
+  websocket:'<rect class="gl" x="2.5" y="7" width="19" height="10" rx="5"/>' +
+            '<path class="gl a" d="M7 10.6h9.5M14.2 8.4l2.4 2.2-2.4 2.2"/>' +
+            '<path class="gl a" d="M17 13.6H7.5M9.8 11.4l-2.4 2.2 2.4 2.2"/>',                                 // one pipe, open both ways
+  webhook:  '<path class="gl" d="M7.5 4.5v8.5a4.5 4.5 0 0 0 4.5 4.5h4"/>' +
+            '<path class="gl a" d="m13.5 14.5 3 3-3 3"/><circle class="gl a" cx="7.5" cy="4.5" r="2.2"/>',     // the event calls you back
+
   /* Pattern Park */
   socket:   '<rect class="gl" x="3" y="12" width="18" height="9" rx="2"/><path class="gl" d="M9 15v3M15 15v3"/>' +
             '<rect class="gl a" x="7" y="2" width="10" height="5" rx="1.5"/><path class="gl a" d="M9 7v5M15 7v5"/>',            // plug going into a socket
